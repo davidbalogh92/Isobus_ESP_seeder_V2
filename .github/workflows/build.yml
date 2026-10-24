@@ -54,7 +54,13 @@ jobs:
       - name: PlatformIO telepítés
         run: python -m pip install 'platformio==6.1.18'
       - name: Fordítás
-        run: python -m platformio run -e ${{ matrix.env }}
+        run: |
+          set -o pipefail
+          python -m platformio run -e ${{ matrix.env }} 2>&1 | tee build.log || {
+            # a fordítási hibák annotációként is (a napló nélkül is olvashatók)
+            grep -E "error:|Error [0-9]|undefined reference|fatal" build.log | head -40 | while IFS= read -r l; do echo "::error::${l}"; done
+            tail -25 build.log | while IFS= read -r l; do echo "::warning::${l}"; done
+            exit 1; }
       - name: Kiadási BIN fájlok
         run: |
           python build_release.py --no-build --env ${{ matrix.env }}
