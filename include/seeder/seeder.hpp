@@ -359,6 +359,7 @@ private:
     bool tc_setpoint_[MAX_SECTIONS] = {false, false};
     float tc_rate_[MAX_METERS] = {0.0f, 0.0f};
     bool tc_rate_valid_ = false;
+    bool tc_rate_has_[MAX_METERS] = {false, false};   ///< adagolónként kapott-e előírt értéket
     int rate_offset_steps_ = 0;
     bool lamp_[2] = {false, false};
     bool valve_ = false;

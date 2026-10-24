@@ -440,6 +440,8 @@ STR_ALARM_BIG = [S(t, 380, 30, F_RED, name=f"STR_ALARMBIG_{i}") for i, t in enum
 CAL_STATE = [S("Indításra kész", 184, 22, F_LABEL, name="STR_CAL_IDLE"),
              S("Mérés fut...", 184, 22, F_LABEL, name="STR_CAL_RUN"),
              S("Kész, mentheted", 184, 22, F_LABEL, name="STR_CAL_STOP")]
+# futásidőben szöveggel feltöltött visszajelzés (Change String Value), max. 25 látható karakter
+STR_MSG_DYN = P.out_str(P.new_id(11000), " " * 32, 300, 18, F_LABEL, name="STR_MSG_DYN")
 STR_YES = S("IGEN", 120, 22, F_LABEL, name="STR_YES")
 STR_NO = S("NEM", 120, 22, F_LABEL, name="STR_NO")
 STR_ON = S("BE", 60, 22, F_LABEL, name="STR_ON")

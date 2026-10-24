@@ -136,7 +136,7 @@ class PoolStructure(unittest.TestCase):
     def test_strings_are_latin1_and_fit(self):
         for o in G.P.objs.values():
             if o.type == G.T_OUTSTR:
-                txt = o.meta["text"].translate(G.LATIN1_MAP)
+                txt = o.meta["text"].translate(G.LATIN1_MAP).rstrip()
                 txt.encode("latin-1")
                 fw, fh = G.FONT_PX[G.P.objs[o.meta["font"]].meta["size"]]
                 self.assertLessEqual(len(txt) * fw, o.meta["w"], f"nem fér el: {txt!r}")

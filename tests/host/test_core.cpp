@@ -847,6 +847,25 @@ TEST(tc_geo_rate_used_only_when_enabled) {
     CHECK_NEAR(s.status().meter[0].target_rate, 200.0, 1e-3);
 }
 
+TEST(tc_geo_rate_per_meter_and_clear) {
+    Seeder s = make([](Settings &st) { st.drive_type = 1; st.tc_geo = 1; st.prefill_auto = 0; st.rate2 = 120.0f; });
+    Machine m = down_machine();
+    m.in.tc_connected = true;
+    s.set_master(true);
+    s.tc_set_rate(0, 150.0f);         // csak az 1. adagolóra érkezik térképérték
+    m.run(s, 0.5f);
+    CHECK_NEAR(s.status().meter[0].target_rate, 150.0, 1e-3);
+    CHECK_NEAR(s.status().meter[1].target_rate, 120.0, 1e-3);   // a 2. a saját beállítását tartja
+    s.tc_set_rate(5, 999.0f);         // érvénytelen index: nincs hatása
+    s.tc_set_rate(0, -10.0f);         // negatív → 0
+    m.run(s, 0.2f);
+    CHECK_NEAR(s.status().meter[0].target_rate, 0.0, 1e-3);
+    s.tc_clear_rate();
+    m.run(s, 0.2f);
+    CHECK(!s.status().tc_rate);
+    CHECK_NEAR(s.status().meter[0].target_rate, 200.0, 1e-3);
+}
+
 TEST(alarm_ack_and_realarm) {
     Seeder s = make([](Settings &st) { st.realarm_s = 10; st.meter_timeout_s = 2.0f; });
     Machine m = down_machine();

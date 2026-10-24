@@ -48,6 +48,10 @@ if(SEEDER_WITH_ISOBUS)
   target_include_directories(seeder_app PUBLIC ${ROOT}/include ${ROOT}/src/app ${ROOT}/generated)
   target_link_libraries(seeder_app PUBLIC seeder_core isobus::Isobus isobus::HardwareIntegration isobus::Utility)
 
+  add_executable(test_app ${ROOT}/tests/host/test_app.cpp)
+  target_link_libraries(test_app seeder_app isobus::Isobus isobus::HardwareIntegration)
+  add_test(NAME app COMMAND test_app)
+
   # Object pool ellenőrzése az AgIsoStack++ saját VT-szerver parserével
   add_executable(iop_check ${ROOT}/tests/host/iop_check.cpp)
   target_link_libraries(iop_check isobus::Isobus isobus::HardwareIntegration isobus::Utility)
@@ -56,7 +60,8 @@ if(SEEDER_WITH_ISOBUS)
   # Teljes ISOBUS-szimuláció virtuális CAN-en: saját ECU + TC szerver + VT szerver-teszt
   add_executable(isobus_sim ${ROOT}/tests/host/isobus_sim.cpp)
   target_link_libraries(isobus_sim seeder_app)
-  add_test(NAME isobus_sim COMMAND isobus_sim ${ROOT}/generated/object_pool.iop)
+  add_test(NAME isobus_sim_basic_400 COMMAND isobus_sim ${ROOT}/generated/object_pool.iop 400 120)
+  add_test(NAME isobus_sim_480 COMMAND isobus_sim ${ROOT}/generated/object_pool.iop 480 80)
 endif()
 
 # Webes felület demószerver (opcionális, a cpp-httplib fejlécet letölti)

@@ -407,9 +407,13 @@ void Seeder::tc_set_section_setpoint(int i, bool on) {
 void Seeder::tc_set_rate(int meter, float kg_ha) {
     if (meter < 0 || meter >= MAX_METERS) return;
     tc_rate_[meter] = kg_ha < 0.0f ? 0.0f : kg_ha;
+    tc_rate_has_[meter] = true;
     tc_rate_valid_ = true;
 }
-void Seeder::tc_clear_rate() { tc_rate_valid_ = false; }
+void Seeder::tc_clear_rate() {
+    tc_rate_valid_ = false;
+    for (bool &h : tc_rate_has_) h = false;
+}
 
 // --- kerékkalibrálás -------------------------------------------------------------------------
 void Seeder::wheel_cal_start() {
@@ -705,7 +709,7 @@ void Seeder::tick(const TickInputs &input) {
         m.enabled = meter_enable_[i];
         m.section_on = meter_on[i];
         m.width_m = meter_width(S, i);
-        const float base = use_tc_rate ? tc_rate_[i] : rate_setting(S, i);
+        const float base = use_tc_rate && tc_rate_has_[i] ? tc_rate_[i] : rate_setting(S, i);
         m.target_rate = base * (1.0f + offset_pct / 100.0f);
         const float kg_rev = cal_kg_rev(S, i);
         const bool drive = exists && meter_on[i] && run_cond;
