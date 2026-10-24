@@ -105,6 +105,7 @@ _Generált fájl (tools/gen_params.py). Minden paraméter a webes felületen (Be
 | `cooler_off_c` | Hűtőventilátor kikapcsol | 50.0 °C | 10 – 115 °C | OLAJHÕMÉRSÉKLET |  |
 | `cooler_src` | Szabályozó hőmérő | Olajtartály | Olajtartály / Hűtő kimenet / A melegebb | OLAJHÕMÉRSÉKLET |  |
 | `temp_alarm_c` | Túlmelegedés riasztás (0 = nincs) | 85.0 °C | 0 – 130 °C | OLAJHÕMÉRSÉKLET |  |
+| `temp_swap` | A két DS18B20 hőmérő felcserélése | Nem | Nem / Igen | – | A hőmérőket a firmware a ROM-azonosítójuk sorrendjében számozza. Ha az olajtartály és a hűtő kimenet értéke fordítva jelenik meg, kapcsold be. |
 
 ## Mérleg
 

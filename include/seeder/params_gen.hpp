@@ -67,6 +67,7 @@ struct Settings {
     float cooler_off_c;
     std::int32_t cooler_src;
     float temp_alarm_c;
+    std::int32_t temp_swap;
     float scale_capacity_kg;
     float scale_factor;
     float scale_offset;
@@ -171,26 +172,27 @@ enum ParamId : std::uint16_t {
     P_cooler_off_c = 56,
     P_cooler_src = 57,
     P_temp_alarm_c = 58,
-    P_scale_capacity_kg = 59,
-    P_scale_factor = 60,
-    P_scale_offset = 61,
-    P_tc_enable = 62,
-    P_tc_sec = 63,
-    P_tc_geo = 64,
-    P_hitch_type = 65,
-    P_geo_a_m = 66,
-    P_geo_b_m = 67,
-    P_geo_c_m = 68,
-    P_geo_y_m = 69,
-    P_delay_on_ms = 70,
-    P_delay_off_ms = 71,
-    P_sim_inputs = 72,
-    P_sim_fan_rpm = 73,
-    P_sim_wheel = 74,
-    P_wifi_pass = 75,
-    P_ecu_instance = 76,
-    P_realarm_s = 77,
-    PARAM_COUNT = 78
+    P_temp_swap = 59,
+    P_scale_capacity_kg = 60,
+    P_scale_factor = 61,
+    P_scale_offset = 62,
+    P_tc_enable = 63,
+    P_tc_sec = 64,
+    P_tc_geo = 65,
+    P_hitch_type = 66,
+    P_geo_a_m = 67,
+    P_geo_b_m = 68,
+    P_geo_c_m = 69,
+    P_geo_y_m = 70,
+    P_delay_on_ms = 71,
+    P_delay_off_ms = 72,
+    P_sim_inputs = 73,
+    P_sim_fan_rpm = 74,
+    P_sim_wheel = 75,
+    P_wifi_pass = 76,
+    P_ecu_instance = 77,
+    P_realarm_s = 78,
+    PARAM_COUNT = 79
 };
 
 constexpr std::size_t GROUP_COUNT = 13;
@@ -217,6 +219,7 @@ static const char *const OPT_temp_enable[] = {"Nem", "Igen"};
 static const char *const OPT_scale_enable[] = {"Nem", "Igen"};
 static const char *const OPT_pressure_signal[] = {"0–5 V", "0,5–4,5 V", "0,5–5 V", "0–4,5 V"};
 static const char *const OPT_cooler_src[] = {"Olajtartály", "Hűtő kimenet", "A melegebb"};
+static const char *const OPT_temp_swap[] = {"Nem", "Igen"};
 static const char *const OPT_tc_enable[] = {"Nem", "Igen"};
 static const char *const OPT_tc_sec[] = {"Nem", "Igen"};
 static const char *const OPT_tc_geo[] = {"Nem", "Igen"};
@@ -300,22 +303,23 @@ const ParamDef PARAMS[PARAM_COUNT] = {
     {"cooler_off_c", "cooling", "Hűtőventilátor kikapcsol", "Kikapcsol", "°C", "", ParamKind::Float, 10.0f, 115.0f, 0.5f, 50.0f, 1, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, cooler_off_c)), nullptr, 9056, "cooling", "temp_enable"},
     {"cooler_src", "cooling", "Szabályozó hőmérő", "Szabályozó hőmérő", "", "", ParamKind::Enum, 0.0f, 0.0f, 1.0f, 0.0f, 0, OPT_cooler_src, 3, static_cast<std::uint16_t>(offsetof(Settings, cooler_src)), nullptr, 9057, "cooling", "temp_enable"},
     {"temp_alarm_c", "cooling", "Túlmelegedés riasztás (0 = nincs)", "Riasztás felett", "°C", "", ParamKind::Float, 0.0f, 130.0f, 0.5f, 85.0f, 1, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, temp_alarm_c)), nullptr, 9058, "cooling", "temp_enable"},
-    {"scale_capacity_kg", "scale", "Mérlegcella méréshatára", "Méréshatár", "kg", "", ParamKind::Float, 1.0f, 500.0f, 0.5f, 50.0f, 1, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, scale_capacity_kg)), nullptr, 9059, "scale", "scale_enable"},
-    {"scale_factor", "scale", "Mérleg kalibrációs tényező (beütés / kg)", "Tényező", "1/kg", "A 'Kalibrálás ismert súllyal' állítja be.", ParamKind::Float, 1.0f, 10000000.0f, 0.1f, 85000.0f, 1, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, scale_factor)), nullptr, 9060, "scale", "scale_enable"},
+    {"temp_swap", "cooling", "A két DS18B20 hőmérő felcserélése", "", "", "A hőmérőket a firmware a ROM-azonosítójuk sorrendjében számozza. Ha az olajtartály és a hűtő kimenet értéke fordítva jelenik meg, kapcsold be.", ParamKind::Bool, 0.0f, 0.0f, 1.0f, 0.0f, 0, OPT_temp_swap, 2, static_cast<std::uint16_t>(offsetof(Settings, temp_swap)), nullptr, 0, nullptr, "temp_enable"},
+    {"scale_capacity_kg", "scale", "Mérlegcella méréshatára", "Méréshatár", "kg", "", ParamKind::Float, 1.0f, 500.0f, 0.5f, 50.0f, 1, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, scale_capacity_kg)), nullptr, 9060, "scale", "scale_enable"},
+    {"scale_factor", "scale", "Mérleg kalibrációs tényező (beütés / kg)", "Tényező", "1/kg", "A 'Kalibrálás ismert súllyal' állítja be.", ParamKind::Float, 1.0f, 10000000.0f, 0.1f, 85000.0f, 1, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, scale_factor)), nullptr, 9061, "scale", "scale_enable"},
     {"scale_offset", "scale", "Mérleg nullpont (tára, nyers)", "", "", "", ParamKind::Float, -20000000.0f, 20000000.0f, 1.0f, 0.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, scale_offset)), nullptr, 0, nullptr, "scale_enable"},
-    {"tc_enable", "tc", "Task Controller kliens", "TC kliens", "", "", ParamKind::Bool, 0.0f, 0.0f, 1.0f, 1.0f, 0, OPT_tc_enable, 2, static_cast<std::uint16_t>(offsetof(Settings, tc_enable)), nullptr, 9062, "tc", ""},
-    {"tc_sec", "tc", "Automatikus szakaszvezérlés (TC-SEC)", "TC-SEC", "", "", ParamKind::Bool, 0.0f, 0.0f, 1.0f, 1.0f, 0, OPT_tc_sec, 2, static_cast<std::uint16_t>(offsetof(Settings, tc_sec)), nullptr, 9063, "tc", ""},
-    {"tc_geo", "tc", "Kijuttatási térkép (TC-GEO, kg/ha az adagolóknak)", "TC-GEO", "", "", ParamKind::Bool, 0.0f, 0.0f, 1.0f, 0.0f, 0, OPT_tc_geo, 2, static_cast<std::uint16_t>(offsetof(Settings, tc_geo)), nullptr, 9064, "tc", ""},
-    {"hitch_type", "tc", "Csatlakozás", "Csatlakozás", "", "", ParamKind::Enum, 0.0f, 0.0f, 1.0f, 2.0f, 0, OPT_hitch_type, 5, static_cast<std::uint16_t>(offsetof(Settings, hitch_type)), nullptr, 9065, "geometry", ""},
-    {"geo_a_m", "tc", "A: vonópont → csuklópont (kormányzott vonórúd)", "A vonópont-csukló", "m", "", ParamKind::Float, 0.0f, 20.0f, 0.01f, 0.0f, 2, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, geo_a_m)), nullptr, 9066, "geometry", ""},
-    {"geo_b_m", "tc", "B: csuklópont → csoroszlyák (függesztett: vonópont → csoroszlyák)", "B csukló-csorosz.", "m", "", ParamKind::Float, 0.0f, 20.0f, 0.01f, 4.0f, 2, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, geo_b_m)), nullptr, 9067, "geometry", ""},
-    {"geo_c_m", "tc", "C: csuklópont → kerékagy (fordulópont)", "C csukló-tengely", "m", "", ParamKind::Float, 0.0f, 20.0f, 0.01f, 3.0f, 2, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, geo_c_m)), nullptr, 9068, "geometry", ""},
-    {"geo_y_m", "tc", "D: oldalirányú eltolás (+ jobbra)", "D oldaleltolás", "m", "", ParamKind::Float, -5.0f, 5.0f, 0.01f, 0.0f, 2, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, geo_y_m)), nullptr, 9069, "geometry", ""},
-    {"delay_on_ms", "tc", "Tehetetlenség BE", "Tehetetlenség BE", "ms", "", ParamKind::Int, 0.0f, 5000.0f, 10.0f, 800.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, delay_on_ms)), nullptr, 9070, "tc", ""},
-    {"delay_off_ms", "tc", "Tehetetlenség KI", "Tehetetlenség KI", "ms", "", ParamKind::Int, 0.0f, 5000.0f, 10.0f, 400.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, delay_off_ms)), nullptr, 9071, "tc", ""},
-    {"sim_inputs", "sim", "Bemenetek szimulációja (turbina, adagolók, munkakapcsoló)", "Bemenetek szim.", "", "Próbapadi teszthez: a turbina, az adagolók és az enkóderek impulzusait a firmware állítja elő, a munkakapcsoló 'lent' állapotú.", ParamKind::Bool, 0.0f, 0.0f, 1.0f, 0.0f, 0, OPT_sim_inputs, 2, static_cast<std::uint16_t>(offsetof(Settings, sim_inputs)), nullptr, 9072, "diag", ""},
-    {"sim_fan_rpm", "sim", "Szimulált turbinafordulat", "Szim. turbina", "1/min", "", ParamKind::Int, 0.0f, 10000.0f, 10.0f, 3500.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, sim_fan_rpm)), nullptr, 9073, "diag", ""},
-    {"sim_wheel", "sim", "Kerékimpulzus szimuláció a szimulált sebességből", "Kerék szimuláció", "", "", ParamKind::Bool, 0.0f, 0.0f, 1.0f, 0.0f, 0, OPT_sim_wheel, 2, static_cast<std::uint16_t>(offsetof(Settings, sim_wheel)), nullptr, 9074, "diag", ""},
+    {"tc_enable", "tc", "Task Controller kliens", "TC kliens", "", "", ParamKind::Bool, 0.0f, 0.0f, 1.0f, 1.0f, 0, OPT_tc_enable, 2, static_cast<std::uint16_t>(offsetof(Settings, tc_enable)), nullptr, 9063, "tc", ""},
+    {"tc_sec", "tc", "Automatikus szakaszvezérlés (TC-SEC)", "TC-SEC", "", "", ParamKind::Bool, 0.0f, 0.0f, 1.0f, 1.0f, 0, OPT_tc_sec, 2, static_cast<std::uint16_t>(offsetof(Settings, tc_sec)), nullptr, 9064, "tc", ""},
+    {"tc_geo", "tc", "Kijuttatási térkép (TC-GEO, kg/ha az adagolóknak)", "TC-GEO", "", "", ParamKind::Bool, 0.0f, 0.0f, 1.0f, 0.0f, 0, OPT_tc_geo, 2, static_cast<std::uint16_t>(offsetof(Settings, tc_geo)), nullptr, 9065, "tc", ""},
+    {"hitch_type", "tc", "Csatlakozás", "Csatlakozás", "", "", ParamKind::Enum, 0.0f, 0.0f, 1.0f, 2.0f, 0, OPT_hitch_type, 5, static_cast<std::uint16_t>(offsetof(Settings, hitch_type)), nullptr, 9066, "geometry", ""},
+    {"geo_a_m", "tc", "A: vonópont → csuklópont (kormányzott vonórúd)", "A vonópont-csukló", "m", "", ParamKind::Float, 0.0f, 20.0f, 0.01f, 0.0f, 2, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, geo_a_m)), nullptr, 9067, "geometry", ""},
+    {"geo_b_m", "tc", "B: csuklópont → csoroszlyák (függesztett: vonópont → csoroszlyák)", "B csukló-csorosz.", "m", "", ParamKind::Float, 0.0f, 20.0f, 0.01f, 4.0f, 2, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, geo_b_m)), nullptr, 9068, "geometry", ""},
+    {"geo_c_m", "tc", "C: csuklópont → kerékagy (fordulópont)", "C csukló-tengely", "m", "", ParamKind::Float, 0.0f, 20.0f, 0.01f, 3.0f, 2, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, geo_c_m)), nullptr, 9069, "geometry", ""},
+    {"geo_y_m", "tc", "D: oldalirányú eltolás (+ jobbra)", "D oldaleltolás", "m", "", ParamKind::Float, -5.0f, 5.0f, 0.01f, 0.0f, 2, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, geo_y_m)), nullptr, 9070, "geometry", ""},
+    {"delay_on_ms", "tc", "Tehetetlenség BE", "Tehetetlenség BE", "ms", "", ParamKind::Int, 0.0f, 5000.0f, 10.0f, 800.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, delay_on_ms)), nullptr, 9071, "tc", ""},
+    {"delay_off_ms", "tc", "Tehetetlenség KI", "Tehetetlenség KI", "ms", "", ParamKind::Int, 0.0f, 5000.0f, 10.0f, 400.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, delay_off_ms)), nullptr, 9072, "tc", ""},
+    {"sim_inputs", "sim", "Bemenetek szimulációja (turbina, adagolók, munkakapcsoló)", "Bemenetek szim.", "", "Próbapadi teszthez: a turbina, az adagolók és az enkóderek impulzusait a firmware állítja elő, a munkakapcsoló 'lent' állapotú.", ParamKind::Bool, 0.0f, 0.0f, 1.0f, 0.0f, 0, OPT_sim_inputs, 2, static_cast<std::uint16_t>(offsetof(Settings, sim_inputs)), nullptr, 9073, "diag", ""},
+    {"sim_fan_rpm", "sim", "Szimulált turbinafordulat", "Szim. turbina", "1/min", "", ParamKind::Int, 0.0f, 10000.0f, 10.0f, 3500.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, sim_fan_rpm)), nullptr, 9074, "diag", ""},
+    {"sim_wheel", "sim", "Kerékimpulzus szimuláció a szimulált sebességből", "Kerék szimuláció", "", "", ParamKind::Bool, 0.0f, 0.0f, 1.0f, 0.0f, 0, OPT_sim_wheel, 2, static_cast<std::uint16_t>(offsetof(Settings, sim_wheel)), nullptr, 9075, "diag", ""},
     {"wifi_pass", "system", "Wi-Fi jelszó (8–32 karakter)", "", "", "", ParamKind::Str, 8.0f, 32.0f, 1.0f, 0.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, wifi_pass)), "12345678", 0, nullptr, ""},
     {"ecu_instance", "system", "ECU példány (több gép egy buszon)", "", "", "", ParamKind::Int, 0.0f, 7.0f, 1.0f, 0.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, ecu_instance)), nullptr, 0, nullptr, ""},
     {"realarm_s", "system", "Nyugtázott, fennálló riasztás újra (0 = soha)", "", "s", "", ParamKind::Int, 0.0f, 3600.0f, 10.0f, 0.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, realarm_s)), nullptr, 0, nullptr, ""},

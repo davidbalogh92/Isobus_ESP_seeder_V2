@@ -1,0 +1,100 @@
+name: Firmware és tesztek
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: write   # a kiadás (Release) létrehozásához
+
+jobs:
+  tests:
+    name: Generált fájlok, unit tesztek, ISOBUS szimuláció
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Python függőségek
+        run: python -m pip install pillow numpy
+      - name: Paramétertábla naprakész?
+        run: python tools/gen_params.py --check
+      - name: Object pool naprakész?
+        run: python tools/pool/generate_pool.py --check
+      - name: Python tesztek (pool szerkezet, kiadás)
+        run: python -m unittest discover -s tests/python -v
+      - name: PC-s fordítás (vezérlőmag + ISOBUS réteg)
+        run: |
+          cmake -S host -B build-host -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-host -j 4
+      - name: Unit tesztek + pool ellenőrzés + ISOBUS szimuláció (400 és 480 px)
+        run: ctest --test-dir build-host --output-on-failure
+
+  firmware:
+    name: ESP32-S3 firmware (${{ matrix.env }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [agisoaux_8mb, waveshare_8di8ro]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+      - name: PlatformIO telepítés
+        run: python -m pip install 'platformio==6.1.18'
+      - name: Fordítás
+        run: python -m platformio run -e ${{ matrix.env }}
+      - name: Kiadási BIN fájlok
+        run: |
+          python build_release.py --no-build --env ${{ matrix.env }}
+          mv firmware/MANIFEST.json firmware/MANIFEST_${{ matrix.env }}.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VETOGEP-${{ matrix.env }}
+          path: firmware/
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Letölthető .bin fájlok (GitHub Release)
+    needs: [tests, firmware]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Kiadás frissítése
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=$(python3 -c "import build_release as b; print(b.fw_version())")
+          ls -l dist
+          NOTES="Vetőgép-vezérlő firmware v${VER} – ${GITHUB_SHA::7} ($(date -u +%Y-%m-%d))
+
+          VETOGEP_AGISOAUX_8MB_*  – AgIsoAuxInputs ESP32-S3R8N8 (8 MB, CAN GPIO10/11), amin az ESC is fut
+          VETOGEP_WAVESHARE_16MB_* – Waveshare ESP32-S3-ETH-8DI-8RO-C (16 MB, CAN GPIO17/18)
+
+          ELSŐ TELEPÍTÉS USB-n (https://espressif.github.io/esptool-js/):
+            *_FULL_0x0.bin  → Flash Address: 0x0
+
+          FRISSÍTÉS Wi-Fi-n (VETOGEP-xxxx hálózat, http://192.168.4.1 → Rendszer → Firmware frissítés):
+            *_OTA.bin
+
+          A FULL fájlt soha ne töltsd fel az OTA oldalon!"
+          gh release delete legujabb --cleanup-tag --yes || true
+          gh release create legujabb dist/*.bin dist/MANIFEST_*.json \
+            --title "Legújabb firmware (v${VER})" --notes "$NOTES" --target "$GITHUB_SHA"

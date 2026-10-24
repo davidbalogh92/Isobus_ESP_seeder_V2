@@ -225,6 +225,10 @@ add("cooler_src", "cooling", "Szabályozó hőmérő", "Szabályozó hőmérő",
     options=("Olajtartály", "Hűtő kimenet", "A melegebb"), vt_page="cooling", feature="temp_enable")
 add("temp_alarm_c", "cooling", "Túlmelegedés riasztás (0 = nincs)", "Riasztás felett", "float", 85.0, 0.0, 130.0, 0.5,
     1, "°C", vt_page="cooling", feature="temp_enable")
+add("temp_swap", "cooling", "A két DS18B20 hőmérő felcserélése", "", "bool", 0, options=YES_NO,
+    feature="temp_enable",
+    help="A hőmérőket a firmware a ROM-azonosítójuk sorrendjében számozza. Ha az olajtartály és a hűtő "
+         "kimenet értéke fordítva jelenik meg, kapcsold be.")
 
 # --------------------------------------------------------------------------- mérleg
 add("scale_capacity_kg", "scale", "Mérlegcella méréshatára", "Méréshatár", "float", 50.0, 1.0, 500.0, 0.5, 1, "kg",

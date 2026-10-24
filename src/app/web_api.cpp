@@ -47,17 +47,39 @@ ApiResult handle_api(Shared &shared, SeederApp *isobus, const std::string &metho
     }
     if (method == "GET" && path == "/api/schema") return ok(seeder::schema_json());
     if (method == "GET" && path == "/api/crops") {
-        // a leforgatási segéd növénylistája és fordulatszám-opciói
+        // a leforgatási segéd növénylistája, fordulatszám-opciói és beállítási táblázata (skála → kg/ha)
         std::string o = "{\"crops\":[";
-        for (int i = 0; i < seeder::chart::CROP_COUNT; ++i) {
-            if (i) o += ',';
-            o += "\"" + seeder::json_escape(seeder::chart::crop_name(i)) + "\"";
+        char b[32];
+        auto arr = [&o, &b](const float *v, int n) {
+            o += '[';
+            for (int i = 0; i < n; ++i) {
+                std::snprintf(b, sizeof(b), "%s%g", i ? "," : "", static_cast<double>(v[i]));
+                o += b;
+            }
+            o += ']';
+        };
+        for (int c = 0; c < seeder::chart::CROP_COUNT; ++c) {
+            if (c) o += ',';
+            o += "{\"name\":\"" + seeder::json_escape(seeder::chart::crop_name(c)) + "\",\"fine\":" +
+                 (seeder::chart::is_fine(c) ? "true" : "false") + ",\"curves\":[";
+            const int drives[2] = {seeder::chart::is_fine(c) ? seeder::chart::DRIVE_NORMAL : seeder::chart::DRIVE_NONE,
+                                   seeder::chart::DRIVE_MIKRO};
+            for (int k = 0; k < (seeder::chart::is_fine(c) ? 2 : 1); ++k) {
+                const auto cv = seeder::chart::curve(c, drives[k]);
+                if (k) o += ',';
+                o += "{\"drive\":\"";
+                o += drives[k] == seeder::chart::DRIVE_MIKRO ? "MIKRO" : (drives[k] == seeder::chart::DRIVE_NORMAL ? "NORMÁL" : "");
+                o += "\",\"scale\":";
+                arr(cv.scale, cv.n);
+                o += ",\"rate\":";
+                arr(cv.rate, cv.n);
+                o += '}';
+            }
+            o += "]}";
         }
         o += "],\"turns\":[";
         for (int i = 0; i < seeder::chart::TURN_OPTIONS; ++i) {
-            if (i) o += ',';
-            char b[16];
-            std::snprintf(b, sizeof(b), "%.1f", seeder::chart::turns(i));
+            std::snprintf(b, sizeof(b), "%s%.1f", i ? "," : "", seeder::chart::turns(i));
             o += b;
         }
         return ok(o + "]}");

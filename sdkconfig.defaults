@@ -1,0 +1,23 @@
+# Flash / partíciók (a flash méretet és a partíciós táblát a platformio.ini adja környezetenként)
+CONFIG_PARTITION_TABLE_CUSTOM=y
+# OTA visszaállás: az új firmware-t indulás után jóvá kell hagyni, különben visszaáll
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# FreeRTOS / feladatok
+CONFIG_FREERTOS_HZ=1000
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT=8192
+
+# 8 MB oktális PSRAM (N16R8 modul); ha nincs, a firmware PSRAM nélkül is elindul
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_IGNORE_NOTFOUND=y
+
+# Webszerver: mobil böngészők hosszú fejlécei (HTTP 431 elkerülése)
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=4096
+CONFIG_HTTPD_MAX_URI_LEN=1024
+
+# Napló: UART0 + natív USB Serial/JTAG
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG=y
