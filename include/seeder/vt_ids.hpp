@@ -5,8 +5,8 @@
 namespace vt {
 constexpr std::uint32_t DESIGN_MASK_PX = 400;
 constexpr std::uint32_t DESIGN_SOFTKEY_PX = 80;
-constexpr std::uint32_t POOL_SIZE = 150085;
-constexpr const char *POOL_VERSION = "SDB3C3E"; // a VT ez alapján cache-el
+constexpr std::uint32_t POOL_SIZE = 150077;
+constexpr const char *POOL_VERSION = "SD7CD94"; // a VT ez alapján cache-el
 constexpr std::uint16_t VT_INPUT_BASE = 9000;
 
 constexpr std::uint16_t WORKING_SET = 0;
@@ -261,7 +261,6 @@ constexpr std::uint16_t F_RED = 23009;
 constexpr std::uint16_t F_VALUE_N = 23010;
 constexpr std::uint16_t F_MSG = 23011;
 constexpr std::uint16_t F_LABEL_R = 23012;
-constexpr std::uint16_t F_VALUE_N_S = 23013;
 constexpr std::uint16_t L_BLACK = 24000;
 constexpr std::uint16_t L_NAVY2 = 24001;
 constexpr std::uint16_t L_GREY = 24002;
