@@ -1,0 +1,10 @@
+.pio/
+build-host/
+build*/
+firmware/
+__pycache__/
+*.pyc
+.vscode/
+sdkconfig
+sdkconfig.*
+!sdkconfig.defaults
