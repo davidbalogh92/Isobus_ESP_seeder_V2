@@ -133,7 +133,7 @@ input[type=file]{color:var(--muted);max-width:100%}
           <button class="btn wide" onclick="cmd('rate_reset')" id="btnReset">100%</button>
           <button class="btn wide" onclick="cmd('rate_step',1)" id="btnPlus">+</button>
         </div>
-        <div class="badges"><span class="badge" id="bWork">Munkahelyzet</span><span class="badge" id="bTc">TC</span><span class="badge info hide" id="bGeo">TC térkép</span><span class="badge info hide" id="bLink">1 = 2 adagoló</span><span class="badge info hide" id="bSim">SZIMULÁCIÓ</span></div>
+        <div class="badges"><span class="badge" id="bWork">Munkahelyzet</span><span class="badge" id="bTc">TC</span><span class="badge info hide" id="bGeo">TC térkép</span><span class="badge info hide" id="bSim">SZIMULÁCIÓ</span></div>
       </div>
     </div>
     <div class="grid" style="gap:var(--gap)">
@@ -212,6 +212,7 @@ input[type=file]{color:var(--muted);max-width:100%}
         <div class="kv"><span>Szükséges vetőmag</span><b id="crSeed">–</b></div>
         <p class="note warn" id="crNote"></p>
         <div class="row" style="margin-top:10px"><button class="btn primary wide" onclick="cmd('crank_save').then(r=>r&&toast('Kg/fordulat elmentve'))">Kg/fordulat mentése az adagolóhoz</button></div>
+        <div class="row" style="margin-top:10px" id="crCopyRow"><button class="btn wide" id="crCopy" onclick="cmd('crank_copy').then(r=>r&&toast('Átmásolva a másik adagolóra'))">Átmásolás a másik adagolóra</button></div>
         <p class="note">Mentett érték: <b id="crCur">–</b> kg/ford. Az elektromos hajtás ebből számolja a motorfordulatot, talajhajtásnál a kijelzett kg/ha ebből jön.</p>
       </div>
     </div>
@@ -379,9 +380,6 @@ function buildGroups(){
     d.innerHTML=`<summary><span>${GROUP_ICON[g.icon]||'•'}</span><span>${esc(g.label)}</span><span class="chev">›</span></summary><div class="body"></div>`;
     const body=d.querySelector('.body');
     for(const p of SCHEMA.params.filter(p=>p.group===g.id))body.appendChild(fieldFor(p));
-    if(g.id==='rate'){const x=document.createElement('div');x.className='row';x.id='copyRow';x.style.marginTop='10px';
-      x.innerHTML='<span class="muted" style="flex:1">Egyszeri másolás: az 1. adagoló előírt értéke és kg/fordulata a 2.-ra.</span><button class="btn" onclick="cmd(\'meter_copy\').then(loadConfig)">1. → 2. másolás</button>';
-      body.appendChild(x)}
     box.appendChild(d)}
   fillInputs()}
 function fieldFor(p){
@@ -402,8 +400,8 @@ function fieldFor(p){
 // csak az érvényes beállítások látszanak (pl. 1 adagolónál nincs 2. előírt érték)
 function relevant(key){
   const m=Math.round(CFG.meter_count||1),el=Math.round(CFG.drive_type)===1,ws=Math.round(CFG.work_sw)>0,sp=Math.round(CFG.speed_src);
-  if(/(^rate2$|^cal2_kg_rev$)/.test(key))return m>1&&!CFG.meter_link;
-  if(key==='meter_layout'||key==='meter_link')return m>1;
+  if(/(^rate2$|^cal2_kg_rev$)/.test(key))return m>1;
+  if(key==='meter_layout')return m>1;
   if(key==='section_count')return m>1&&Math.round(CFG.meter_layout)===0;
   if(key==='sec_w1')return Math.round(CFG.section_count)>1;
   if(key==='tank_count')return true;
@@ -424,8 +422,7 @@ function fillInputs(except){
     if(f)f.style.display=(!p.feature||CFG[p.feature])&&relevant(p.key)?'':'none';
     const el=$('p_'+p.key);if(!el||document.activeElement===el)continue;
     const v=CFG[p.key];if(v===undefined)continue;
-    el.value=p.kind==='str'?v:(p.kind==='enum'||p.kind==='bool'?String(Math.round(v)):Number(v).toFixed(p.decimals))}
-  if($('copyRow'))$('copyRow').style.display=Math.round(CFG.meter_count)>1&&!CFG.meter_link?'':'none'}
+    el.value=p.kind==='str'?v:(p.kind==='enum'||p.kind==='bool'?String(Math.round(v)):Number(v).toFixed(p.decimals))}}
 
 // ---------------------------------------------------------------- kalibrálási táblázat
 function renderChart(){
@@ -465,7 +462,7 @@ function render(){
   show('modeRow',st.electric);$('btnAuto').className='btn wide '+(st.manual?'':'on');$('btnManual').className='btn wide '+(st.manual?'on':'');
   $('btnPlus').textContent=(st.manual?'+ fordulat ':'+ ')+fmt(CFG.rate_step_pct)+'%';$('btnMinus').textContent=(st.manual?'− fordulat ':'− ')+fmt(CFG.rate_step_pct)+'%';
   $('btnReset').textContent=st.manual?`Kézi: ${fmt(st.manual_pct)}% fordulat`:(st.rate_offset?((st.rate_offset>0?'+':'')+fmt(st.rate_offset)+'% → 100%'):'100%');
-  $('btnReset').disabled=st.manual;show('bLink',st.meter_link);
+  $('btnReset').disabled=st.manual;
   $('bWork').textContent=Math.round(CFG.work_sw)?(st.work_down?'Gép LENT':'Gép FENT'):'Nincs munkakapcsoló';$('bWork').className='badge '+(st.work_down?'ok':'');
   $('bTc').textContent=st.tc?'TC kapcsolat':'Nincs TC';$('bTc').className='badge '+(st.tc?'info':'');
   show('bGeo',st.tc_rate);show('bSim',(st.alarm_list||[]).some(a=>a.code==='SIMULATION'));
@@ -491,7 +488,7 @@ function render(){
   $('crScale').textContent=`${fmt(cr.scale,1)} · ${cr.setup}`;$('crExpect').textContent=fmt(cr.expected_kg,3)+' kg';
   $('crRevs').textContent=`${fmt(st.electric?cr.motor_revs:cr.counted_revs,1)} / ${fmt(cr.turns,1)}`+(cr.motor_running?' (fut)':'');
   show('crMotorRow',st.electric);$('crHint').textContent=st.electric?'A motor pontosan a megadott fordulatot teszi meg (álló gépnél, vetés KI).':'Talajhajtásnál a kerékkel / kurblival tekerd le a megadott fordulatot; az adagolótengely jeladója számol.';
-  show('crFromScaleRow',CFG.scale_enable);$('crScaleKg').textContent=st.scale.valid?fmt(st.scale.kg,3):'–';
+  show('crFromScaleRow',CFG.scale_enable);show('crCopyRow',st.meters>1);$('crCopy').textContent=`${cr.meter+1}. adagoló adatai → ${2-cr.meter}. adagoló (kg/ford. + előírt)`;$('crScaleKg').textContent=st.scale.valid?fmt(st.scale.kg,3):'–';
   $('crAct').textContent=cr.measured>0?fmt(cr.actual_rate,1)+' kg/ha':'–';$('crNew').textContent=cr.corrected_valid?fmt(cr.corrected_scale,1):'–';
   $('crKgRev').textContent=cr.kg_per_rev>0?fmt(cr.kg_per_rev,4)+' kg':'–';$('crSeed').textContent=cr.seed_kg>0?fmt(cr.seed_kg)+' kg':'–';
   $('crNote').textContent=cr.note||'';$('crCur').textContent=fmt(cr.meter===1?CFG.cal2_kg_rev:CFG.cal1_kg_rev,4);

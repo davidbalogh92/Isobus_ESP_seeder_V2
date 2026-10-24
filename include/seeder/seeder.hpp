@@ -294,8 +294,8 @@ public:
     void set_auto(bool on);        ///< kézi mód csak elektromos hajtásnál
     void toggle_auto() { set_auto(manual_); }
     bool manual() const { return manual_; }
-    /// az 1. adagoló előírt értékének és kg/fordulatának átmásolása a 2.-ra
-    void copy_meter1_to_2();
+    /// egy adagoló előírt értékének és kg/fordulatának átmásolása a másikra
+    bool copy_meter(int from);
     void rate_offset_reset() { rate_offset_steps_ = 0; }
     void toggle_lamp(int i);
     void toggle_valve();
@@ -332,6 +332,8 @@ public:
     bool crank_motor_start();      ///< elektromos hajtás: pontosan N fordulat
     void crank_motor_stop();
     void crank_reset_count();
+    /// a leforgatott (kiválasztott) adagoló adatai a másikra: ha van mentetlen mérés, előbb ment
+    bool crank_copy_to_other();
 
     void scale_tare();
     bool scale_calibrate(float known_kg);
@@ -416,6 +418,8 @@ private:
     void say(const char *text) {
         message_ = text;
         ++message_seq_;
+        status_.message = text;          // azonnal olvasható (pl. a parancs elutasításának oka)
+        status_.message_seq = message_seq_;
     }
 };
 

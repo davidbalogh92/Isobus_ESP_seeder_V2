@@ -866,53 +866,42 @@ TEST(tc_geo_rate_per_meter_and_clear) {
     CHECK_NEAR(s.status().meter[0].target_rate, 200.0, 1e-3);
 }
 
-// ----------------------------------------------------------------- 2. = 1. adagoló (összekapcsolás)
-TEST(meter_link_keeps_both_equal) {
-    Settings st = default_settings();
-    st.meter_link = 1;
-    st.rate1 = 150.0f;
-    st.rate2 = 90.0f;
-    st.cal1_kg_rev = 0.3f;
-    st.cal2_kg_rev = 0.1f;
-    normalize(st);
-    CHECK_NEAR(st.rate2, 150.0, 1e-4);          // bekapcsoláskor az 1. nyer
-    CHECK_NEAR(st.cal2_kg_rev, 0.3, 1e-5);
-    CHECK(apply_param(st, P_rate2, 180.0f));    // a 2. módosítása az 1.-et is viszi
-    CHECK_NEAR(st.rate1, 180.0, 1e-4);
-    CHECK(apply_param(st, P_cal1_kg_rev, 0.25f));
-    CHECK_NEAR(st.cal2_kg_rev, 0.25, 1e-5);
-    // kikapcsolva újra függetlenek
-    CHECK(apply_param(st, P_meter_link, 0.0f));
-    CHECK(apply_param(st, P_rate2, 60.0f));
-    CHECK_NEAR(st.rate1, 180.0, 1e-4);
-    // egy adagolónál nincs hatása
-    Settings one = default_settings();
-    one.meter_count = 1;
-    one.meter_link = 1;
-    one.rate2 = 77.0f;
-    normalize(one);
-    CHECK_NEAR(one.rate2, 77.0, 1e-4);
-}
-
-TEST(meter_link_crank_save_updates_both) {
-    Seeder s = make([](Settings &st) { st.meter_link = 1; });
-    s.crank_set_meter(1);                       // a 2. adagolót forgatja le
+// ----------------------------------------------------------------- leforgatás átmásolása a másik adagolóra
+TEST(crank_copy_from_either_meter) {
+    Seeder s = make([](Settings &st) { st.rate1 = 200.0f; st.rate2 = 120.0f; st.cal1_kg_rev = 0.25f; st.cal2_kg_rev = 0.1f; });
+    // a 2. adagolót forgatja le, egy gombbal: mentés + másolás az 1.-re
+    s.crank_set_meter(1);
     s.crank_set_measured(17.0f);                // 85 fordulat → 0,2 kg/ford
-    CHECK(s.crank_save());
+    CHECK(s.crank_copy_to_other());
     CHECK_NEAR(s.settings().cal2_kg_rev, 0.2, 1e-4);
     CHECK_NEAR(s.settings().cal1_kg_rev, 0.2, 1e-4);
+    CHECK_NEAR(s.settings().rate1, 120.0, 1e-4); // az előírt mennyiség is átmegy
+    // az 1.-ről mentett érték (nincs új mérés) a 2.-ra
+    Seeder t = make([](Settings &st) { st.rate1 = 210.0f; st.cal1_kg_rev = 0.31f; });
+    t.crank_set_meter(0);
+    CHECK(t.crank_copy_to_other());
+    CHECK_NEAR(t.settings().cal2_kg_rev, 0.31, 1e-5);
+    CHECK_NEAR(t.settings().rate2, 210.0, 1e-4);
+    std::string err;
+    CHECK(apply_command(t, "meter_copy", 1, err));  // web: 2. → 1.
+    CHECK_NEAR(t.settings().cal1_kg_rev, 0.31, 1e-5);
 }
 
-TEST(meter_copy_command) {
-    Seeder s = make([](Settings &st) { st.rate1 = 210.0f; st.rate2 = 100.0f; st.cal1_kg_rev = 0.31f; });
-    std::string err;
-    CHECK(apply_command(s, "meter_copy", 0, err));
-    CHECK_NEAR(s.settings().rate2, 210.0, 1e-4);
-    CHECK_NEAR(s.settings().cal2_kg_rev, 0.31, 1e-5);
-    CHECK(s.settings().meter_link == 0);        // csak egyszeri másolás
+TEST(crank_copy_edge_cases) {
     Seeder one = make([](Settings &st) { st.meter_count = 1; st.rate2 = 50.0f; });
-    one.copy_meter1_to_2();
+    CHECK(!one.crank_copy_to_other());
     CHECK_NEAR(one.settings().rate2, 50.0, 1e-4);
+    std::string err;
+    CHECK(!apply_command(one, "crank_copy", 0, err));
+    CHECK(err.find("két adagoló") != std::string::npos);
+    Seeder s = make();
+    CHECK(!s.copy_meter(5));                    // érvénytelen forrás
+    // motoros leforgatás közben nem másol
+    Seeder e = make([](Settings &st) { st.drive_type = 1; st.sim_speed = 0.0f; });
+    Machine m;
+    m.run(e, 0.1f);
+    CHECK(e.crank_motor_start());
+    CHECK(!e.crank_copy_to_other());
 }
 
 // ----------------------------------------------------------------- kézi adagolás (elektromos hajtás)

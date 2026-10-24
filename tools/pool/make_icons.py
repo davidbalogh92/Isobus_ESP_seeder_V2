@@ -169,6 +169,13 @@ METER_BODY = ('<path d="M10 52h14m80 0h14"/><rect x="24" y="22" width="80" heigh
               '<path d="M35 37h58M35 52h58M35 67h58" stroke="white" stroke-width="6"/>')
 ICONS["softkeys/softkey_mode_auto"] = svg("Adagolas automata", METER_BODY.format(f=GREEN) + badge("A", 99, 99, 23, GREEN))
 ICONS["softkeys/softkey_mode_manual"] = svg("Adagolas kezi", METER_BODY.format(f=GREY) + badge("K", 99, 99, 23, BLUE))
+ICONS["softkeys/softkey_crank_copy"] = svg(
+    "Leforgatas masolasa", '<rect x="8" y="14" width="50" height="38" rx="6" fill="#258b28"/>'
+                           '<path d="M16 26h34M16 38h34" stroke="white" stroke-width="5"/>'
+                           '<rect x="70" y="76" width="50" height="38" rx="6" fill="#258b28"/>'
+                           '<path d="M78 88h34M78 100h34" stroke="white" stroke-width="5"/>'
+                           '<path d="M34 60v34h26M50 82l12 12-12 12" stroke="#1e5bd8" stroke-width="7"/>'
+                           '<path d="M70 20h22a12 12 0 0 1 12 12v28" stroke="#8a8a8a" stroke-width="5" stroke-dasharray="6 6"/>')
 ICONS["softkeys/softkey_meter_select"] = svg(
     "Adagolo valasztas", '<path d="M10 52h14m80 0h14"/><rect x="24" y="22" width="80" height="61" rx="9" fill="#258b28"/>'
                          '<path d="M35 37h58M35 52h58M35 67h58" stroke="white" stroke-width="6"/>'

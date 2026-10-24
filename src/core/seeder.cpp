@@ -372,14 +372,28 @@ void Seeder::set_auto(bool on) {
     say(manual_ ? "Kézi adagolás: a +/− a motorfordulatot lépteti" : "Automata adagolás");
 }
 
-void Seeder::copy_meter1_to_2() {
+bool Seeder::copy_meter(int from) {
     if (meter_count(settings_) < 2) {
         say("Csak két adagolónál");
-        return;
+        return false;
     }
-    set_param(P_rate2, settings_.rate1);
-    set_param(P_cal2_kg_rev, settings_.cal1_kg_rev);
-    say("Az 1. adagoló beállítása átmásolva a 2.-ra");
+    if (from < 0 || from > 1) return false;
+    const int to = 1 - from;
+    set_param(to == 1 ? P_rate2 : P_rate1, rate_setting(settings_, from));
+    set_param(to == 1 ? P_cal2_kg_rev : P_cal1_kg_rev, cal_kg_rev(settings_, from));
+    say(from == 0 ? "1. adagoló leforgatása átmásolva a 2.-ra" : "2. adagoló leforgatása átmásolva az 1.-re");
+    return true;
+}
+
+bool Seeder::crank_copy_to_other() {
+    if (crank_.motor_running) {
+        say("Előbb állítsd le a leforgatást");
+        return false;
+    }
+    // ha van mentetlen mérés, előbb a kiválasztott adagolóhoz mentjük
+    update_crank_result();
+    if (crank_result_.kg_per_rev > 0.0 && !crank_save()) return false;
+    return copy_meter(crank_.meter < meter_count(settings_) ? crank_.meter : 0);
 }
 
 void Seeder::rate_step(int dir) {
@@ -1057,7 +1071,6 @@ std::string Seeder::status_json() const {
     append_kv(o, "rate_offset", st.rate_offset_pct, 0);
     append_kv(o, "manual", st.manual);
     append_kv(o, "manual_pct", st.manual_pct, 0);
-    append_kv(o, "meter_link", settings_.meter_link != 0 && st.meter_count >= 2);
     append_kv(o, "tc_rate", st.tc_rate);
     append_kv(o, "prefill", prefill_label(st.prefill));
     append_kv(o, "prefill_id", static_cast<double>(st.prefill), 0);

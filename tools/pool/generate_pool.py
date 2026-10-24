@@ -253,7 +253,6 @@ F_RED = P.font(23009, RED, 5, "F_RED")
 F_VALUE_N = P.font(23010, NAVY, 5, "F_VALUE_N")
 F_MSG = P.font(23011, BLACK, 5, "F_MSG")            # állapotsor 16×24
 F_LABEL_R = P.font(23012, RED, 3, "F_LABEL_R")
-F_VALUE_N_S = P.font(23013, NAVY, 3, "F_VALUE_N_S")
 
 L_BLACK = P.line_attr(24000, BLACK, 1, "L_BLACK")
 L_NAVY2 = P.line_attr(24001, NAVY, 2, "L_NAVY2")
@@ -363,6 +362,7 @@ K_SCALE_PAGE = KEY("K_SCALE_PAGE", "softkey_calib")
 K_CRANK_START = KEY("K_CRANK_START", "softkey_start")
 K_CRANK_STOP = KEY("K_CRANK_STOP", "softkey_stop")
 K_CRANK_SAVE = KEY("K_CRANK_SAVE", "softkey_save")
+K_CRANK_COPY = KEY("K_CRANK_COPY", "softkey_crank_copy")
 K_PRESS_CAL = KEY("K_PRESS_CAL", "softkey_save")
 
 # oldalak (menü): azonosító → (menüfelirat, ikon)
@@ -421,8 +421,9 @@ SK_SCALE = P.softkey_mask(P.new_id(4000), [K_BACK, K_TARE, K_SCALE_CAL], name="S
 SK_PRESSURE = P.softkey_mask(P.new_id(4000), [K_BACK, K_PRESS_CAL], name="SK_PRESSURE")
 SK_COOLING = P.softkey_mask(P.new_id(4000), [K_BACK, K_COOLER], name="SK_COOLING")
 SK_CALIB = P.softkey_mask(P.new_id(4000), [K_BACK, K_CAL_METER, K_SCALE_TAKE, K_CRANK_SAVE, K_SCALE_PAGE,
-                                            K_CRANK_START, K_CRANK_STOP], name="SK_CALIB")
-SK_CALIB_GROUND = P.softkey_mask(P.new_id(4000), [K_BACK, K_CAL_METER, K_SCALE_TAKE, K_CRANK_SAVE, K_SCALE_PAGE],
+                                            K_CRANK_START, K_CRANK_STOP, K_CRANK_COPY], name="SK_CALIB")
+SK_CALIB_GROUND = P.softkey_mask(P.new_id(4000), [K_BACK, K_CAL_METER, K_SCALE_TAKE, K_CRANK_SAVE, K_SCALE_PAGE,
+                                                   K_CRANK_COPY],
                                  name="SK_CALIB_GROUND")
 SK_ALARM = P.softkey_mask(P.new_id(4000), [K_ACK], name="SK_ALARM")
 
@@ -522,8 +523,6 @@ add((S("%", 14, 16, F_LABEL), 206, VY + 4))
 PREFILL_CONT = C(80, 22, [(N("OUT_PREFILL", 50, F_LABEL, decimals=1, scale=0.1, align=2), 0, 0),
                           (S("s", 14, 16, F_LABEL), 52, 0)], hidden=True, name="CONT_PREFILL")
 add((PREFILL_CONT, 160, VY + 26))
-LINK_CONT = C(80, 22, [(S("1 = 2", 80, 20, F_VALUE_N_S, align=1), 0, 0)], hidden=True, name="CONT_LINK")
-add((LINK_CONT, 160, VY + 26))
 # állapotsor
 SY = 244
 add((R(MASK - 8, 34, FL_MSG, L_BLACK), 4, SY))

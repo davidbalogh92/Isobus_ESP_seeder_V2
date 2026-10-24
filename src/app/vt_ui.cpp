@@ -217,6 +217,7 @@ void VtUi::on_softkey(std::uint16_t id, std::uint8_t activation) {
     case vt::K_CAL_METER: c.crank_set_meter(st.crank.meter == 0 ? 1 : 0); break;
     case vt::K_SCALE_TAKE: c.crank_take_scale(); break;
     case vt::K_CRANK_SAVE: c.crank_save(); break;
+    case vt::K_CRANK_COPY: c.crank_copy_to_other(); break;
     case vt::K_SCALE_PAGE:
         for (const auto &pg : vt::PAGES)
             if (std::strcmp(pg.id, "scale") == 0) {
@@ -468,7 +469,6 @@ void VtUi::update_main(const Snapshot &s) {
     // kézi módban a % mező a motorfordulatot mutatja (a "fordulat 100% PWM-nél" %-ában)
     num(vt::OUT_OFFSET, std::lround(st.manual ? st.manual_pct : st.rate_offset_pct) + 100);
     shown(vt::CONT_PREFILL, st.prefill != seeder::PrefillState::Idle);
-    shown(vt::CONT_LINK, set.meter_link && meters >= 2 && st.prefill == seeder::PrefillState::Idle);
     num(vt::OUT_PREFILL, std::lround(std::max(0.0f, st.prefill_left_s) * 10.0f));
 
     // állapotsor
