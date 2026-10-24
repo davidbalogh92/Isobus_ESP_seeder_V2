@@ -112,7 +112,7 @@ add("prefill_auto", "rate", "Automatikus feltöltés induláskor (sarkokban)", "
     help="Csak elektromos hajtásnál. Ha álló gépnél leengeded a gépet (munkakapcsoló) vagy elindítod a vetést, "
          "az adagolók a 'feltöltési sebességhez' tartozó fordulattal előre feltöltik a csöveket, majd "
          "az indulás után még az utánfutási ideig így forognak.")
-add("prefill_speed_kmh", "rate", "Feltöltési (elméleti) sebesség", "Feltöltési sebesség", "float", 8.0, 1.0, 20.0,
+add("prefill_speed_kmh", "rate", "Feltöltési (elméleti) sebesség", "Feltöltési seb.", "float", 8.0, 1.0, 20.0,
     0.1, 1, "km/h", vt_page="rate")
 add("prefill_time_s", "rate", "Feltöltési idő (álló gép)", "Feltöltési idő", "float", 3.0, 0.0, 30.0, 0.1, 1, "s",
     vt_page="rate")
@@ -151,7 +151,7 @@ add("fan_min_rpm", "fan", "Riasztás e fordulat alatt", "Min. fordulat", "int", 
     vt_page="fan",
     help="Csak akkor riaszt, ha a gép dolgozik: munkakapcsolóval lent van és halad; munkakapcsoló nélkül "
          "ha halad és a vetés BE.")
-add("fan_max_rpm", "fan", "Riasztás e fordulat felett (0 = nincs)", "Max. fordulat", "int", 5000, 0, 20000, 10, 0,
+add("fan_max_rpm", "fan", "Riasztás e fordulat felett (0 = nincs)", "Max. fordulat", "int", 0, 0, 20000, 10, 0,
     "1/min", vt_page="fan")
 add("fan_delay_s", "fan", "Riasztás késleltetése", "Késleltetés", "float", 5.0, 0.0, 60.0, 0.5, 1, "s",
     vt_page="fan")
@@ -166,7 +166,7 @@ add("isobus_speed_pref", "speed", "ISOBUS sebességüzenet", "ISOBUS üzenet", "
                           "Ha a terminál megosztja a GPS sebességét, az 'NMEA GPS' vagy 'Földsebesség' jön.")
 add("wheel_ppm", "speed", "Kerékjeladó impulzus / 100 m", "Imp/100 m", "float", 100.0, 1, 100000, 0.1, 1, "imp",
     vt_page="speed")
-add("sim_speed", "speed", "Szimulált sebesség", "Szimulált sebesség", "float", 8.0, 0, 30, 0.1, 1, "km/h",
+add("sim_speed", "speed", "Szimulált sebesség", "Szimulált seb.", "float", 8.0, 0, 30, 0.1, 1, "km/h",
     vt_page="speed")
 add("min_work_speed", "speed", "Haladás küszöb (ez alatt áll a gép)", "Haladás küszöb", "float", 1.0, 0.1, 10.0, 0.1,
     1, "km/h", vt_page="speed")
@@ -236,28 +236,28 @@ add("scale_offset", "scale", "Mérleg nullpont (tára, nyers)", "", "float", 0.0
     feature="scale_enable")
 
 # --------------------------------------------------------------------------- TC + geometria
-add("tc_enable", "tc", "Task Controller kliens", "TC kliens", "bool", 1, options=YES_NO, vt_page="geometry")
-add("tc_sec", "tc", "Automatikus szakaszvezérlés (TC-SEC)", "TC-SEC", "bool", 1, options=YES_NO, vt_page="geometry")
+add("tc_enable", "tc", "Task Controller kliens", "TC kliens", "bool", 1, options=YES_NO, vt_page="tc")
+add("tc_sec", "tc", "Automatikus szakaszvezérlés (TC-SEC)", "TC-SEC", "bool", 1, options=YES_NO, vt_page="tc")
 add("tc_geo", "tc", "Kijuttatási térkép (TC-GEO, kg/ha az adagolóknak)", "TC-GEO", "bool", 0, options=YES_NO,
-    vt_page="geometry")
+    vt_page="tc")
 add("hitch_type", "tc", "Csatlakozás", "Csatlakozás", "enum", 2,
     options=("Függesztett", "Kormányzott vonórúd", "Vonórúd (vonószem)", "Vonóhorog", "Gömbfej (K80)"),
     vt_page="geometry")
 add("geo_a_m", "tc", "A: vonópont → csuklópont (kormányzott vonórúd)", "A vonópont-csukló", "float", 0.0, 0.0, 20.0,
     0.01, 2, "m", vt_page="geometry")
-add("geo_b_m", "tc", "B: csuklópont → csoroszlyák (függesztett: vonópont → csoroszlyák)", "B csukló-csoroszlya",
+add("geo_b_m", "tc", "B: csuklópont → csoroszlyák (függesztett: vonópont → csoroszlyák)", "B csukló-csorosz.",
     "float", 4.0, 0.0, 20.0, 0.01, 2, "m", vt_page="geometry")
 add("geo_c_m", "tc", "C: csuklópont → kerékagy (fordulópont)", "C csukló-tengely", "float", 3.0, 0.0, 20.0, 0.01, 2,
     "m", vt_page="geometry")
 add("geo_y_m", "tc", "D: oldalirányú eltolás (+ jobbra)", "D oldaleltolás", "float", 0.0, -5.0, 5.0, 0.01, 2, "m",
     vt_page="geometry")
 add("delay_on_ms", "tc", "Tehetetlenség BE", "Tehetetlenség BE", "int", 800, 0, 5000, 10, 0, "ms",
-    vt_page="geometry")
+    vt_page="tc")
 add("delay_off_ms", "tc", "Tehetetlenség KI", "Tehetetlenség KI", "int", 400, 0, 5000, 10, 0, "ms",
-    vt_page="geometry")
+    vt_page="tc")
 
 # --------------------------------------------------------------------------- szimuláció
-add("sim_inputs", "sim", "Bemenetek szimulációja (turbina, adagolók, munkakapcsoló)", "Bemenet szimuláció",
+add("sim_inputs", "sim", "Bemenetek szimulációja (turbina, adagolók, munkakapcsoló)", "Bemenetek szim.",
     "bool", 0, options=YES_NO, vt_page="diag",
     help="Próbapadi teszthez: a turbina, az adagolók és az enkóderek impulzusait a firmware állítja elő, a "
          "munkakapcsoló 'lent' állapotú.")
@@ -285,7 +285,8 @@ VT_PAGES = [
     ("pressure", "NYOMÁSMÉRÉS"),
     ("cooling", "OLAJHÕMÉRSÉKLET"),
     ("scale", "MÉRLEG"),
-    ("geometry", "TC ÉS GEOMETRIA"),
+    ("tc", "TASK CONTROLLER"),
+    ("geometry", "GEOMETRIA"),
     ("diag", "SZIMULÁCIÓ / TESZT"),
 ]
 
@@ -307,7 +308,7 @@ def validate():
             assert 0 <= int(p.default) < len(p.options), p
         if p.vt_page:
             assert p.vt_page in {x[0] for x in VT_PAGES}, p
-            assert len(p.vt_label) <= 20, p.vt_label
+            assert len(p.vt_label) <= 17, p.vt_label
         if p.feature:
             assert p.feature in bools, p
     return True

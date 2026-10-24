@@ -51,7 +51,7 @@ _Generált fájl (tools/gen_params.py). Minden paraméter a webes felületen (Be
 |---|---|---|---|---|---|
 | `fan_ppr` | Turbina impulzus / fordulat | 1 imp | 1 – 100 imp | TURBINA |  |
 | `fan_min_rpm` | Riasztás e fordulat alatt | 2500 1/min | 0 – 20000 1/min | TURBINA | Csak akkor riaszt, ha a gép dolgozik: munkakapcsolóval lent van és halad; munkakapcsoló nélkül ha halad és a vetés BE. |
-| `fan_max_rpm` | Riasztás e fordulat felett (0 = nincs) | 5000 1/min | 0 – 20000 1/min | TURBINA |  |
+| `fan_max_rpm` | Riasztás e fordulat felett (0 = nincs) | 0 1/min | 0 – 20000 1/min | TURBINA |  |
 | `fan_delay_s` | Riasztás késleltetése | 5.0 s | 0 – 60 s | TURBINA |  |
 
 ## Sebesség
@@ -118,16 +118,16 @@ _Generált fájl (tools/gen_params.py). Minden paraméter a webes felületen (Be
 
 | Kulcs | Megnevezés | Alapérték | Tartomány | VT oldal | Megjegyzés |
 |---|---|---|---|---|---|
-| `tc_enable` | Task Controller kliens | Igen | Nem / Igen | TC ÉS GEOMETRIA |  |
-| `tc_sec` | Automatikus szakaszvezérlés (TC-SEC) | Igen | Nem / Igen | TC ÉS GEOMETRIA |  |
-| `tc_geo` | Kijuttatási térkép (TC-GEO, kg/ha az adagolóknak) | Nem | Nem / Igen | TC ÉS GEOMETRIA |  |
-| `hitch_type` | Csatlakozás | Vonórúd (vonószem) | Függesztett / Kormányzott vonórúd / Vonórúd (vonószem) / Vonóhorog / Gömbfej (K80) | TC ÉS GEOMETRIA |  |
-| `geo_a_m` | A: vonópont → csuklópont (kormányzott vonórúd) | 0.0 m | 0 – 20 m | TC ÉS GEOMETRIA |  |
-| `geo_b_m` | B: csuklópont → csoroszlyák (függesztett: vonópont → csoroszlyák) | 4.0 m | 0 – 20 m | TC ÉS GEOMETRIA |  |
-| `geo_c_m` | C: csuklópont → kerékagy (fordulópont) | 3.0 m | 0 – 20 m | TC ÉS GEOMETRIA |  |
-| `geo_y_m` | D: oldalirányú eltolás (+ jobbra) | 0.0 m | -5 – 5 m | TC ÉS GEOMETRIA |  |
-| `delay_on_ms` | Tehetetlenség BE | 800 ms | 0 – 5000 ms | TC ÉS GEOMETRIA |  |
-| `delay_off_ms` | Tehetetlenség KI | 400 ms | 0 – 5000 ms | TC ÉS GEOMETRIA |  |
+| `tc_enable` | Task Controller kliens | Igen | Nem / Igen | TASK CONTROLLER |  |
+| `tc_sec` | Automatikus szakaszvezérlés (TC-SEC) | Igen | Nem / Igen | TASK CONTROLLER |  |
+| `tc_geo` | Kijuttatási térkép (TC-GEO, kg/ha az adagolóknak) | Nem | Nem / Igen | TASK CONTROLLER |  |
+| `hitch_type` | Csatlakozás | Vonórúd (vonószem) | Függesztett / Kormányzott vonórúd / Vonórúd (vonószem) / Vonóhorog / Gömbfej (K80) | GEOMETRIA |  |
+| `geo_a_m` | A: vonópont → csuklópont (kormányzott vonórúd) | 0.0 m | 0 – 20 m | GEOMETRIA |  |
+| `geo_b_m` | B: csuklópont → csoroszlyák (függesztett: vonópont → csoroszlyák) | 4.0 m | 0 – 20 m | GEOMETRIA |  |
+| `geo_c_m` | C: csuklópont → kerékagy (fordulópont) | 3.0 m | 0 – 20 m | GEOMETRIA |  |
+| `geo_y_m` | D: oldalirányú eltolás (+ jobbra) | 0.0 m | -5 – 5 m | GEOMETRIA |  |
+| `delay_on_ms` | Tehetetlenség BE | 800 ms | 0 – 5000 ms | TASK CONTROLLER |  |
+| `delay_off_ms` | Tehetetlenség KI | 400 ms | 0 – 5000 ms | TASK CONTROLLER |  |
 
 ## Szimuláció / teszt
 
