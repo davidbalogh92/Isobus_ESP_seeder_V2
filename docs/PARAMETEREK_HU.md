@@ -21,6 +21,7 @@ _Generált fájl (tools/gen_params.py). Minden paraméter a webes felületen (Be
 | `rate2` | 2. adagoló előírt mennyiség | 200.0 kg/ha | 0.5 – 1000 kg/ha | ADAGOLÁS, FELTÖLTÉS |  |
 | `cal1_kg_rev` | 1. adagoló kg / adagolófordulat (leforgatásból) | 0.2353 kg | 0.0001 – 20 kg | ADAGOLÁS, FELTÖLTÉS | A leforgatás eredménye. Elektromos hajtásnál ebből számolja a szükséges fordulatot, talajhajtásnál a kijuttatott mennyiséget. |
 | `cal2_kg_rev` | 2. adagoló kg / adagolófordulat (leforgatásból) | 0.2353 kg | 0.0001 – 20 kg | ADAGOLÁS, FELTÖLTÉS |  |
+| `meter_link` | A 2. adagoló ugyanazt adagolja (2. = 1.) | Nem | Nem / Igen | ADAGOLÁS, FELTÖLTÉS | Két adagolónál, ha mindkettő ugyanazt a vetőmagot veti: az előírt mennyiség és a kg/fordulat a két adagolón mindig egyforma (bármelyiket állítod vagy forgatod le, a másik is átveszi). A főképernyőn „1=2” jelzi. |
 | `rate_step_pct` | Léptetés (+/− gomb) | 5.0 % | 1 – 50 % | ADAGOLÁS, FELTÖLTÉS |  |
 | `rate_tol_pct` | Eltérés riasztás (elektromos hajtás) | 10.0 % | 2 – 50 % | ADAGOLÁS, FELTÖLTÉS |  |
 | `prefill_auto` | Automatikus feltöltés induláskor (sarkokban) | Igen | Nem / Igen | ADAGOLÁS, FELTÖLTÉS | Csak elektromos hajtásnál. Ha álló gépnél leengeded a gépet (munkakapcsoló) vagy elindítod a vetést, az adagolók a 'feltöltési sebességhez' tartozó fordulattal előre feltöltik a csöveket, majd az indulás után még az utánfutási ideig így forognak. |

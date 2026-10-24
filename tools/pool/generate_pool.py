@@ -253,6 +253,7 @@ F_RED = P.font(23009, RED, 5, "F_RED")
 F_VALUE_N = P.font(23010, NAVY, 5, "F_VALUE_N")
 F_MSG = P.font(23011, BLACK, 5, "F_MSG")            # állapotsor 16×24
 F_LABEL_R = P.font(23012, RED, 3, "F_LABEL_R")
+F_VALUE_N_S = P.font(23013, NAVY, 3, "F_VALUE_N_S")
 
 L_BLACK = P.line_attr(24000, BLACK, 1, "L_BLACK")
 L_NAVY2 = P.line_attr(24001, NAVY, 2, "L_NAVY2")
@@ -339,8 +340,8 @@ K_LAMP2, PIC_K_LAMP2 = KEYPTR("K_LAMP2", "OP_K_LAMP2", ["softkey_lamp2_off", "so
 K_VALVE, PIC_K_VALVE = KEYPTR("K_VALVE", "OP_K_VALVE", ["softkey_fold", "softkey_marker"])
 K_COOLER, PIC_K_COOLER = KEYPTR("K_COOLER", "OP_K_COOLER", ["softkey_cooler_auto", "softkey_cooler_on",
                                                             "softkey_cooler_off"])
+K_MODE, PIC_K_MODE = KEYPTR("K_MODE", "OP_K_MODE", ["softkey_mode_auto", "softkey_mode_manual"])
 K_CAL_METER, PIC_K_CAL_METER = KEYPTR("K_CAL_METER", "OP_K_CAL_METER", ["softkey_meter1_on", "softkey_meter2_on"])
-K_INFO = KEY("K_INFO", "softkey_info")
 K_MENU = KEY("K_MENU", "softkey_set")
 K_FUNC = KEY("K_FUNC", "softkey_func")
 K_CRANK = KEY("K_CRANK", "softkey_crank")
@@ -387,9 +388,10 @@ K_PG_INFO = KEY("K_PG_INFO", child=PIC("menu/menu_counters", KEY_PIC))
 # --- főképernyő softkey maszkok: (adagolók 1/2) × (elektromos hajtás 0/1).
 # BASIC terminál: az első 5 gomb a jobb oszlop felülről, a következő 5 a bal oszlop.
 def main_keys(meters: int, electric: bool):
-    right = [K_MASTER] + ([K_METER2] if meters == 2 else []) + [K_SEC_AUTO, K_INFO, K_MENU]
-    left = [K_METER1, K_FUNC, K_CRANK] + ([K_PREFILL] if electric else [])
-    right += K_BLANK[:5 - len(right)]
+    # a számlálók a Beállítások menübe kerültek; helyükön elektromos hajtásnál az AUTO/KÉZI gomb
+    right = [K_MASTER] + ([K_METER2] if meters == 2 else []) + [K_SEC_AUTO, K_MODE if electric else K_FUNC]
+    right += K_BLANK[:4 - len(right)] + [K_MENU]
+    left = [K_METER1] + ([K_FUNC] if electric else []) + [K_CRANK] + ([K_PREFILL] if electric else [])
     return right + left
 
 
@@ -426,7 +428,7 @@ SK_ALARM = P.softkey_mask(P.new_id(4000), [K_ACK], name="SK_ALARM")
 
 # ------------------------------------------------------------------ szövegek (object pointerrel váltva)
 MSG = {}
-for key, text in [("off", "VETÉS KI"), ("raised", "GÉP KIEMELVE"), ("standing", "ÁLL - NEM VET"),
+for key, text in [("manual", "KÉZI ADAGOLÁS"), ("off", "VETÉS KI"), ("raised", "GÉP KIEMELVE"), ("standing", "ÁLL - NEM VET"),
                   ("sowing", "VETÉS"), ("prefill", "CSÕFELTÖLTÉS..."), ("start", "START, INDULHATSZ!"),
                   ("crank", "LEFORGATÁS FUT"), ("alarm", "RIASZTÁS")]:
     MSG[key] = S(text, 300, 28, F_MSG, name="STR_MSG_" + key.upper())
@@ -520,6 +522,8 @@ add((S("%", 14, 16, F_LABEL), 206, VY + 4))
 PREFILL_CONT = C(80, 22, [(N("OUT_PREFILL", 50, F_LABEL, decimals=1, scale=0.1, align=2), 0, 0),
                           (S("s", 14, 16, F_LABEL), 52, 0)], hidden=True, name="CONT_PREFILL")
 add((PREFILL_CONT, 160, VY + 26))
+LINK_CONT = C(80, 22, [(S("1 = 2", 80, 20, F_VALUE_N_S, align=1), 0, 0)], hidden=True, name="CONT_LINK")
+add((LINK_CONT, 160, VY + 26))
 # állapotsor
 SY = 244
 add((R(MASK - 8, 34, FL_MSG, L_BLACK), 4, SY))
@@ -808,7 +812,7 @@ ARRAYS = {
     "PIC_FAN": PIC_FAN, "PIC_LAMP_S": PIC_LAMP_S, "PIC_VALVE_S": PIC_VALVE_S, "PIC_COOLER_S": PIC_COOLER_S,
     "PIC_SEC_S": PIC_SEC_S, "PIC_GEO": PIC_GEO,
     "PIC_K_MASTER": PIC_K_MASTER, "PIC_K_METER1": PIC_K_METER1, "PIC_K_METER2": PIC_K_METER2, "PIC_K_SEC": PIC_K_SEC,
-    "PIC_K_PREFILL": PIC_K_PREFILL, "PIC_K_LAMP1": PIC_K_LAMP1, "PIC_K_LAMP2": PIC_K_LAMP2,
+    "PIC_K_PREFILL": PIC_K_PREFILL, "PIC_K_MODE": PIC_K_MODE, "PIC_K_LAMP1": PIC_K_LAMP1, "PIC_K_LAMP2": PIC_K_LAMP2,
     "PIC_K_VALVE": PIC_K_VALVE, "PIC_K_COOLER": PIC_K_COOLER, "PIC_K_CAL_METER": PIC_K_CAL_METER,
     "SK_FUNC": SK_FUNC, "STR_ALARM": STR_ALARM, "STR_ALARMBIG": STR_ALARM_BIG, "STR_CAL": CAL_STATE,
     "STR_METER": STR_METER, "STR_SETUP": STR_SETUP, "STR_NOTE": STR_NOTE, "K_BLANK": K_BLANK,

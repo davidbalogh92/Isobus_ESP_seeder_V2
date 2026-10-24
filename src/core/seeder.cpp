@@ -355,7 +355,38 @@ void Seeder::toggle_section_auto() {
     say(tc_section_auto_ ? "Automata szakaszolás" : "Kézi szakaszolás");
 }
 
+void Seeder::set_auto(bool on) {
+    if (!on && !electric_drive(settings_)) {
+        say("Kézi adagolás csak elektromos hajtásnál");
+        return;
+    }
+    if (!on && !manual_) {
+        // a kézi fordulat az aktuális automata fordulatról indul, hogy ne ugorjon
+        const float max_rpm = settings_.motor_max_rpm > 1.0f ? settings_.motor_max_rpm : 1.0f;
+        float rpm = 0.0f;
+        for (const auto &m : status_.meter) rpm = m.target_rpm > rpm ? m.target_rpm : rpm;
+        if (rpm > 0.5f) manual_pct_ = clampf(std::round(rpm / max_rpm * 100.0f), 0.0f, 100.0f);
+    }
+    if (manual_ == !on) return;
+    manual_ = !on;
+    say(manual_ ? "Kézi adagolás: a +/− a motorfordulatot lépteti" : "Automata adagolás");
+}
+
+void Seeder::copy_meter1_to_2() {
+    if (meter_count(settings_) < 2) {
+        say("Csak két adagolónál");
+        return;
+    }
+    set_param(P_rate2, settings_.rate1);
+    set_param(P_cal2_kg_rev, settings_.cal1_kg_rev);
+    say("Az 1. adagoló beállítása átmásolva a 2.-ra");
+}
+
 void Seeder::rate_step(int dir) {
+    if (manual_) {
+        manual_pct_ = clampf(manual_pct_ + (dir > 0 ? 1.0f : -1.0f) * settings_.rate_step_pct, 0.0f, 100.0f);
+        return;
+    }
     const int next = rate_offset_steps_ + (dir > 0 ? 1 : -1);
     if (std::fabs(static_cast<float>(next) * settings_.rate_step_pct) <= 50.0f) rate_offset_steps_ = next;
 }
@@ -597,6 +628,7 @@ void Seeder::tick(const TickInputs &input) {
     const int n_sec = section_count(S);
     const int n_tank = tank_count(S);
     const bool elec = electric_drive(S);
+    if (!elec) manual_ = false; // talajhajtásnál nincs kézi mód
     const bool invert = S.out_invert != 0;
 
     if (S.sim_inputs) update_simulation(in, dt);
@@ -728,6 +760,9 @@ void Seeder::tick(const TickInputs &input) {
                 } else {
                     target_rpm = left < 1.5 ? crank_rpm * 0.3f : crank_rpm;
                 }
+            } else if (drive && manual_ && !prefill_active) {
+                // kézi adagolás: a kezelő által léptetett állandó fordulat, a sebességtől függetlenül
+                target_rpm = manual_pct_ / 100.0f * S.motor_max_rpm;
             } else if (drive && kg_rev > 0.0f) {
                 target_rpm = m.target_rate * v_eff * m.width_m / 600.0f / kg_rev;
             }
@@ -736,7 +771,7 @@ void Seeder::tick(const TickInputs &input) {
             outputs_.clutch_drive[i] = false;
             m.running = exists && (target_rpm > 0.0f || mo.pwm_pct > 0.5f);
             // eltérés figyelés (felfutás után)
-            const bool dev = target_rpm > 0.5f && !crank_this && motor_[i].running_for() > 3.0f &&
+            const bool dev = target_rpm > 0.5f && !crank_this && !manual_ && motor_[i].running_for() > 3.0f &&
                              (std::fabs(mo.error_pct) > S.rate_tol_pct || mo.saturated);
             rate_dev_timer_[i] = dev ? rate_dev_timer_[i] + dt : 0.0f;
             alarms_.set(METER_RATE[i], rate_dev_timer_[i] >= 5.0f);
@@ -929,6 +964,8 @@ void Seeder::tick(const TickInputs &input) {
     st.tc_section_auto = tc_auto;
     st.sown_width_m = sowing ? sown_w : 0.0f;
     st.rate_offset_pct = offset_pct;
+    st.manual = manual_;
+    st.manual_pct = manual_pct_;
     st.tc_rate = use_tc_rate;
     st.prefill = prefill_;
     st.prefill_left_s = prefill_active ? (prefill_timer_ > 0.0f ? prefill_timer_ : 0.0f) : 0.0f;
@@ -1018,6 +1055,9 @@ std::string Seeder::status_json() const {
     append_kv(o, "sec_auto_req", tc_section_auto_);
     append_kv(o, "sown_w", st.sown_width_m, 2);
     append_kv(o, "rate_offset", st.rate_offset_pct, 0);
+    append_kv(o, "manual", st.manual);
+    append_kv(o, "manual_pct", st.manual_pct, 0);
+    append_kv(o, "meter_link", settings_.meter_link != 0 && st.meter_count >= 2);
     append_kv(o, "tc_rate", st.tc_rate);
     append_kv(o, "prefill", prefill_label(st.prefill));
     append_kv(o, "prefill_id", static_cast<double>(st.prefill), 0);

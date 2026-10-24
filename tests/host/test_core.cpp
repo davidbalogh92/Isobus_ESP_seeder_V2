@@ -866,6 +866,144 @@ TEST(tc_geo_rate_per_meter_and_clear) {
     CHECK_NEAR(s.status().meter[0].target_rate, 200.0, 1e-3);
 }
 
+// ----------------------------------------------------------------- 2. = 1. adagoló (összekapcsolás)
+TEST(meter_link_keeps_both_equal) {
+    Settings st = default_settings();
+    st.meter_link = 1;
+    st.rate1 = 150.0f;
+    st.rate2 = 90.0f;
+    st.cal1_kg_rev = 0.3f;
+    st.cal2_kg_rev = 0.1f;
+    normalize(st);
+    CHECK_NEAR(st.rate2, 150.0, 1e-4);          // bekapcsoláskor az 1. nyer
+    CHECK_NEAR(st.cal2_kg_rev, 0.3, 1e-5);
+    CHECK(apply_param(st, P_rate2, 180.0f));    // a 2. módosítása az 1.-et is viszi
+    CHECK_NEAR(st.rate1, 180.0, 1e-4);
+    CHECK(apply_param(st, P_cal1_kg_rev, 0.25f));
+    CHECK_NEAR(st.cal2_kg_rev, 0.25, 1e-5);
+    // kikapcsolva újra függetlenek
+    CHECK(apply_param(st, P_meter_link, 0.0f));
+    CHECK(apply_param(st, P_rate2, 60.0f));
+    CHECK_NEAR(st.rate1, 180.0, 1e-4);
+    // egy adagolónál nincs hatása
+    Settings one = default_settings();
+    one.meter_count = 1;
+    one.meter_link = 1;
+    one.rate2 = 77.0f;
+    normalize(one);
+    CHECK_NEAR(one.rate2, 77.0, 1e-4);
+}
+
+TEST(meter_link_crank_save_updates_both) {
+    Seeder s = make([](Settings &st) { st.meter_link = 1; });
+    s.crank_set_meter(1);                       // a 2. adagolót forgatja le
+    s.crank_set_measured(17.0f);                // 85 fordulat → 0,2 kg/ford
+    CHECK(s.crank_save());
+    CHECK_NEAR(s.settings().cal2_kg_rev, 0.2, 1e-4);
+    CHECK_NEAR(s.settings().cal1_kg_rev, 0.2, 1e-4);
+}
+
+TEST(meter_copy_command) {
+    Seeder s = make([](Settings &st) { st.rate1 = 210.0f; st.rate2 = 100.0f; st.cal1_kg_rev = 0.31f; });
+    std::string err;
+    CHECK(apply_command(s, "meter_copy", 0, err));
+    CHECK_NEAR(s.settings().rate2, 210.0, 1e-4);
+    CHECK_NEAR(s.settings().cal2_kg_rev, 0.31, 1e-5);
+    CHECK(s.settings().meter_link == 0);        // csak egyszeri másolás
+    Seeder one = make([](Settings &st) { st.meter_count = 1; st.rate2 = 50.0f; });
+    one.copy_meter1_to_2();
+    CHECK_NEAR(one.settings().rate2, 50.0, 1e-4);
+}
+
+// ----------------------------------------------------------------- kézi adagolás (elektromos hajtás)
+TEST(manual_mode_constant_rpm_independent_of_speed) {
+    Seeder s = make([](Settings &st) {
+        st.drive_type = 1;
+        st.cal1_kg_rev = 0.2f;
+        st.cal2_kg_rev = 0.2f;
+        st.motor_max_rpm = 60.0f;
+        st.prefill_auto = 0;
+        st.rate_step_pct = 5.0f;
+    });
+    Machine m = down_machine();
+    s.set_master(true);
+    m.run(s, 3.0f);
+    CHECK_NEAR(s.status().meter[0].target_rpm, 40.0, 1e-3);   // automata: 200 kg/ha, 8 km/h
+    s.set_auto(false);
+    m.run(s, 0.2f);
+    CHECK(s.status().manual);
+    CHECK_NEAR(s.status().manual_pct, 67.0, 0.6);              // az automata fordulatról indul (40/60)
+    s.rate_step(+1);
+    m.run(s, 0.2f);
+    CHECK_NEAR(s.status().meter[0].target_rpm, 0.72 * 60.0, 0.4);
+    // a sebesség változása nem hat a fordulatra
+    s.set_param(P_sim_speed, 12.0f);
+    m.run(s, 2.0f);
+    CHECK_NEAR(s.status().meter[0].target_rpm, 0.72 * 60.0, 0.4);
+    CHECK(!has_alarm(s, AlarmId::Meter1Rate));                 // kézi módban nincs eltérés riasztás
+    // a kiemelés kézi módban is megállítja
+    m.in.work_contact = false;
+    m.run(s, 1.0f);
+    CHECK_NEAR(s.status().meter[0].target_rpm, 0.0, 1e-6);
+    // határok
+    for (int i = 0; i < 30; ++i) s.rate_step(+1);
+    CHECK_NEAR(s.status().manual_pct, 72.0, 0.6);              // a status a következő ciklusban frissül
+    m.run(s, 0.1f);
+    CHECK_NEAR(s.status().manual_pct, 100.0, 1e-4);
+    for (int i = 0; i < 30; ++i) s.rate_step(-1);
+    m.run(s, 0.1f);
+    CHECK_NEAR(s.status().manual_pct, 0.0, 1e-4);
+    // vissza automatára: a ±% eltolás nem változott közben
+    s.toggle_auto();
+    m.in.work_contact = true;
+    m.run(s, 1.0f);
+    CHECK(!s.status().manual);
+    CHECK_NEAR(s.status().rate_offset_pct, 0.0, 1e-6);
+    CHECK_NEAR(s.status().meter[0].target_rpm, 60.0, 0.2);    // 200 kg/ha 12 km/h-nál
+}
+
+TEST(manual_mode_refused_for_ground_drive) {
+    Seeder s = make();
+    s.set_auto(false);
+    Machine m = down_machine();
+    m.run(s, 0.1f);
+    CHECK(!s.status().manual);
+    CHECK(std::strstr(s.status().message, "elektromos") != nullptr);
+    // elektromosról talajhajtásra váltva a kézi mód megszűnik
+    Seeder e = make([](Settings &st) { st.drive_type = 1; });
+    e.set_auto(false);
+    m.run(e, 0.1f);
+    CHECK(e.status().manual);
+    e.set_param(P_drive_type, 0.0f);
+    m.run(e, 0.1f);
+    CHECK(!e.status().manual);
+}
+
+TEST(tc_section_auto_accepted_without_operator) {
+    Seeder s = make();
+    Machine m = down_machine();
+    m.in.tc_connected = true;
+    s.set_master(true);
+    m.run(s, 0.1f);
+    s.tc_set_section_auto(true);       // a TC (navigáció) automatát kér
+    s.tc_set_section_setpoint(0, false);
+    s.tc_set_section_setpoint(1, true);
+    m.run(s, 0.5f);
+    CHECK(s.status().tc_section_auto);
+    CHECK(!s.outputs().clutch_drive[0] && s.outputs().clutch_drive[1]);
+    // a kezelő a saját gombjával kézire válthat
+    s.toggle_section_auto();
+    m.run(s, 0.2f);
+    CHECK(!s.status().tc_section_auto);
+    CHECK(s.outputs().clutch_drive[0] && s.outputs().clutch_drive[1]);
+    // TC-SEC kikapcsolva a beállításban: a TC kérése hatástalan
+    Seeder off = make([](Settings &st) { st.tc_sec = 0; });
+    off.set_master(true);
+    off.tc_set_section_auto(true);
+    m.run(off, 0.2f);
+    CHECK(!off.status().tc_section_auto);
+}
+
 TEST(alarm_ack_and_realarm) {
     Seeder s = make([](Settings &st) { st.realarm_s = 10; st.meter_timeout_s = 2.0f; });
     Machine m = down_machine();

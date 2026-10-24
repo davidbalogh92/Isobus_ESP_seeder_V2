@@ -298,15 +298,12 @@ int main(int argc, char **argv) {
                           static_cast<std::int32_t>(0xFFFFFFF0u | 0x1u));
         // TC-GEO: 1. adagoló 150 kg/ha (mg/m²: ×100)
         tc.send_set_value(tc.client, static_cast<std::uint16_t>(DDI::SetpointMassPerAreaApplicationRate), 3, 15000);
-        wait_for([] { return false; }, step, 2);
-        std::lock_guard<std::mutex> g(shared.lock);
-        if (!shared.core.status().tc_section_auto) shared.core.toggle_section_auto();
     }
     wait_for([] { return false; }, step, 2);
     {
         std::lock_guard<std::mutex> g(shared.lock);
         const auto &st = shared.core.status();
-        check(st.tc_section_auto, "TC-SEC: automatikus szakaszvezérlés aktív");
+        check(st.tc_section_auto, "TC-SEC: a TC parancsára a gép magától automatára vált (kezelői gomb nélkül)");
         check(st.section_on[0] && !st.section_on[1], "TC-SEC: 1. szakasz be, 2. ki");
         check(std::abs(st.meter[0].target_rate - 150.0f) < 0.01f, "TC-GEO: 1. adagoló előírt 150 kg/ha");
         check(std::abs(st.meter[1].target_rate - 200.0f) < 0.01f, "TC-GEO: a 2. adagoló a saját beállítását tartja");

@@ -141,7 +141,7 @@ def render_all(gen, outdir: Path):
         n["OUT_TEMP"]: 54, n["OP_COOLER"]: G.PIC_COOLER_S[1], n["OP_LAMP1"]: G.PIC_LAMP_S[1],
         n["OP_SEC"]: G.PIC_SEC_S[1], n["OUT_PREFILL"]: 25,
         ("hidden", n["CONT_PRESSURE"]): False, ("hidden", n["CONT_TEMP"]): False,
-        ("hidden", n["CONT_COOLER"]): False, ("hidden", n["CONT_LAMPS"]): False, ("hidden", n["CONT_VALVE"]): False,
+        ("hidden", n["CONT_COOLER"]): False, ("hidden", n["CONT_LINK"]): False, ("hidden", n["CONT_LAMPS"]): False, ("hidden", n["CONT_VALVE"]): False,
         n["OUT_DAY_AREA"]: 1234, n["OUT_TOT_AREA"]: 45678, n["OUT_DAY_DIST"]: 3856, n["OUT_TOT_DIST"]: 142730,
         n["OUT_DAY_TIME"]: 31, n["OUT_TOT_TIME"]: 1102, n["OUT_DAY_KG1"]: 2470, n["OUT_TOT_KG1"]: 91350,
         n["OUT_DAY_KG2"]: 1800, n["OUT_TOT_KG2"]: 60200,

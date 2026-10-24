@@ -233,6 +233,8 @@ struct Status {
     bool tc_section_auto = false;  ///< a TC vezérli a szakaszokat
     float sown_width_m = 0.0f;
     float rate_offset_pct = 0.0f;
+    bool manual = false;           ///< kézi adagolás (elektromos hajtás): állandó fordulat
+    float manual_pct = 0.0f;       ///< kézi fordulat a "fordulat 100% PWM-nél" %-ában
     bool tc_rate = false;          ///< az előírt értéket a TC adja (TC-GEO)
     // feltöltés
     PrefillState prefill = PrefillState::Idle;
@@ -287,7 +289,13 @@ public:
     void toggle_meter(int i);
     void set_meter(int i, bool on);
     void toggle_section_auto();
+    /// +/−: automatában az előírt értéket lépteti, kézi módban a motorfordulatot
     void rate_step(int dir);
+    void set_auto(bool on);        ///< kézi mód csak elektromos hajtásnál
+    void toggle_auto() { set_auto(manual_); }
+    bool manual() const { return manual_; }
+    /// az 1. adagoló előírt értékének és kg/fordulatának átmásolása a 2.-ra
+    void copy_meter1_to_2();
     void rate_offset_reset() { rate_offset_steps_ = 0; }
     void toggle_lamp(int i);
     void toggle_valve();
@@ -361,6 +369,8 @@ private:
     bool tc_rate_valid_ = false;
     bool tc_rate_has_[MAX_METERS] = {false, false};   ///< adagolónként kapott-e előírt értéket
     int rate_offset_steps_ = 0;
+    bool manual_ = false;
+    float manual_pct_ = 30.0f;
     bool lamp_[2] = {false, false};
     bool valve_ = false;
     bool cooler_manual_on_ = false;

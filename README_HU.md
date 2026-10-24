@@ -12,7 +12,8 @@ ikonok az ESC vetőgép-monitorból jönnek.
 |---|---|
 | Gép | munkaszélesség (alap 6 m), 1–2 adagoló, 1–2 tartály(rekesz), 1–2 szakasz; két adagolónál bal/jobb félszélesség vagy első/hátsó sor (mindkettő a teljes szélességet veti) |
 | Hajtás | **talajhajtás + elektromágneses kuplung** adagolónként (áram alatt hajt / old), vagy **elektromos motor** adagolónként enkóderrel (alap 50 imp/ford), PWM min/max, rámpák, PI + előrecsatolás |
-| Adagolás | előírt mennyiség adagolónként (kg/ha), ±% léptetés; elektromos hajtásnál a kg/ha a leforgatásból kapott kg/fordulattal motorfordulatra számolva |
+| Adagolás | előírt mennyiség adagolónként (kg/ha), ±% léptetés; elektromos hajtásnál a kg/ha a leforgatásból kapott kg/fordulattal motorfordulatra számolva; **„2. = 1. adagoló”** összekapcsolás (azonos vetőmagnál az előírt érték és a kg/fordulat egyforma, főképernyőn „1 = 2”) és egyszeri 1. → 2. másolás |
+| Kézi adagolás | elektromos hajtásnál AUTOMATA ↔ KÉZI: kézi módban a +/− a motorfordulatot lépteti, a sebességtől függetlenül (a vetés feltételei továbbra is kellenek) |
 | Csőfeltöltés | elektromos hajtásnál induláskor (gép leengedése / vetés BE álló gépnél) a motor a beállított „feltöltési sebességgel” előre adagol, majd „START – indulhatsz” várakozás – sarkoknál nem marad ki a vetés |
 | Szakaszvezérlés | a kezelő 2 független adagoló gombja + TC-SEC. 1 szakasznál (pl. 6 m, 2 adagoló) a TC mindkét adagolót együtt kapcsolja, a kezelő gombjai továbbra is külön működnek |
 | Sebesség | kerékjeladó (imp/100 m, **100 m-es kalibrálás** vagy kézi megadás), ISOBUS (föld/radar/GPS, traktor kerék, gép által választott, NMEA), ISOBUS + kerék tartalék, szimulált sebesség |
@@ -42,8 +43,11 @@ A képek a generált object poolból készülnek (`docs/vt_preview/`), a Müller
 |---|---|---|
 | ![](docs/vt_preview/05_menu.png) | ![](docs/vt_preview/06_leforgatas.png) | ![](docs/vt_preview/21_beallitas_geometry.png) |
 
-**Főképernyő softkey-ek** – jobb oszlop: Vetés BE/KI · 2. adagoló · TC szakaszvezérlés · Számlálók ·
-Beállítások; bal oszlop: 1. adagoló · Funkciók · Leforgatás · Csőfeltöltés (csak motoros hajtásnál).
+**Főképernyő softkey-ek** – jobb oszlop: Vetés BE/KI · 2. adagoló · TC szakaszvezérlés ·
+AUTOMATA/KÉZI (motoros hajtás; talajhajtásnál itt a Funkciók) · Beállítások; bal oszlop: 1. adagoló ·
+Funkciók · Leforgatás · Csőfeltöltés (csak motoros hajtásnál). A Számlálók a Beállítások menüben vannak.
+Az automata szakaszvezérlést a Task Controller (navigáció) kapcsolja: a gép kezelői gomb nélkül átveszi
+és kijelzi; a saját gombbal a kezelő kézire válthat, ezt a TC is megkapja.
 **Funkciók:** vissza · előírt +/−/100% · nyugtázás · lámpa 1/2 · szétnyitás/nyomjelző · hűtő
 (automata → kézi BE → kézi KI). A gombok csak a bekapcsolt kiegészítőknél jelennek meg.
 

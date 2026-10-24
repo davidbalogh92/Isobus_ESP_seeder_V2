@@ -196,7 +196,14 @@ void normalize(Settings &s, int changed_id) {
         if (changed_id == P_cooler_off_c) s.cooler_on_c = s.cooler_off_c + 1.0f;
         else s.cooler_off_c = s.cooler_on_c - 1.0f;
     }
-    // 6) turbina: a max ne legyen a min alatt (0 = nincs felső riasztás)
+    // 6) összekapcsolt adagolók: az előírt érték és a kg/fordulat egyforma (a módosított oldal nyer)
+    if (s.meter_link && s.meter_count >= 2) {
+        if (changed_id == P_rate2) s.rate1 = s.rate2;
+        else s.rate2 = s.rate1;
+        if (changed_id == P_cal2_kg_rev) s.cal1_kg_rev = s.cal2_kg_rev;
+        else s.cal2_kg_rev = s.cal1_kg_rev;
+    }
+    // 7) turbina: a max ne legyen a min alatt (0 = nincs felső riasztás)
     if (s.fan_max_rpm != 0 && s.fan_max_rpm <= s.fan_min_rpm) {
         if (changed_id == P_fan_min_rpm) s.fan_max_rpm = 0;
         else s.fan_max_rpm = s.fan_min_rpm + 10;

@@ -66,6 +66,7 @@ private:
     unsigned uploads_ = 0;
     std::uint32_t last_sections_ = 0xFFFFFFFFu;
     bool last_work_ = false;
+    bool last_sec_auto_ = false;
     std::int32_t last_rate_[seeder::MAX_METERS] = {-1, -1};
 };
 

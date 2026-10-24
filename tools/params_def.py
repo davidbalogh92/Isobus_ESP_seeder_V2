@@ -103,6 +103,11 @@ add("cal1_kg_rev", "rate", "1. adagoló kg / adagolófordulat (leforgatásból)"
          "a kijuttatott mennyiséget.")
 add("cal2_kg_rev", "rate", "2. adagoló kg / adagolófordulat (leforgatásból)", "Kg/ford. 2", "float", 0.2353,
     0.0001, 20.0, 0.0001, 4, "kg", vt_page="rate")
+add("meter_link", "rate", "A 2. adagoló ugyanazt adagolja (2. = 1.)", "2. = 1. adagoló", "bool", 0,
+    options=YES_NO, vt_page="rate",
+    help="Két adagolónál, ha mindkettő ugyanazt a vetőmagot veti: az előírt mennyiség és a kg/fordulat "
+         "a két adagolón mindig egyforma (bármelyiket állítod vagy forgatod le, a másik is átveszi). "
+         "A főképernyőn „1=2” jelzi.")
 add("rate_step_pct", "rate", "Léptetés (+/− gomb)", "Léptetés +/-", "float", 5.0, 1, 50, 1, 0, "%",
     vt_page="rate")
 add("rate_tol_pct", "rate", "Eltérés riasztás (elektromos hajtás)", "Eltérés riasztás", "float", 10.0, 2, 50, 1, 0,

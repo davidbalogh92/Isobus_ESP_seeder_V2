@@ -286,6 +286,11 @@ void TcLink::update(const Snapshot &snap) {
             client_->on_value_changed_trigger(EN_BOOM, d(DDI::ActualWorkingWidth));
             last_sections_ = sec;
         }
+        // a kezelő a saját felületén kézire válthatja: a TC is tudja meg (a terminál ezt kijelzi)
+        if (snap.set.tc_sec && st.tc_section_auto != last_sec_auto_) {
+            client_->on_value_changed_trigger(EN_BOOM, d(DDI::SectionControlState));
+            last_sec_auto_ = st.tc_section_auto;
+        }
         if (work != last_work_) {
             client_->on_value_changed_trigger(EN_DEVICE, d(DDI::ActualWorkState));
             last_work_ = work;

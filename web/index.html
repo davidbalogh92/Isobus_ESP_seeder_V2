@@ -124,12 +124,16 @@ input[type=file]{color:var(--muted);max-width:100%}
           <button class="btn wide" id="btnSec" onclick="cmd('sec_auto')">TC szakaszvezérlés</button>
           <button class="btn wide hide" id="btnPrefill" onclick="cmd(S&&S.status.prefill_id?'prefill_stop':'prefill_start')">Csőfeltöltés</button>
         </div>
+        <div class="row hide" id="modeRow">
+          <button class="btn wide" id="btnAuto" onclick="cmd('auto',1)">AUTOMATA adagolás</button>
+          <button class="btn wide" id="btnManual" onclick="cmd('auto',0)">KÉZI (fordulat)</button>
+        </div>
         <div class="row">
           <button class="btn wide" onclick="cmd('rate_step',-1)" id="btnMinus">−</button>
           <button class="btn wide" onclick="cmd('rate_reset')" id="btnReset">100%</button>
           <button class="btn wide" onclick="cmd('rate_step',1)" id="btnPlus">+</button>
         </div>
-        <div class="badges"><span class="badge" id="bWork">Munkahelyzet</span><span class="badge" id="bTc">TC</span><span class="badge info hide" id="bGeo">TC térkép</span><span class="badge info hide" id="bSim">SZIMULÁCIÓ</span></div>
+        <div class="badges"><span class="badge" id="bWork">Munkahelyzet</span><span class="badge" id="bTc">TC</span><span class="badge info hide" id="bGeo">TC térkép</span><span class="badge info hide" id="bLink">1 = 2 adagoló</span><span class="badge info hide" id="bSim">SZIMULÁCIÓ</span></div>
       </div>
     </div>
     <div class="grid" style="gap:var(--gap)">
@@ -375,6 +379,9 @@ function buildGroups(){
     d.innerHTML=`<summary><span>${GROUP_ICON[g.icon]||'•'}</span><span>${esc(g.label)}</span><span class="chev">›</span></summary><div class="body"></div>`;
     const body=d.querySelector('.body');
     for(const p of SCHEMA.params.filter(p=>p.group===g.id))body.appendChild(fieldFor(p));
+    if(g.id==='rate'){const x=document.createElement('div');x.className='row';x.id='copyRow';x.style.marginTop='10px';
+      x.innerHTML='<span class="muted" style="flex:1">Egyszeri másolás: az 1. adagoló előírt értéke és kg/fordulata a 2.-ra.</span><button class="btn" onclick="cmd(\'meter_copy\').then(loadConfig)">1. → 2. másolás</button>';
+      body.appendChild(x)}
     box.appendChild(d)}
   fillInputs()}
 function fieldFor(p){
@@ -395,8 +402,8 @@ function fieldFor(p){
 // csak az érvényes beállítások látszanak (pl. 1 adagolónál nincs 2. előírt érték)
 function relevant(key){
   const m=Math.round(CFG.meter_count||1),el=Math.round(CFG.drive_type)===1,ws=Math.round(CFG.work_sw)>0,sp=Math.round(CFG.speed_src);
-  if(/(^rate2$|^cal2_kg_rev$)/.test(key))return m>1;
-  if(key==='meter_layout')return m>1;
+  if(/(^rate2$|^cal2_kg_rev$)/.test(key))return m>1&&!CFG.meter_link;
+  if(key==='meter_layout'||key==='meter_link')return m>1;
   if(key==='section_count')return m>1&&Math.round(CFG.meter_layout)===0;
   if(key==='sec_w1')return Math.round(CFG.section_count)>1;
   if(key==='tank_count')return true;
@@ -417,7 +424,8 @@ function fillInputs(except){
     if(f)f.style.display=(!p.feature||CFG[p.feature])&&relevant(p.key)?'':'none';
     const el=$('p_'+p.key);if(!el||document.activeElement===el)continue;
     const v=CFG[p.key];if(v===undefined)continue;
-    el.value=p.kind==='str'?v:(p.kind==='enum'||p.kind==='bool'?String(Math.round(v)):Number(v).toFixed(p.decimals))}}
+    el.value=p.kind==='str'?v:(p.kind==='enum'||p.kind==='bool'?String(Math.round(v)):Number(v).toFixed(p.decimals))}
+  if($('copyRow'))$('copyRow').style.display=Math.round(CFG.meter_count)>1&&!CFG.meter_link?'':'none'}
 
 // ---------------------------------------------------------------- kalibrálási táblázat
 function renderChart(){
@@ -450,12 +458,14 @@ function render(){
   // vetés
   const stEl=$('state');let txt=st.state;
   if(st.prefill_id===1)txt=`Csőfeltöltés… ${fmt(st.prefill_left,1)} s`;else if(st.prefill_id===2)txt=`START – indulhatsz! (${fmt(st.prefill_left,1)} s)`;
-  stEl.textContent=txt;stEl.className='state '+(st.prefill_id?'pre':st.state_id===3?'sow':st.state_id===5?'al':'');
+  if(st.manual&&st.state_id===3)txt+=' – KÉZI adagolás';stEl.textContent=txt;stEl.className='state '+(st.prefill_id?'pre':st.state_id===3?'sow':st.state_id===5?'al':'');
   const m=$('btnMaster');m.textContent=st.master?'VETÉS: BE':'VETÉS: KI';m.className='btn master wide '+(st.master?'go':'stop');
   const sb=$('btnSec');sb.textContent=st.sec_auto?'TC szakaszvezérlés: AUTO':'TC szakaszvezérlés: KÉZI';sb.className='btn wide '+(st.sec_auto?'on':'');sb.disabled=!CFG.tc_enable||!CFG.tc_sec;
   show('btnPrefill',st.electric);$('btnPrefill').textContent=st.prefill_id?'Feltöltés leállítása':'Csőfeltöltés';$('btnPrefill').className='btn wide '+(st.prefill_id?'on':'')+(st.electric?'':' hide');
-  $('btnPlus').textContent='+ '+fmt(CFG.rate_step_pct)+'%';$('btnMinus').textContent='− '+fmt(CFG.rate_step_pct)+'%';
-  $('btnReset').textContent=st.rate_offset?((st.rate_offset>0?'+':'')+fmt(st.rate_offset)+'% → 100%'):'100%';
+  show('modeRow',st.electric);$('btnAuto').className='btn wide '+(st.manual?'':'on');$('btnManual').className='btn wide '+(st.manual?'on':'');
+  $('btnPlus').textContent=(st.manual?'+ fordulat ':'+ ')+fmt(CFG.rate_step_pct)+'%';$('btnMinus').textContent=(st.manual?'− fordulat ':'− ')+fmt(CFG.rate_step_pct)+'%';
+  $('btnReset').textContent=st.manual?`Kézi: ${fmt(st.manual_pct)}% fordulat`:(st.rate_offset?((st.rate_offset>0?'+':'')+fmt(st.rate_offset)+'% → 100%'):'100%');
+  $('btnReset').disabled=st.manual;show('bLink',st.meter_link);
   $('bWork').textContent=Math.round(CFG.work_sw)?(st.work_down?'Gép LENT':'Gép FENT'):'Nincs munkakapcsoló';$('bWork').className='badge '+(st.work_down?'ok':'');
   $('bTc').textContent=st.tc?'TC kapcsolat':'Nincs TC';$('bTc').className='badge '+(st.tc?'info':'');
   show('bGeo',st.tc_rate);show('bSim',(st.alarm_list||[]).some(a=>a.code==='SIMULATION'));

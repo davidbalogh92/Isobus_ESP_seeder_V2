@@ -156,8 +156,8 @@ void VtUi::on_softkey(std::uint16_t id, std::uint8_t activation) {
         if (st.prefill == seeder::PrefillState::Idle) c.prefill_start();
         else c.prefill_stop();
         break;
-    case vt::K_INFO:
     case vt::K_PG_INFO: go(Page::Info); break;
+    case vt::K_MODE: c.toggle_auto(); break;
     case vt::K_MENU: go(Page::Menu); break;
     case vt::K_FUNC: go(Page::Func); break;
     case vt::K_CRANK:
@@ -441,6 +441,7 @@ void VtUi::update_main(const Snapshot &s) {
     num(vt::OP_K_METER1, vt::PIC_K_METER1[st.meter[0].enabled ? 1 : 0]);
     num(vt::OP_K_METER2, vt::PIC_K_METER2[st.meter[1].enabled ? 1 : 0]);
     num(vt::OP_K_SEC, vt::PIC_K_SEC[st.tc_section_auto ? 1 : 0]);
+    num(vt::OP_K_MODE, vt::PIC_K_MODE[st.manual ? 1 : 0]);
     num(vt::OP_K_PREFILL, vt::PIC_K_PREFILL[st.prefill != seeder::PrefillState::Idle ? 1 : 0]);
     num(vt::OP_K_LAMP1, vt::PIC_K_LAMP1[st.lamp[0] ? 1 : 0]);
     num(vt::OP_K_LAMP2, vt::PIC_K_LAMP2[st.lamp[1] ? 1 : 0]);
@@ -464,8 +465,10 @@ void VtUi::update_main(const Snapshot &s) {
     num(vt::OUT_TGT1, std::lround(st.meter[0].target_rate * 10.0f));
     num(vt::OUT_ACT2, std::lround(st.meter[1].actual_rate * 10.0f));
     num(vt::OUT_TGT2, std::lround(st.meter[1].target_rate * 10.0f));
-    num(vt::OUT_OFFSET, std::lround(st.rate_offset_pct) + 100);
+    // kézi módban a % mező a motorfordulatot mutatja (a "fordulat 100% PWM-nél" %-ában)
+    num(vt::OUT_OFFSET, std::lround(st.manual ? st.manual_pct : st.rate_offset_pct) + 100);
     shown(vt::CONT_PREFILL, st.prefill != seeder::PrefillState::Idle);
+    shown(vt::CONT_LINK, set.meter_link && meters >= 2 && st.prefill == seeder::PrefillState::Idle);
     num(vt::OUT_PREFILL, std::lround(std::max(0.0f, st.prefill_left_s) * 10.0f));
 
     // állapotsor
@@ -492,7 +495,10 @@ void VtUi::update_main(const Snapshot &s) {
         case seeder::SowState::Off: msg = vt::STR_MSG_OFF; break;
         case seeder::SowState::Raised: msg = vt::STR_MSG_RAISED; break;
         case seeder::SowState::Standing: msg = vt::STR_MSG_STANDING; break;
-        case seeder::SowState::Sowing: msg = vt::STR_MSG_SOWING; colour = C_LIME; break;
+        case seeder::SowState::Sowing:
+            msg = st.manual ? vt::STR_MSG_MANUAL : vt::STR_MSG_SOWING;
+            colour = st.manual ? C_CYAN : C_LIME;
+            break;
         case seeder::SowState::Prefill: msg = vt::STR_MSG_PREFILL; colour = C_CYAN; break;
         case seeder::SowState::Alarm: msg = warn >= 0 ? vt::STR_ALARM[warn] : vt::STR_MSG_ALARM; colour = C_YELLOW; break;
         }

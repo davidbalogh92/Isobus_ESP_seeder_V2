@@ -46,7 +46,7 @@ bool json_get_number(const char *json, const char *key, double &out) {
 
 // Parancsok (value: szám, ahol értelmezett):
 //   master (0/1), master_toggle, meter (index: be/ki), meter_set_on / meter_set_off (index),
-//   sec_auto, rate_step (+1/-1), rate_reset, lamp (0/1), valve, cooler_mode, cooler,
+//   sec_auto, rate_step (+1/-1), rate_reset, auto (0/1), auto_toggle, meter_copy, lamp (0/1), valve, cooler_mode, cooler,
 //   prefill_start, prefill_stop, ack, reset_day,
 //   wheel_cal_start|stop|cancel|save, wheel_cal_pulses, wheel_cal_distance,
 //   crank_meter, crank_crop, crank_turns, crank_test_scale, crank_measured, crank_hectares,
@@ -67,6 +67,9 @@ bool apply_command(Seeder &s, const std::string &c, double v, std::string &error
     else if (c == "sec_auto") s.toggle_section_auto();
     else if (c == "rate_step") s.rate_step(iv >= 0 ? +1 : -1);
     else if (c == "rate_reset") s.rate_offset_reset();
+    else if (c == "auto") s.set_auto(iv != 0);
+    else if (c == "auto_toggle") s.toggle_auto();
+    else if (c == "meter_copy") s.copy_meter1_to_2();
     else if (c == "lamp") s.toggle_lamp(iv);
     else if (c == "valve") s.toggle_valve();
     else if (c == "cooler_mode") s.toggle_cooler_mode();

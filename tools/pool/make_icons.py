@@ -165,6 +165,10 @@ ICONS["softkeys/softkey_rate_reset"] = svg(
                       '<path d="M35 37h58M35 52h58M35 67h58" stroke="white" stroke-width="6"/>'
                       '<circle cx="99" cy="99" r="23" fill="white" stroke-width="5"/>'
                       '<path d="M88 100a11 11 0 1 0 4 -10" stroke-width="5"/><path d="M86 84v8h8" stroke-width="5"/>')
+METER_BODY = ('<path d="M10 52h14m80 0h14"/><rect x="24" y="22" width="80" height="61" rx="9" fill="{f}"/>'
+              '<path d="M35 37h58M35 52h58M35 67h58" stroke="white" stroke-width="6"/>')
+ICONS["softkeys/softkey_mode_auto"] = svg("Adagolas automata", METER_BODY.format(f=GREEN) + badge("A", 99, 99, 23, GREEN))
+ICONS["softkeys/softkey_mode_manual"] = svg("Adagolas kezi", METER_BODY.format(f=GREY) + badge("K", 99, 99, 23, BLUE))
 ICONS["softkeys/softkey_meter_select"] = svg(
     "Adagolo valasztas", '<path d="M10 52h14m80 0h14"/><rect x="24" y="22" width="80" height="61" rx="9" fill="#258b28"/>'
                          '<path d="M35 37h58M35 52h58M35 67h58" stroke="white" stroke-width="6"/>'
