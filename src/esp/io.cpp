@@ -581,7 +581,7 @@ app::HwInputs read(const seeder::Settings &s) {
     in.work_contact = closed(board::WORK);
     for (int i = 0; i < 2; ++i) in.hopper_contact[i] = closed(board::HOPPER[i]);
     // NC érintkező kiesett bővítőnél: "nyitott"-nak látszana → a mag szűrése után riaszt; ez szándékos
-    const int ch = std::max(0, std::min(3, s.pressure_ch));
+    const int ch = std::max<int>(0, std::min<int>(3, s.pressure_ch));
     in.pressure_v = ads_ok.load() ? ads_volt[ch].load() : -1.0f;
     const int a = s.temp_swap ? 1 : 0;
     in.temp_c[0] = temps[a].load();
@@ -603,7 +603,7 @@ void apply(const seeder::Outputs &o, const seeder::Settings &s) {
     exp_out_wanted = bits;
     outputs_enabled = true;
     // adagolómotorok
-    const int freq = std::max(100, std::min(20000, s.pwm_freq_hz));
+    const int freq = std::max<int>(100, std::min<int>(20000, s.pwm_freq_hz));
     if (board::MOTOR_PWM_GPIO[0] >= 0 && pwm_freq.load() != freq) pwm_setup(freq);
     for (int i = 0; i < 2; ++i) {
         if (!pwm_ready[i]) continue;

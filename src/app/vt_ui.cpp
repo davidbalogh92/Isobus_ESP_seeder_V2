@@ -593,7 +593,7 @@ void VtUi::update_pages(const Snapshot &s) {
     num(vt::OUT_DIAG_RPM1, std::lround(st.meter[0].rpm * 10.0f));
     num(vt::OUT_DIAG_RPM2, std::lround(st.meter[1].rpm * 10.0f));
     num(vt::OUT_DIAG_WHEELHZ, std::lround(st.wheel_hz * 10.0f));
-    num(vt::OUT_DIAG_FANHZ, std::lround(st.fan_rpm * static_cast<float>(std::max(1, set.fan_ppr)) / 6.0f));
+    num(vt::OUT_DIAG_FANHZ, std::lround(st.fan_rpm * static_cast<float>(std::max<int>(1, set.fan_ppr)) / 6.0f));
 }
 
 void VtUi::update_calib(const Snapshot &s) {
@@ -615,7 +615,7 @@ void VtUi::update_calib(const Snapshot &s) {
     num(vt::OP_CAL_SETUP, vt::STR_SETUP[setup]);
     num(vt::OUT_CAL_EXPECT, std::lround(r.expected_kg * 1000.0));
     num(vt::OUT_CAL_NEW, r.corrected_valid ? std::lround(r.corrected_scale * 10.0) : 0);
-    const float ppr = static_cast<float>(std::max(1, set.meter_ppr));
+    const float ppr = static_cast<float>(std::max<int>(1, set.meter_ppr));
     const float revs = elec ? cr.motor_revs_done : static_cast<float>(cr.meter_pulses) / ppr;
     num(vt::OUT_CAL_REVS, std::lround(revs * 10.0f));
     num(vt::OUT_CAL_KGREV, std::lround((r.kg_per_rev > 0.0 ? r.kg_per_rev : seeder::cal_kg_rev(set, cr.meter)) * 10000.0));
