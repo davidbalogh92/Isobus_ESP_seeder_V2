@@ -1,5 +1,9 @@
 #include "seeder_app.hpp"
 
+#include <cstring>
+#include <vector>
+
+#include "pool_scaler.hpp"
 #include "tc_link.hpp"
 #include "vt_ui.hpp"
 
@@ -23,6 +27,38 @@ namespace app {
 #ifndef SEEDER_MANUFACTURER_CODE
 #define SEEDER_MANUFACTURER_CODE 0
 #endif
+
+namespace {
+// A pool feltöltése darabokban: az első darab kérésekor (ekkor a VT méretei már ismertek) a poolt
+// a terminál maszk- és softkey-méretére méretezzük (pool_scaler), a többi darab ebből megy.
+// A könyvtár saját méretezése a softkey-képeket a maszk arányában nagyítja, ami nem négyzetes /
+// eltérő arányú softkey-knél (pl. Müller / Dammann HD12, Touch1200) kilógó ikonokat ad.
+struct PoolSource {
+    const std::uint8_t *pool = nullptr;
+    std::uint32_t size = 0;
+    std::vector<std::uint8_t> scaled;
+};
+PoolSource g_pool;
+
+bool pool_chunk(std::uint32_t, std::uint32_t offset, std::uint32_t n, std::uint8_t *buf, void *parent) {
+    if (!g_pool.pool) return false;
+    if (offset == 0 || g_pool.scaled.size() != g_pool.size) {
+        ScaleTarget t;
+        if (auto *vt = static_cast<isobus::VirtualTerminalClient *>(parent)) {
+            t.mask_px = vt->get_number_x_pixels();
+            t.key_w = vt->get_softkey_x_axis_pixels();
+            t.key_h = vt->get_softkey_y_axis_pixels();
+            t.font_supported = [vt](std::uint8_t c) {
+                return vt->get_font_size_supported(static_cast<isobus::VirtualTerminalClient::FontSize>(c));
+            };
+        }
+        g_pool.scaled = scale_pool(g_pool.pool, g_pool.size, t);
+    }
+    if (static_cast<std::uint64_t>(offset) + n > g_pool.scaled.size()) return false;
+    std::memcpy(buf, g_pool.scaled.data() + offset, n);
+    return true;
+}
+} // namespace
 
 SeederApp::SeederApp(Shared &shared) : shared_(shared) {}
 SeederApp::~SeederApp() = default;
@@ -57,9 +93,12 @@ bool SeederApp::start(std::uint8_t can_channel, const std::uint8_t *pool, std::u
     if (!ecu_ || !vt_partner_ || !tc_partner_ || !pool || pool_size < 256) return false;
 
     vt_ = std::make_shared<isobus::VirtualTerminalClient>(vt_partner_, ecu_);
-    vt_->set_object_pool(0, pool, pool_size, vt::POOL_VERSION);
-    // más felbontású terminálon a könyvtár feltöltés előtt átméretezi a 400×400-ra tervezett poolt
-    vt_->set_object_pool_scaling(0, vt::DESIGN_MASK_PX, vt::DESIGN_SOFTKEY_PX);
+    g_pool.pool = pool;
+    g_pool.size = pool_size;
+    g_pool.scaled.clear();
+    // saját méretezés feltöltés közben (lásd pool_chunk): a 400×400-ra tervezett pool a terminál
+    // maszkjához, a softkey-képek a gomb valódi méretéhez igazodnak
+    vt_->register_object_pool_data_chunk_callback(0, pool_size, &pool_chunk, vt::POOL_VERSION);
     ui_ = std::make_unique<VtUi>(shared_, vt_);
     vt_->initialize(true);
 

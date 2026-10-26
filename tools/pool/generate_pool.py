@@ -34,6 +34,7 @@ from svgr import render  # noqa: E402
 
 OUT_IOP = ROOT / "generated" / "object_pool.iop"
 OUT_HPP = ROOT / "include" / "seeder" / "vt_ids.hpp"
+OUT_SCALE = ROOT / "include" / "seeder" / "vt_scale.hpp"
 ICON_DIR = ROOT / "assets" / "icons"
 PREVIEW_DIR = ROOT / "docs" / "vt_preview"
 
@@ -268,15 +269,22 @@ FL_MSG = P.fill_attr(25004, WHITE, "FL_MSG")        # állapotsor háttere (fut�
 _pic_cache: dict[tuple, int] = {}
 
 
-def PIC(icon: str, size: int, crop=None, bg=BG) -> int:
-    key = (icon, size, crop, bg)
-    if key not in _pic_cache:
+_key_pics: set[int] = set()
+
+
+def PIC(icon: str, size: int, crop=None, bg=BG, key=False) -> int:
+    """key=True: softkey / working set jelölő képe – a firmware ezeket a gomb méretéhez igazítja,
+    a maszkok képeit a maszk szélességéhez (ezért ugyanaz az ikon a kettőben külön objektum)."""
+    ck = (icon, size, crop, bg, key)
+    if ck not in _pic_cache:
         stem = icon.split("/")[-1].upper().replace("SOFTKEY_", "SK_").replace("MAIN_", "M_").replace("MENU_", "MN_")
-        name = f"PIC_{stem}_{size}" + ("" if bg == BG else "_W")
+        name = f"PIC_{stem}_{size}" + ("" if bg == BG else "_W") + ("_K" if key else "")
         if crop:
             name += "_C"
-        _pic_cache[key] = P.picture(P.new_id(30000), icon, size, crop, bg, name)
-    return _pic_cache[key]
+        _pic_cache[ck] = P.picture(P.new_id(30000), icon, size, crop, bg, name)
+        if key:
+            _key_pics.add(_pic_cache[ck])
+    return _pic_cache[ck]
 
 
 # ------------------------------------------------------------------ segédek
@@ -319,12 +327,12 @@ def KEY(name, icon=None, child=None):
     if child is not None:
         kids = [(child, KEY_X, KEY_Y)]
     elif icon:
-        kids = [(PIC(f"softkeys/{icon}", KEY_PIC), KEY_X, KEY_Y)]
+        kids = [(PIC(f"softkeys/{icon}", KEY_PIC, key=True), KEY_X, KEY_Y)]
     return P.key(P.new_id(5000), code, kids, name=name)
 
 
 def KEYPTR(name, ptr_name, icons):
-    pics = [PIC(f"softkeys/{i}", KEY_PIC) for i in icons]
+    pics = [PIC(f"softkeys/{i}", KEY_PIC, key=True) for i in icons]
     ptr = P.obj_ptr(P.new_id(27000), pics[0], ptr_name)
     return KEY(name, child=ptr), pics
 
@@ -381,9 +389,9 @@ PAGE_INFO = {
     "geometry": ("Geometria", "softkeys/softkey_geom"),
     "diag": ("Szimuláció", "menu/menu_diag"),
 }
-K_PAGE = {pid: KEY("K_PG_" + pid.upper(), child=PIC(PAGE_INFO[pid][1], KEY_PIC)) for pid, _ in pd.VT_PAGES}
+K_PAGE = {pid: KEY("K_PG_" + pid.upper(), child=PIC(PAGE_INFO[pid][1], KEY_PIC, key=True)) for pid, _ in pd.VT_PAGES}
 K_PG_CALIB = KEY("K_PG_CALIB", "softkey_crank")
-K_PG_INFO = KEY("K_PG_INFO", child=PIC("menu/menu_counters", KEY_PIC))
+K_PG_INFO = KEY("K_PG_INFO", child=PIC("menu/menu_counters", KEY_PIC, key=True))
 
 # --- főképernyő softkey maszkok: (adagolók 1/2) × (elektromos hajtás 0/1).
 # BASIC terminál: az első 5 gomb a jobb oszlop felülről, a következő 5 a bal oszlop.
@@ -795,7 +803,7 @@ alarm_kids = [(PIC("main/main_alarm", 120, bg=WHITE), (MASK - 120) // 2, 40),
 DM_ALARM = P.alarm_mask(1100, SK_ALARM, alarm_kids, name="AM_ALARM")
 
 # ================================================================== WORKING SET
-P.working_set(0, DM_MAIN, [(PIC("main/main_esc_logo_small", 60), 0, 0)])
+P.working_set(0, DM_MAIN, [(PIC("main/main_esc_logo_small", 60, key=True), 0, 0)])
 P.names["WORKING_SET"] = 0
 
 
@@ -803,7 +811,7 @@ P.names["WORKING_SET"] = 0
 def pool_version(data: bytes) -> str:
     """7 karakteres verziócímke a pool tartalmából: ha bármi változik, a VT nem a régi tárolt poolt tölti be."""
     import zlib
-    return "SD" + format(zlib.crc32(data) & 0xFFFFF, "05X")
+    return "SD" + format(zlib.crc32(data + SCALER_REV) & 0xFFFFF, "05X")
 
 
 ARRAYS = {
@@ -852,18 +860,121 @@ def header_text(pool_bytes: bytes) -> str:
     return "\n".join(lines)
 
 
+# ------------------------------------------------------------------ méretezési tábla (saját átméretezés)
+# A firmware feltöltéskor a terminál valódi méreteihez igazítja a poolt (src/app/pool_scaler.cpp):
+#  * maszk-tartalom: pozíció és méret × (VT maszk / 400), fontok a legközelebbi támogatott méretre,
+#  * softkey-k és a working set jelölője: a kép a gomb valódi méretéhez (min(szél., mag.) / 80) igazítva,
+#    a gomb közepére téve. (Az AgIsoStack saját méretezése a softkey-képeket a maszk arányával méretezné,
+#    a pozíciójukat a gomb szélességével – nem négyzetes gomboknál / más arányú terminálon kilóg,
+#    pl. Dammann / Müller HD12 és Touch1200.)
+SCALER_REV = b"scaler-1"
+SC_MASK_U16, SC_MASK_I16, SC_FONT, SC_KEY_PIC_W, SC_KEY_CHILD = 0, 1, 2, 3, 4
+
+
+def scale_map(pool):
+    key_pics = _key_pics
+    entries = []   # (abszolút offset, fajta, a, b)
+    off = 0
+    for ident in sorted(pool.objs):
+        o = pool.objs[ident]
+        base = off + 3
+        t, m = o.type, o.meta
+
+        def kids_at(start, key_like=False):
+            for k, (c, _x, _y) in enumerate(m["kids"]):
+                pos = base + start + 6 * k + 2
+                if key_like:
+                    tgt = pool.objs[c]
+                    if tgt.type == T_OBJPTR:
+                        tgt = pool.objs[tgt.meta["value"]]
+                    w, h = (tgt.meta.get("w", 0), tgt.meta.get("h", 0)) if tgt.type == T_PIC else (0, 0)
+                    entries.append((pos, SC_KEY_CHILD, w, h))
+                else:
+                    entries.append((pos, SC_MASK_I16, 0, 0))
+                    entries.append((pos + 2, SC_MASK_I16, 0, 0))
+
+        if t == T_WS:
+            kids_at(7, key_like=True)
+        elif t == T_DATAMASK:
+            kids_at(5)
+        elif t == T_ALARMMASK:
+            kids_at(7)
+        elif t == T_CONTAINER:
+            entries += [(base, SC_MASK_U16, 0, 0), (base + 2, SC_MASK_U16, 0, 0)]
+            kids_at(7)
+        elif t == T_KEY:
+            kids_at(4, key_like=True)
+        elif t == T_BUTTON:
+            entries += [(base, SC_MASK_U16, 0, 0), (base + 2, SC_MASK_U16, 0, 0)]
+            kids_at(10)
+        elif t in (T_OUTSTR, T_OUTNUM, T_INNUM, T_INLIST, T_BAR):
+            entries += [(base, SC_MASK_U16, 0, 0), (base + 2, SC_MASK_U16, 0, 0)]
+        elif t == T_RECT:
+            entries += [(base + 2, SC_MASK_U16, 0, 0), (base + 4, SC_MASK_U16, 0, 0)]
+        elif t == T_PIC:
+            if ident in key_pics:
+                entries.append((base, SC_KEY_PIC_W, m["w"], m["h"]))
+            else:
+                entries.append((base, SC_MASK_U16, 0, 0))
+        elif t == T_FONT:
+            entries.append((base + 1, SC_FONT, 0, 0))
+        off += 3 + len(o.body)
+    # egy kép vagy softkey-ben, vagy maszkon szerepel – a kettő keveredése hibás méretet adna
+    for o in pool.objs.values():
+        if o.type in (T_DATAMASK, T_ALARMMASK, T_CONTAINER, T_BUTTON):
+            for c, _x, _y in o.meta["kids"]:
+                assert c not in key_pics, f"softkey-kép maszkon: {c}"
+                tgt = pool.objs[c]
+                if tgt.type == T_OBJPTR:
+                    assert tgt.meta["value"] not in key_pics, f"softkey-kép maszkon (mutatóval): {c}"
+        if o.type == T_KEY:
+            for c, _x, _y in o.meta["kids"]:
+                tgt = pool.objs[c]
+                if tgt.type == T_OBJPTR:
+                    tgt = pool.objs[tgt.meta["value"]]
+                assert tgt.type != T_PIC or tgt.id in key_pics, f"maszk-kép softkey-ben: {c}"
+    return entries
+
+
+def scale_header(pool) -> str:
+    e = scale_map(pool)
+    lines = ["// GENERÁLT FÁJL – ne szerkeszd kézzel! Forrás: tools/pool/generate_pool.py",
+             "// A pool saját átméretezésének táblája (src/app/pool_scaler.cpp).", "#pragma once", "#include <cstdint>",
+             "", "namespace vt {",
+             "enum ScaleKind : std::uint8_t { SC_MASK_U16 = 0, SC_MASK_I16 = 1, SC_FONT = 2, SC_KEY_PIC_W = 3, SC_KEY_CHILD = 4 };",
+             "struct ScaleEntry { std::uint32_t offset; std::uint8_t kind; std::uint8_t w; std::uint8_t h; };",
+             f"constexpr std::uint32_t SCALE_DESIGN_MASK_PX = {MASK};",
+             f"constexpr std::uint32_t SCALE_DESIGN_KEY_PX = {SOFTKEY};",
+             f"constexpr std::uint32_t SCALE_ENTRY_COUNT = {len(e)};",
+             "constexpr ScaleEntry SCALE_MAP[SCALE_ENTRY_COUNT] = {"]
+    row = []
+    for (o, k, w, h) in e:
+        assert w < 256 and h < 256
+        row.append(f"{{{o},{k},{w},{h}}}")
+        if len(row) == 8:
+            lines.append("    " + ", ".join(row) + ",")
+            row = []
+    if row:
+        lines.append("    " + ", ".join(row) + ",")
+    lines += ["};", "} // namespace vt", ""]
+    return "\n".join(lines)
+
+
 def main():
     data = P.binary()
     hdr = header_text(data)
     if "--check" in sys.argv:
+        sc = scale_header(P)
         ok = OUT_IOP.exists() and OUT_IOP.read_bytes() == data and OUT_HPP.exists() and \
-            OUT_HPP.read_text(encoding="utf-8") == hdr
+            OUT_HPP.read_text(encoding="utf-8") == hdr and OUT_SCALE.exists() and \
+            OUT_SCALE.read_text(encoding="utf-8") == sc
         print("object pool naprakész" if ok else "object_pool.iop / vt_ids.hpp ELAVULT – futtasd: "
               "python tools/pool/generate_pool.py", file=sys.stdout if ok else sys.stderr)
         return 0 if ok else 1
     OUT_IOP.parent.mkdir(parents=True, exist_ok=True)
     OUT_IOP.write_bytes(data)
     OUT_HPP.write_text(hdr, encoding="utf-8")
+    OUT_SCALE.write_text(scale_header(P), encoding="utf-8")
     pics = sum(1 for o in P.objs.values() if o.type == T_PIC)
     print(f"Object pool: {len(P.objs)} objektum ({pics} kép), {len(data)} bájt → {OUT_IOP.relative_to(ROOT)}")
     if "--preview" in sys.argv:

@@ -50,6 +50,7 @@ if(SEEDER_WITH_ISOBUS)
 
   add_executable(test_app ${ROOT}/tests/host/test_app.cpp)
   target_link_libraries(test_app seeder_app isobus::Isobus isobus::HardwareIntegration)
+  target_compile_definitions(test_app PRIVATE SEEDER_POOL_FILE="${ROOT}/generated/object_pool.iop")
   add_test(NAME app COMMAND test_app)
 
   # Object pool ellenőrzése az AgIsoStack++ saját VT-szerver parserével
@@ -62,6 +63,9 @@ if(SEEDER_WITH_ISOBUS)
   target_link_libraries(isobus_sim seeder_app)
   add_test(NAME isobus_sim_basic_400 COMMAND isobus_sim ${ROOT}/generated/object_pool.iop 400 120)
   add_test(NAME isobus_sim_480 COMMAND isobus_sim ${ROOT}/generated/object_pool.iop 480 80)
+  # Müller / Dammann HD12, Touch1200: négyzetes (80×80) virtuális softkey-k; és egy széles-alacsony változat
+  add_test(NAME isobus_sim_hd12_square COMMAND isobus_sim ${ROOT}/generated/object_pool.iop 480 80 80)
+  add_test(NAME isobus_sim_wide_keys COMMAND isobus_sim ${ROOT}/generated/object_pool.iop 600 100 64)
 endif()
 
 # Webes felület demószerver (opcionális, a cpp-httplib fejlécet letölti)

@@ -48,14 +48,14 @@ public:
 // ------------------------------------------------------------------ minimális VT szerver
 class SimVT : public isobus::VirtualTerminalServer {
 public:
-    SimVT(std::shared_ptr<isobus::InternalControlFunction> cf, std::uint16_t px, std::uint8_t sk)
-        : VirtualTerminalServer(cf), px_(px), sk_(sk) {}
+    SimVT(std::shared_ptr<isobus::InternalControlFunction> cf, std::uint16_t px, std::uint8_t sk, std::uint8_t skh)
+        : VirtualTerminalServer(cf), px_(px), sk_(sk), skh_(skh) {}
     using VirtualTerminalServer::update; // a könyvtárban protected
     bool get_is_enough_memory(std::uint32_t) const override { return true; }
     VTVersion get_version() const override { return VTVersion::Version4; }
     std::uint8_t get_number_of_navigation_soft_keys() const override { return 0; }
     std::uint8_t get_soft_key_descriptor_x_pixel_width() const override { return sk_; }
-    std::uint8_t get_soft_key_descriptor_y_pixel_height() const override { return 80; }
+    std::uint8_t get_soft_key_descriptor_y_pixel_height() const override { return skh_; }
     std::uint8_t get_number_of_possible_virtual_soft_keys_in_soft_key_mask() const override { return 64; }
     std::uint8_t get_number_of_physical_soft_keys() const override { return 10; }
     std::uint16_t get_data_mask_area_size_x_pixels() const override { return px_; }
@@ -119,7 +119,39 @@ public:
 private:
     std::uint16_t px_;
     std::uint8_t sk_;
+    std::uint8_t skh_;
 };
+
+// A softkey-k (és a working set jelölő) képei beleférnek-e a VT softkey-méretébe.
+int keys_overflowing(SimVT &vt, unsigned kw, unsigned kh, int &checked) {
+    int bad = 0;
+    checked = 0;
+    if (!vt.working_set) return -1;
+    for (const auto &kv : vt.working_set->get_object_tree()) {
+        const auto &o = kv.second;
+        if (!o) continue;
+        const auto t = o->get_object_type();
+        if (t != isobus::VirtualTerminalObjectType::Key && t != isobus::VirtualTerminalObjectType::WorkingSet) continue;
+        for (std::uint16_t i = 0; i < o->get_number_children(); ++i) {
+            auto c = vt.obj(o->get_child_id(i));
+            if (auto op = std::dynamic_pointer_cast<isobus::ObjectPointer>(c)) c = vt.obj(op->get_value());
+            auto pic = std::dynamic_pointer_cast<isobus::PictureGraphic>(c);
+            if (!pic || !pic->get_actual_width()) continue;
+            const int w = pic->get_width();
+            const int h = static_cast<int>(std::lround(static_cast<double>(pic->get_actual_height()) * w /
+                                                       pic->get_actual_width()));
+            const int x = o->get_child_x(i), y = o->get_child_y(i);
+            ++checked;
+            if (x < 0 || y < 0 || x + w > static_cast<int>(kw) || y + h > static_cast<int>(kh)) {
+                if (bad < 5)
+                    std::printf("       kilóg: objektum %u, kép %u: %d,%d %d×%d (gomb %u×%u)\n", kv.first,
+                                c->get_id(), x, y, w, h, kw, kh);
+                ++bad;
+            }
+        }
+    }
+    return bad;
+}
 
 // ------------------------------------------------------------------ minimális TC szerver
 class SimTC : public isobus::TaskControllerServer {
@@ -183,11 +215,12 @@ bool wait_for(const std::function<bool()> &cond, const std::function<void()> &st
 
 int main(int argc, char **argv) {
     if (argc < 2) {
-        std::cerr << "Használat: isobus_sim <object_pool.iop> [vt_px] [softkey_px]\n";
+        std::cerr << "Használat: isobus_sim <object_pool.iop> [vt_px] [softkey_px] [softkey_magasság_px]\n";
         return 2;
     }
     const std::uint16_t vt_px = argc > 2 ? static_cast<std::uint16_t>(std::atoi(argv[2])) : 400;
     const std::uint8_t sk_px = argc > 3 ? static_cast<std::uint8_t>(std::atoi(argv[3])) : 120;
+    const std::uint8_t skh_px = argc > 4 ? static_cast<std::uint8_t>(std::atoi(argv[4])) : 80;
     std::ifstream f(argv[1], std::ios::binary);
     const std::vector<std::uint8_t> pool((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     if (pool.empty()) return 2;
@@ -216,7 +249,7 @@ int main(int argc, char **argv) {
     tc_name.set_identity_number(2);
     tc_name.set_manufacturer_code(1407);
     auto tc_cf = isobus::CANNetworkManager::CANNetwork.create_internal_control_function(tc_name, 1, 0xF7);
-    SimVT vt(vt_cf, vt_px, sk_px);
+    SimVT vt(vt_cf, vt_px, sk_px, skh_px);
     vt.initialize();
     SimTC tc(tc_cf);
     tc.initialize();
@@ -240,10 +273,16 @@ int main(int argc, char **argv) {
         vt.update();
         tc.update();
     };
-    std::printf("VT szimulált felbontás: %u×%u, softkey %u px széles\n", vt_px, vt_px, sk_px);
+    std::printf("VT szimulált felbontás: %u×%u, softkey %u×%u\n", vt_px, vt_px, sk_px, skh_px);
     check(wait_for([&] { return seeder_app.diag().address_claimed; }, step, 10), "címfoglalás");
     check(wait_for([&] { return seeder_app.diag().vt_connected; }, step, 90), "VT kapcsolat, object pool feltöltve");
     check(vt.parsed, "a VT szerver hibátlanul feldolgozta a (méretezett) poolt");
+    {
+        int n = 0;
+        const int bad = keys_overflowing(vt, sk_px, skh_px, n);
+        std::printf("       softkey képek: %d ellenőrizve, %d kilóg\n", n, bad);
+        check(n > 20 && bad == 0, "minden softkey kép belefér a gombba");
+    }
     {
         const auto d = seeder_app.diag();
         std::printf("       VT jelentett mérete: %u×%u, softkey %u×%u\n", d.vt_width, d.vt_height, d.vt_softkey_w,

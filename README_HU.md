@@ -56,8 +56,11 @@ GÉP KIEMELVE / ÁLL / VETÉS / CSŐFELTÖLTÉS / START, figyelmeztetésnél a h
 visszajelzése (pl. „Leforgatás csak álló gépnél”) 4 másodpercig látszik.
 
 A képek pontos pixelméretű 8 bites képek a szürke háttérre simítva, így a BASIC terminálon
-nincs VT-oldali méretezés. Más felbontásnál az AgIsoStack++ feltöltés előtt átméretezi a poolt
-(PC-s szimulációval 400 és 480 px-re ellenőrizve). A pool verziócímkéje a tartalomból képződik.
+nincs VT-oldali méretezés. Más méretű terminálon (pl. Müller / Dammann **HD12, Touch1200**) a firmware
+feltöltéskor maga méretezi át a poolt: a maszk tartalma a maszk szélességével arányos, a fontok a
+legközelebbi támogatott méretre állnak, a softkey-ikonok pedig a gomb kisebbik oldalához igazodnak,
+középre zárva – így négyzetes vagy más arányú gombon sem lógnak ki. PC-s szimulációval 400 (120×80),
+480 (80×80) és 600 px (100×64) terminálra ellenőrizve. A pool verziócímkéje a tartalomból képződik.
 
 ## Panelek és bekötés
 

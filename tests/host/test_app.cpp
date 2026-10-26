@@ -1,10 +1,16 @@
 // Az ISOBUS alkalmazásréteg tiszta függvényeinek unit tesztjei: TC geometria, kondenzált
 // munkaállapot, DDOP felépítés minden gépváltozatra, VT szövegkódolás, geometria-vázlat választás.
+#include "pool_scaler.hpp"
 #include "seeder_app.hpp"
 #include "tc_link.hpp"
 #include "vt_ui.hpp"
 
 #include "isobus/isobus/isobus_device_descriptor_object_pool.hpp"
+#include "seeder/vt_scale.hpp"
+
+#include <algorithm>
+#include <fstream>
+#include <iterator>
 
 #include <cmath>
 #include <cstdio>
@@ -193,6 +199,129 @@ TEST(geo_picture_choice) {
     CHECK(app::geo_picture(1, 2.0f, 3.0f) == 2);
     CHECK(app::geo_picture(2, 4.0f, 3.0f) == 3);
     CHECK(app::geo_picture(4, 2.0f, 3.0f) == 4);
+}
+
+// ------------------------------------------------------------------ pool méretezés (HD12 javítás)
+namespace {
+std::vector<std::uint8_t> load_pool() {
+    std::ifstream f(SEEDER_POOL_FILE, std::ios::binary);
+    return std::vector<std::uint8_t>((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+}
+std::uint16_t rd16(const std::vector<std::uint8_t> &v, std::uint32_t o) {
+    return static_cast<std::uint16_t>(v[o] | (v[o + 1] << 8));
+}
+// a softkey gyerekek: a kép (w×h × kf) a gomb közepén, és a gombon belül
+bool keys_fit(const std::vector<std::uint8_t> &p, unsigned kw, unsigned kh, int &n) {
+    const float kf = static_cast<float>(std::min(kw, kh)) / 80.0f;
+    bool ok = true;
+    n = 0;
+    for (std::uint32_t i = 0; i < vt::SCALE_ENTRY_COUNT; ++i) {
+        const auto &e = vt::SCALE_MAP[i];
+        if (e.kind != vt::SC_KEY_CHILD || !e.w) continue;
+        ++n;
+        const int x = rd16(p, e.offset), y = rd16(p, e.offset + 2);
+        const float w = e.w * kf, h = e.h * kf;
+        if (x + w > kw + 0.5f || y + h > kh + 0.5f) ok = false;
+        if (std::abs(x - (kw - w) / 2.0f) > 1.0f || std::abs(y - (kh - h) / 2.0f) > 1.0f) ok = false;
+    }
+    return ok;
+}
+} // namespace
+
+TEST(pool_scaler_basic_120x80) {
+    const auto pool = load_pool();
+    CHECK(pool.size() > 1000);
+    if (pool.size() < 1000) return;
+    app::ScaleTarget t;
+    t.mask_px = 400;
+    t.key_w = 120;
+    t.key_h = 80;
+    const auto out = app::scale_pool(pool.data(), static_cast<std::uint32_t>(pool.size()), t);
+    CHECK(out.size() == pool.size());
+    int n = 0;
+    CHECK(keys_fit(out, 120, 80, n));
+    CHECK(n > 20);
+    // a maszk tartalma 400 px-en változatlan, a képszélesség 60 marad
+    for (std::uint32_t i = 0; i < vt::SCALE_ENTRY_COUNT; ++i) {
+        const auto &e = vt::SCALE_MAP[i];
+        if (e.kind == vt::SC_MASK_U16 || e.kind == vt::SC_MASK_I16 || e.kind == vt::SC_FONT)
+            CHECK(rd16(out, e.offset) == rd16(pool, e.offset));
+        if (e.kind == vt::SC_KEY_PIC_W) CHECK(rd16(out, e.offset) == e.w);
+    }
+}
+
+TEST(pool_scaler_hd12_square_keys) {
+    const auto pool = load_pool();
+    CHECK(pool.size() > 1000);
+    if (pool.size() < 1000) return;
+    app::ScaleTarget t;
+    t.mask_px = 480;
+    t.key_w = 80;
+    t.key_h = 80;
+    const auto out = app::scale_pool(pool.data(), static_cast<std::uint32_t>(pool.size()), t);
+    int n = 0;
+    CHECK(keys_fit(out, 80, 80, n));
+    bool any_mask = false;
+    for (std::uint32_t i = 0; i < vt::SCALE_ENTRY_COUNT; ++i) {
+        const auto &e = vt::SCALE_MAP[i];
+        if (e.kind == vt::SC_KEY_PIC_W) CHECK(rd16(out, e.offset) == e.w);   // 80/80 → nem nő
+        if (e.kind == vt::SC_MASK_U16 && rd16(pool, e.offset) == 100) {
+            CHECK(rd16(out, e.offset) == 120);                                 // ×1,2
+            any_mask = true;
+        }
+    }
+    CHECK(any_mask);
+}
+
+TEST(pool_scaler_small_and_wide_keys) {
+    const auto pool = load_pool();
+    CHECK(pool.size() > 1000);
+    if (pool.size() < 1000) return;
+    for (auto kw : {60u, 64u, 100u, 140u}) {
+        for (auto kh : {48u, 60u, 64u, 100u}) {
+            app::ScaleTarget t;
+            t.mask_px = 600;
+            t.key_w = kw;
+            t.key_h = kh;
+            const auto out = app::scale_pool(pool.data(), static_cast<std::uint32_t>(pool.size()), t);
+            int n = 0;
+            CHECK(keys_fit(out, kw, kh, n));
+            for (std::uint32_t i = 0; i < vt::SCALE_ENTRY_COUNT; ++i) {
+                const auto &e = vt::SCALE_MAP[i];
+                if (e.kind == vt::SC_KEY_PIC_W)
+                    CHECK(rd16(out, e.offset) == static_cast<std::uint16_t>(std::lround(e.w * std::min(kw, kh) / 80.0)));
+            }
+        }
+    }
+}
+
+TEST(pool_scaler_invalid_sizes_fall_back) {
+    const auto pool = load_pool();
+    CHECK(pool.size() > 1000);
+    if (pool.size() < 1000) return;
+    app::ScaleTarget t;
+    t.mask_px = 0;   // ismeretlen: tervezési méret
+    t.key_w = 0;
+    t.key_h = 0;
+    const auto out = app::scale_pool(pool.data(), static_cast<std::uint32_t>(pool.size()), t);
+    int n = 0;
+    CHECK(keys_fit(out, 80, 80, n));
+    // túl rövid pool: változatlan másolat, nincs túlírás
+    const auto shortp = app::scale_pool(pool.data(), 100, t);
+    CHECK(shortp.size() == 100 && std::memcmp(shortp.data(), pool.data(), 100) == 0);
+}
+
+TEST(pool_scaler_fonts) {
+    using app::scale_font;
+    CHECK(scale_font(3, 1.0f, nullptr) == 3);              // 12×16 marad
+    CHECK(scale_font(3, 2.0f, nullptr) == 6);              // 24×32
+    CHECK(scale_font(5, 1.2f, nullptr) == 5);              // 16×24 → 19×29-ig: 16×24 a legnagyobb
+    CHECK(scale_font(6, 0.5f, nullptr) == 3);              // 24×32 fele: 12×16
+    CHECK(scale_font(2, 0.5f, nullptr) == 0);              // semmi sem fér: legkisebb
+    // nem támogatott méret helyett a kisebb támogatott
+    auto only_small = [](std::uint8_t c) { return c <= 3; };
+    CHECK(scale_font(6, 1.0f, only_small) == 3);
+    CHECK(scale_font(20, 1.0f, nullptr) == 20);            // érvénytelen kód változatlan
 }
 
 int main() {
