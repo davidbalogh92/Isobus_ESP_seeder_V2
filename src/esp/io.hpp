@@ -1,7 +1,7 @@
 #pragma once
 // A gép bemenetei és kimenetei a kiválasztott panelen (board.hpp):
 //  * impulzusbemenetek GPIO-megszakítással (kerék, turbina, enkóderek) vagy az I/O bővítő
-//    5 ms-os mintavételével (reed érintkezők az AgIsoAux panelen),
+//    5 ms-os mintavételével (ha egy bemenet I/O bővítőn van),
 //  * érintkezők (munkahelyzet, tartályok), kimenetek (kuplungok, szelep, lámpák, hűtőventilátor),
 //  * adagolómotor PWM (LEDC), ADS1115 (nyomás + motoráram), HX711 (mérleg), DS18B20 (hőmérők).
 // A kimenetek csak az első apply() hívás után kapnak meghajtást (addig a lábak bemenetek / KI).

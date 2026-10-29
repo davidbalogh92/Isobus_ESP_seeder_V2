@@ -23,8 +23,6 @@ OUT = ROOT / "firmware"
 APP_ADDRESS = 0x20000
 # környezet → (fájlnév előtag, partíciós tábla, OTA slot méret, flash méret, panel neve)
 BOARDS = {
-    "agisoaux_8mb": ("VETOGEP_AGISOAUX_8MB", "partitions_8mb.csv", 0x360000, 0x800000,
-                     "AgIsoAuxInputs ESP32-S3R8N8 (8 MB, CAN GPIO10/11)"),
     "waveshare_8di8ro": ("VETOGEP_WAVESHARE_16MB", "partitions_16mb.csv", 0x700000, 0x1000000,
                          "Waveshare ESP32-S3-ETH-8DI-8RO-C (16 MB, CAN GPIO17/18)"),
 }

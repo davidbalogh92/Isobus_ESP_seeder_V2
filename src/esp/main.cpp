@@ -1,4 +1,4 @@
-// Vetőgép ISOBUS vezérlő – ESP32-S3 (AgIsoAuxInputs vagy Waveshare ESP32-S3-ETH-8DI-8RO-C)
+// Vetőgép ISOBUS vezérlő – Waveshare ESP32-S3-ETH-8DI-8RO-C
 //
 // Accord-típusú (térfogatos adagolós) vetőgép: 1–2 adagoló talajhajtással + elektromágneses
 // kuplunggal vagy elektromos motorral, turbinafigyelés, tartályszint, munkakapcsoló, TC-SEC/GEO,

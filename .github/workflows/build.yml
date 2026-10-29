@@ -41,7 +41,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        env: [agisoaux_8mb, waveshare_8di8ro]
+        env: [waveshare_8di8ro]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -91,7 +91,6 @@ jobs:
           ls -l dist
           NOTES="Vetőgép-vezérlő firmware v${VER} – ${GITHUB_SHA::7} ($(date -u +%Y-%m-%d))
 
-          VETOGEP_AGISOAUX_8MB_*  – AgIsoAuxInputs ESP32-S3R8N8 (8 MB, CAN GPIO10/11), amin az ESC is fut
           VETOGEP_WAVESHARE_16MB_* – Waveshare ESP32-S3-ETH-8DI-8RO-C (16 MB, CAN GPIO17/18)
 
           ELSŐ TELEPÍTÉS USB-n (https://espressif.github.io/esptool-js/):

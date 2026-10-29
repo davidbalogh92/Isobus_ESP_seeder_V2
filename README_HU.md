@@ -71,28 +71,7 @@ középre zárva – így négyzetes vagy más arányú gombon sem lógnak ki. P
 
 ## Panelek és bekötés
 
-Két firmware készül, ugyanabból a kódból:
-
-### AgIsoAuxInputs ESP32-S3R8N8 (8 MB) – amin az ESC monitor fut
-
-| Jel | Láb | Megjegyzés |
-|---|---|---|
-| CAN | GPIO10 / GPIO11 | beépített transceiver |
-| Kerékjeladó | GPIO9 (H7) | |
-| Turbina | GPIO8 (H7) | |
-| Bal (1.) tartály | GPIO7 (H7) | a sérült BTN0 helyett |
-| Jobb (2.) tartály | BTN5 | |
-| 1. / 2. adagoló reed | BTN2 / BTN3 | 5 ms mintavétel, 15 ms pergésszűrés |
-| Munkahelyzet | BTN4 | |
-| 1. / 2. kuplung | BTN6 / BTN1 (kimenet) | PCA9555 |
-| Terelőszelep | BTN7 (kimenet) | |
-| Lámpa 1 / 2 | GPIO48 / GPIO47 (H5/H6 „LED”) | relémodulra |
-| Hűtőventilátor | GPIO18 (optós kapcsolókimenet) | relére |
-| Nyomásszenzor | panelen lévő ADS1115 A0 (I2C 0x48) | 3,3 V-os bemenet: 5 V-os szenzorhoz osztó kell (Beállítások → Nyomás → osztó) |
-
-**Nincs szabad láb:** elektromos adagolómotor, HX711 mérleg, DS18B20 hőmérők – ezek ezen a
-panelen nem működnek (a webes Rendszer oldal „nincs a panelen”-t mutat). A szimulációval mindegyik
-kipróbálható.
+A firmware a **Waveshare ESP32-S3-ETH-8DI-8RO-C** panelre készül (a korábbi AgIsoAuxInputs változatot már nem fejlesztjük).
 
 ### Waveshare ESP32-S3-ETH-8DI-8RO-C (16 MB) – minden funkcióval
 
@@ -133,7 +112,6 @@ Olajhőmérséklet → „hőmérők felcserélése”.
 A GitHub Actions minden `main` ágra küldött változásnál lefordítja a firmware-t és a
 **„legujabb”** kiadásba teszi:
 
-* `VETOGEP_AGISOAUX_8MB_vXXX_FULL_0x0.bin` / `…_OTA.bin`
 * `VETOGEP_WAVESHARE_16MB_vXXX_FULL_0x0.bin` / `…_OTA.bin`
 
 **Első telepítés USB-n:** https://espressif.github.io/esptool-js/ → Connect → a `FULL_0x0.bin`
