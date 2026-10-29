@@ -67,6 +67,7 @@ def render() -> str:
     w("    std::uint16_t vt_input_id;")
     w("    const char *vt_page;")
     w("    const char *feature;")
+    w("    const char *scope;")
     w("};")
     w("")
     w("struct GroupDef { const char *id; const char *label; const char *icon; };")
@@ -105,7 +106,7 @@ def render() -> str:
         w(f"    {{{c_str(p.key)}, {c_str(p.group)}, {c_str(p.label)}, {c_str(p.vt_label)}, {c_str(p.unit)}, "
           f"{c_str(p.help)}, ParamKind::{kinds[p.kind]}, {float(p.min)!r}f, {float(p.max)!r}f, "
           f"{float(p.step)!r}f, {dflt}, {p.decimals}, {opts}, {len(p.options)}, {off}, {dstr}, "
-          f"{vt_input_id(i, p)}, {page}, {c_str(p.feature)}}},")
+          f"{vt_input_id(i, p)}, {page}, {c_str(p.feature)}, {c_str(p.scope)}}},")
     w("};")
     w("#endif")
     w("} // namespace seeder")
@@ -132,7 +133,8 @@ def render_doc() -> str:
             else:
                 dflt = f"{p.default} {p.unit}".strip()
                 rng = f"{p.min:g} – {p.max:g} {p.unit}".strip()
-            out.append(f"| `{p.key}` | {p.label} | {dflt} | {rng} | {pages.get(p.vt_page, '–')} | {p.help} |")
+            tag = {"isobus": " **[ISOBUS]**", "aog": " **[AgOpenGPS]**"}.get(p.scope, "")
+            out.append(f"| `{p.key}` | {p.label}{tag} | {dflt} | {rng} | {pages.get(p.vt_page, '–')} | {p.help} |")
         out.append("")
     return "\n".join(out)
 

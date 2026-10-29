@@ -147,11 +147,22 @@ def render_all(gen, outdir: Path):
         n["OUT_DAY_KG2"]: 1800, n["OUT_TOT_KG2"]: 60200,
         n["OUT_CAL_SCALE"]: 545, n["OUT_CAL_EXPECT"]: 20000, n["OUT_CAL_NEW"]: 552, n["OUT_CAL_REVS"]: 850,
         n["OUT_CAL_KGREV"]: 2353, n["OUT_SCALE_KG"]: 100000 + 12345, n["OUT_SCALE_RAW"]: 8388608 + 104000,
-        n["OUT_SPEED2"]: 112, n["OUT_FAN_RPM2"]: 3450,
+        n["OUT_FAN_RPM2"]: 3450, n["OUT_CAL_TARGET"]: 850, n["OUT_CAL_NW"]: 2,
+        n["OUT_DG_WKMH"]: 108, n["OUT_DG_GKMH"]: 112, n["OUT_DG_SLIP"]: 36, n["OUT_DG_RPM1"]: 312,
+        n["OUT_DG_RPM2"]: 298, n["OUT_DG_WHZ"]: 311, n["OUT_DG_FHZ"]: 583, n["OP_DG_SRC"]: G.STR_SRC[7],
+        n["OP_DG_VT"]: n["STR_OK"], n["OP_DG_TC"]: n["STR_OK"], n["OP_DG_AOG"]: n["STR_TC_ON"],
+        n["OUT_AOG_SPEED"]: 112, n["OP_AOG_STATE"]: n["STR_TC_ON"], n["OP_K_COOLER_REV"]: G.PIC_K_COOLER_REV[0],
     }
     r = Renderer(pool, ov)
     r.render_mask(G.DM_MAIN, outdir / "01_fokepernyo.png", G.SK_MAIN[(2, 1)])
-    r.render_mask(G.DM_MAIN, outdir / "02_funkciok.png", G.SK_FUNC[7])
+    og = dict(ov)
+    og[("hidden", n["CONT_TGT1"])] = True
+    og[("hidden", n["CONT_TGT2"])] = True
+    og[("hidden", n["CONT_OFFSET"])] = True
+    og[n["OUT_ACT1"]] = 2000
+    og[n["OUT_ACT2"]] = 1500
+    Renderer(pool, og).render_mask(G.DM_MAIN, outdir / "01b_fokepernyo_talajhajtas.png", G.SK_MAIN[(2, 0)])
+    r.render_mask(G.DM_MAIN, outdir / "02_funkciok.png", G.SK_FUNC[15])
     ov2 = dict(ov)
     ov2[n["OP_MSG"]] = n["STR_MSG_PREFILL"]
     ov2[("hidden", n["CONT_PREFILL"])] = False
@@ -162,6 +173,7 @@ def render_all(gen, outdir: Path):
     r.render_mask(G.DM_INFO, outdir / "04_szamlalok.png")
     r.render_mask(G.DM_MENU, outdir / "05_menu.png")
     r.render_mask(G.DM_CALIB, outdir / "06_leforgatas.png", G.SK_CALIB)
+    r.render_mask(G.DM_DIAGNOSE, outdir / "07_diagnosztika.png")
     for k, (pid, _) in enumerate(G.pd.VT_PAGES):
         r.render_mask(G.PAGE_MASK[pid], outdir / f"{10 + k:02d}_beallitas_{pid}.png")
     r.render_mask(G.DM_ALARM, outdir / "90_riasztas.png")

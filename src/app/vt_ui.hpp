@@ -28,7 +28,7 @@ public:
     const char *page_name() const;
 
 private:
-    enum class Page : std::uint8_t { Main, Func, Info, Menu, Settings, Calib };
+    enum class Page : std::uint8_t { Main, Func, Info, Menu, Settings, Calib, Diagnose };
 
     void on_softkey(std::uint16_t object, std::uint8_t activation);
     void on_button(std::uint16_t object, std::uint8_t activation);
@@ -51,6 +51,7 @@ private:
     void update_inputs(const Snapshot &s);
     void update_pages(const Snapshot &s);
     void update_calib(const Snapshot &s);
+    void update_diagnose(const Snapshot &s);
 
     Shared &shared_;
     std::shared_ptr<isobus::VirtualTerminalClient> vt_;

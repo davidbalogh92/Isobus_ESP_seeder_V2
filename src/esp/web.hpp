@@ -16,6 +16,7 @@ struct HwDiag {
     std::uint32_t free_heap = 0, min_free_heap = 0;
     std::uint32_t saves_settings = 0, saves_persistent = 0;
     std::string io_json;   ///< a bemenetek/kimenetek/perifériák állapota (io.cpp)
+    std::string aog_json;  ///< Ethernet + AgOpenGPS (aog_net.cpp)
 };
 
 void init_log();

@@ -1,5 +1,6 @@
 // A vezérlőmag unit tesztjei (PC-n futnak, hardver nélkül).
 // Fordítás: cmake -S host -B build-host && cmake --build build-host && ctest --test-dir build-host
+#include "seeder/aog.hpp"
 #include "seeder/seeder.hpp"
 
 #include <cmath>
@@ -74,6 +75,7 @@ struct Machine {
     float motor_strength = 1.0f;          ///< elektromos hajtás: 1 = a motor_max_rpm-et hozza 100%-on
     float motor_rpm[2] = {0.0f, 0.0f};
     float ground_rpm = 30.0f;             ///< talajhajtásnál a tengely fordulata haladás közben
+    std::uint32_t inject[2] = {0, 0};     ///< a következő lépésben pluszban érkező impulzusok (kézi tekerés)
 
     void step(Seeder &s) {
         const Settings &S = s.settings();
@@ -85,12 +87,17 @@ struct Machine {
                 const float want = s.outputs().motor_pwm_pct[i] / 100.0f * S.motor_max_rpm * motor_strength;
                 motor_rpm[i] += (want - motor_rpm[i]) * dt / (0.2f + dt);
                 rpm = motor_rpm[i];
-            } else if (s.outputs().clutch_drive[i] && s.status().moving) {
+            } else if (s.outputs().clutch_drive[i] && s.status().moving && s.status().work_down) {
                 rpm = ground_rpm;
             }
             if (!meter_turns[i]) rpm = 0.0f;
             const float ppr = static_cast<float>(electric_drive(S) ? S.encoder_ppr : S.meter_ppr);
             in.meter[i] = meter[i].step(rpm / 60.0 * ppr, dt);
+            if (inject[i]) {
+                in.meter[i].count += inject[i];
+                in.meter[i].us_since_last = 0;
+                inject[i] = 0;
+            }
         }
         s.tick(in);
     }
@@ -301,21 +308,47 @@ TEST(chart_crank_correction) {
 // =====================================================================================================
 // talajhajtás + kuplung
 // =====================================================================================================
-TEST(master_off_at_boot_and_clutch_logic) {
+TEST(ground_drive_work_switch_starts_sowing) {
+    // talajhajtás: nincs vetés BE/KI gomb, a munkakapcsoló (gép lent) + haladás indít
     Seeder s = make();
     Machine m = down_machine();
     m.run(s, 1.0f);
-    CHECK(!s.status().master);
-    CHECK(s.status().state == SowState::Off);
-    CHECK(!s.outputs().clutch_drive[0] && !s.outputs().clutch_level[0]);
-
-    s.set_master(true);
-    m.run(s, 1.0f);
+    CHECK(s.status().ground_drive);
+    CHECK(s.status().master);
     CHECK(s.status().state == SowState::Sowing);
     CHECK(s.outputs().clutch_drive[0] && s.outputs().clutch_drive[1]);
     CHECK(s.outputs().clutch_level[0]);
+    CHECK(s.status().meter[0].running);
+    // a vetés gomb hatástalan, visszajelzést ad
+    const auto seq = s.status().message_seq;
+    s.set_master(false);
+    s.set_master(true);
+    m.run(s, 0.1f);
+    CHECK(s.status().master);
+    CHECK(s.status().message_seq > seq);
 
-    // kiemelés: 300 ms szűrés után old
+    // kiemelés: a kuplung alapból NEM old (csak szakasz / gomb), de a vetés áll
+    m.in.work_contact = false;
+    m.run(s, 0.5f);
+    CHECK(s.status().state == SowState::Raised);
+    CHECK(s.outputs().clutch_drive[0]);
+    CHECK(!s.status().meter[0].running);
+    const double area = s.persistent().day.area_m2;
+    m.run(s, 2.0f);
+    CHECK_NEAR(s.persistent().day.area_m2, area, 1e-9);
+    CHECK(!has_alarm(s, AlarmId::Meter1Stopped));
+    // adagológomb kapcsolja
+    s.toggle_meter(0);
+    m.run(s, 0.1f);
+    CHECK(!s.outputs().clutch_drive[0] && s.outputs().clutch_drive[1]);
+}
+
+TEST(ground_drive_clutch_lift_option) {
+    // "Old" (régi működés): kiemeléskor 300 ms szűrés után old
+    Seeder s = make([](Settings &st) { st.clutch_lift = 0; });
+    Machine m = down_machine();
+    m.run(s, 1.0f);
+    CHECK(s.outputs().clutch_drive[0]);
     m.in.work_contact = false;
     m.run(s, 0.2f);
     CHECK(s.outputs().clutch_drive[0]);
@@ -324,12 +357,24 @@ TEST(master_off_at_boot_and_clutch_logic) {
     CHECK(s.status().state == SowState::Raised);
 }
 
+TEST(electric_drive_master_still_needed) {
+    Seeder s = make([](Settings &st) { st.drive_type = 1; });
+    Machine m = down_machine();
+    m.run(s, 1.0f);
+    CHECK(!s.status().master);
+    CHECK(s.status().state == SowState::Off);
+    s.set_master(true);
+    m.run(s, 2.0f);
+    CHECK(s.status().state == SowState::Sowing);
+}
+
 TEST(clutch_polarity_options) {
     Seeder s = make([](Settings &st) { st.clutch_mode = 1; }); // áram alatt old
     Machine m = down_machine();
+    s.toggle_meter(0);
     m.run(s, 0.5f);
     CHECK(!s.outputs().clutch_drive[0] && s.outputs().clutch_level[0]); // nem hajt → áram alatt
-    s.set_master(true);
+    s.toggle_meter(0);
     m.run(s, 0.5f);
     CHECK(s.outputs().clutch_drive[0] && !s.outputs().clutch_level[0]);
 
@@ -342,7 +387,7 @@ TEST(clutch_polarity_options) {
 }
 
 TEST(work_switch_nc_and_none) {
-    Seeder s = make([](Settings &st) { st.work_sw = 2; }); // NC: lent bont
+    Seeder s = make([](Settings &st) { st.work_sw = 2; st.clutch_lift = 0; }); // NC: lent bont
     Machine m;
     m.in.work_contact = false;
     s.set_master(true);
@@ -592,7 +637,7 @@ TEST(tc_one_section_switches_both_meters) {
 
 TEST(tc_work_switch_gating_option) {
     for (int gate = 0; gate < 2; ++gate) {
-        Seeder s = make([gate](Settings &st) { st.work_sw_tc = gate; });
+        Seeder s = make([gate](Settings &st) { st.work_sw_tc = gate; st.clutch_lift = 0; });
         Machine m;
         m.in.work_contact = false; // kiemelve
         m.in.tc_connected = true;
@@ -633,8 +678,10 @@ TEST(fan_alarm_only_while_working) {
     m.run(s, 1.0f);
     CHECK(!has_alarm(s, AlarmId::FanLow));
 
-    // munkakapcsoló nélkül: halad + vetés BE
-    Seeder t = make([](Settings &st) { st.work_sw = 0; st.fan_min_rpm = 2500; st.fan_delay_s = 2.0f; });
+    // munkakapcsoló nélkül: halad + vetés BE (elektromos hajtás; talajhajtásnál nincs vetés gomb)
+    Seeder t = make([](Settings &st) {
+        st.work_sw = 0; st.fan_min_rpm = 2500; st.fan_delay_s = 2.0f; st.drive_type = 1;
+    });
     Machine n;
     n.fan_rpm = 1500.0f;
     n.run(t, 5.0f);
@@ -791,29 +838,168 @@ TEST(wheel_calibration_flow) {
     CHECK(s.settings_dirty);
 }
 
-TEST(crank_motor_exact_turns_and_save) {
+/// nyomva tartás szimulálása: a web 0,2 s-onként ismétli a parancsot
+void hold_for(Seeder &s, Machine &m, float seconds) {
+    const int steps = static_cast<int>(seconds / 0.05f + 0.5f);
+    m.in.dt_s = 0.05f;
+    for (int k = 0; k < steps; ++k) {
+        if (k % 4 == 0) s.crank_hold(true);
+        m.step(s);
+    }
+}
+
+TEST(crank_motor_hold_to_run_autostop_and_save) {
     Seeder s = make([](Settings &st) { st.drive_type = 1; st.sim_speed = 0.0f; st.encoder_ppr = 50; });
     Machine m = down_machine();
     s.set_master(true);
     m.run(s, 0.2f);
-    CHECK(!s.crank_motor_start()); // vetés BE mellett nem
+    CHECK(!s.crank_hold(true)); // vetés BE mellett nem
     s.set_master(false);
     s.crank_set_meter(1);
     s.crank_set_turns(2); // 17 fordulat
-    CHECK(s.crank_motor_start());
-    m.run(s, 2.0f);
+    CHECK(s.crank_hold(true));
+    hold_for(s, m, 2.0f);
     CHECK(s.status().crank.motor_running);
     CHECK(s.status().meter[1].pwm_pct > 0.0f);
     CHECK_NEAR(s.status().meter[0].pwm_pct, 0.0, 1e-6);
-    m.run(s, 90.0f);
+    // elengedés (nincs több parancs): a tartás 0,6 s után lejár, a motor megáll, a számláló megmarad
+    m.run(s, 2.0f);
+    CHECK(!s.status().crank.hold && !s.status().crank.motor_running);
+    const float part = s.status().crank.counted_revs;
+    CHECK(part > 0.5f && part < 17.0f);
+    m.run(s, 1.0f);
+    CHECK_NEAR(s.status().crank.counted_revs, part, 0.05);
+    // folytatás: a célnál magától megáll, akkor is, ha még nyomjuk
+    hold_for(s, m, 120.0f);
     CHECK(!s.status().crank.motor_running);
-    CHECK_NEAR(s.status().crank.motor_revs_done, 17.0, 0.6);
+    CHECK(s.status().crank.target_reached);
+    CHECK_NEAR(s.status().crank.counted_revs, 17.0, 0.3);
+    CHECK(!s.crank_hold(true));   // célnál nem indul újra, amíg nem nullázzuk
     // nem számít bele a kijuttatott mennyiségbe
     CHECK_NEAR(s.persistent().total.kg[1], 0.0, 1e-9);
-    s.crank_set_measured(3.4f);
+    // két vödör, összeadódik
+    CHECK(s.crank_add_weight(2.0f));
+    CHECK(s.crank_add_weight(1.4f));
+    CHECK_NEAR(s.status().crank.measured_kg, 3.4, 1e-4);
+    CHECK(s.status().crank.weight_count == 2);
+    const double revs = s.crank_effective_revs();
     CHECK(s.crank_save());
-    CHECK_NEAR(s.settings().cal2_kg_rev, 0.2, 1e-4);
+    CHECK_NEAR(s.settings().cal2_kg_rev, 3.4 / revs, 1e-4);
     CHECK_NEAR(s.settings().cal1_kg_rev, 0.2353, 1e-4); // a másik változatlan
+    // nullázás után újra indítható
+    s.crank_reset_count();
+    CHECK(!s.status().crank.target_reached);
+    CHECK(s.crank_hold(true));
+}
+
+TEST(crank_motor_without_autostop_runs_while_held) {
+    Seeder s = make([](Settings &st) {
+        st.drive_type = 1; st.sim_speed = 0.0f; st.encoder_ppr = 50; st.crank_autostop = 0; st.motor_max_rpm = 60.0f;
+    });
+    Machine m = down_machine();
+    s.crank_set_turns(2); // 17
+    hold_for(s, m, 40.0f);  // 30 1/min → ~20 fordulat
+    CHECK(s.status().crank.counted_revs > 17.5f);
+    CHECK(s.status().crank.motor_running);
+    m.run(s, 1.5f);
+    CHECK(!s.status().crank.motor_running);
+}
+
+TEST(crank_machine_button_electric_and_ground) {
+    Seeder s = make([](Settings &st) { st.drive_type = 1; st.sim_speed = 0.0f; st.crank_btn = 1; });
+    Machine m = down_machine();
+    m.in.crank_button = true;
+    m.run(s, 3.0f);
+    CHECK(s.status().crank.motor_running);
+    m.in.crank_button = false;
+    m.run(s, 1.5f);
+    CHECK(!s.status().crank.motor_running);
+    // beállítás nélkül a gomb hatástalan
+    Seeder t = make([](Settings &st) { st.drive_type = 1; st.sim_speed = 0.0f; });
+    Machine n = down_machine();
+    n.in.crank_button = true;
+    n.run(t, 1.0f);
+    CHECK(!t.status().crank.motor_running);
+    // talajhajtás: 2 s nyomás = nullázás
+    Seeder g = make([](Settings &st) { st.crank_btn = 1; st.sim_speed = 0.0f; });
+    Machine k;
+    PulseGen pg;
+    for (int i = 0; i < 40; ++i) {   // kézi tekerés: 2 imp/s
+        k.inject[0] = pg.step(2.0, 0.05).count;
+        k.step(g);
+    }
+    CHECK(g.status().crank.counted_revs > 1.0f);
+    k.in.crank_button = true;
+    k.run(g, 1.0f);
+    CHECK(g.status().crank.counted_revs > 1.0f);
+    k.run(g, 1.5f);
+    CHECK_NEAR(g.status().crank.counted_revs, 0.0, 1e-6);
+    CHECK(!g.status().crank.armed);
+}
+
+TEST(crank_ground_zero_point_half_turn_and_feedback) {
+    // 1 imp/ford tengelyjeladó: az első impulzus a nullpont, 42,5-nél a fél fordulatot a kezelő teszi rá
+    Seeder s = make([](Settings &st) { st.sim_speed = 0.0f; st.lights_enable = 1; st.meter_ppr = 1; });
+    Machine m;
+    m.run(s, 0.2f);
+    s.crank_set_turns(1);   // 42,5
+    s.crank_reset_count();
+    CHECK(!s.status().crank.armed);
+    auto pulse = [&](int n) {
+        for (int i = 0; i < n; ++i) {
+            m.inject[0] = 1;
+            m.step(s);
+            m.run(s, 0.4f);
+        }
+    };
+    pulse(1);   // nullpont
+    CHECK(s.status().crank.armed);
+    CHECK_NEAR(s.status().crank.counted_revs, 0.0, 1e-6);
+    m.inject[0] = 1;
+    m.step(s);
+    CHECK(s.outputs().lamp_level[0]);   // fordulatonként felvillan
+    CHECK(s.outputs().buzzer);
+    m.run(s, 0.5f);
+    CHECK(!s.outputs().lamp_level[0]);
+    CHECK(!s.outputs().buzzer);
+    pulse(41);
+    CHECK_NEAR(s.status().crank.counted_revs, 42.0, 1e-6);
+    CHECK_NEAR(s.crank_effective_revs(), 42.5, 1e-6);
+    CHECK(s.status().crank.target_reached);
+    s.crank_set_measured(5.0f);
+    CHECK_NEAR(s.status().crank_result.kg_per_rev, 5.0 / 42.5, 1e-6);
+    // a célnál a lámpa villog
+    bool on = false, off = false;
+    for (int i = 0; i < 30; ++i) {
+        m.step(s);
+        (s.outputs().lamp_level[0] ? on : off) = true;
+    }
+    CHECK(on && off);
+    // mentés után vége a jelzésnek
+    CHECK(s.crank_save());
+    m.run(s, 1.0f);
+    CHECK(!s.outputs().lamp_level[0]);
+}
+
+TEST(crank_weights_list) {
+    Seeder s = make();
+    CHECK(!s.crank_add_weight(0.0f));
+    for (int i = 0; i < CrankCalibration::MAX_WEIGHTS; ++i) CHECK(s.crank_add_weight(1.0f + static_cast<float>(i)));
+    CHECK(!s.crank_add_weight(1.0f));   // megtelt
+    CHECK_NEAR(s.status().crank.measured_kg, 55.0, 1e-4);
+    s.crank_del_weight(0);              // az 1,0 kg törlése
+    CHECK(s.status().crank.weight_count == CrankCalibration::MAX_WEIGHTS - 1);
+    CHECK_NEAR(s.status().crank.weights[0], 2.0, 1e-6);
+    CHECK_NEAR(s.status().crank.measured_kg, 54.0, 1e-4);
+    s.crank_del_weight(99);             // érvénytelen index
+    CHECK_NEAR(s.status().crank.measured_kg, 54.0, 1e-4);
+    s.crank_set_measured(3.0f);         // teljes tömeg megadása: egy tétel
+    CHECK(s.status().crank.weight_count == 1);
+    s.crank_clear_weights();
+    CHECK(s.status().crank.weight_count == 0 && s.status().crank.measured_kg == 0.0f);
+    // számlálás nélkül a táblázati fordulattal számol (régi működés)
+    s.crank_set_measured(2.0f);
+    CHECK_NEAR(s.status().crank_result.kg_per_rev, 2.0 / 85.0, 1e-6);
 }
 
 TEST(crank_save_requires_weight) {
@@ -1060,6 +1246,303 @@ TEST(simulation_mode_produces_inputs) {
     CHECK(s.status().meter[0].rpm > 1.0f);
     CHECK(!has_alarm(s, AlarmId::Meter1Stopped));
     CHECK(has_alarm(s, AlarmId::SimulationActive));
+}
+
+// =====================================================================================================
+// visszafúvás, csúszás, AgOpenGPS
+// =====================================================================================================
+TEST(cooler_reverse_sequence) {
+    Seeder s = make([](Settings &st) {
+        st.temp_enable = 1; st.rev_enable = 1; st.rev_interval_min = 0; st.rev_time_s = 4.0f; st.rev_pause_s = 2.0f;
+        st.cooler_on_c = 40.0f; st.cooler_off_c = 30.0f;
+    });
+    Machine m;
+    m.in.temp_c[0] = m.in.temp_c[1] = 60.0f;
+    m.run(s, 1.0f);
+    CHECK(s.outputs().cooler_level && !s.outputs().cooler_rev_level);
+    CHECK(s.cooler_reverse());
+    m.run(s, 1.0f);                      // leállás, a relé még normál állásban
+    CHECK(!s.outputs().cooler_level && !s.outputs().cooler_rev_level);
+    CHECK(s.status().cooler_rev == RevState::StopBefore);
+    m.run(s, 1.2f);                      // irányváltó relé be, a ventilátor 0,5 s-mal később
+    CHECK(s.status().cooler_rev == RevState::Reverse);
+    CHECK(s.outputs().cooler_rev_level);
+    m.run(s, 1.0f);
+    CHECK(s.outputs().cooler_level && s.outputs().cooler_rev_level);
+    m.run(s, 3.6f);                      // vége: ventilátor áll, a relé még behúzva
+    CHECK(s.status().cooler_rev == RevState::StopAfter);
+    CHECK(!s.outputs().cooler_level && s.outputs().cooler_rev_level);
+    m.run(s, 2.2f);
+    CHECK(s.status().cooler_rev == RevState::Idle);
+    CHECK(s.outputs().cooler_level && !s.outputs().cooler_rev_level);
+    // kézi leállítás visszafúvás közben: biztonságos sorrend
+    s.cooler_reverse();
+    m.run(s, 3.0f);
+    CHECK(s.status().cooler_rev == RevState::Reverse);
+    s.cooler_reverse();
+    m.step(s);
+    CHECK(s.status().cooler_rev == RevState::StopAfter && !s.outputs().cooler_level);
+    // engedély nélkül nem indul
+    Seeder t = make([](Settings &st) { st.temp_enable = 1; });
+    CHECK(!t.cooler_reverse());
+}
+
+TEST(cooler_reverse_automatic_interval) {
+    Seeder s = make([](Settings &st) {
+        st.temp_enable = 1; st.rev_enable = 1; st.rev_interval_min = 1; st.rev_pause_s = 1.0f; st.rev_time_s = 2.0f;
+        st.cooler_on_c = 40.0f; st.cooler_off_c = 30.0f;
+    });
+    Machine m;
+    m.in.temp_c[0] = m.in.temp_c[1] = 60.0f;
+    m.run(s, 59.0f);
+    CHECK(s.status().cooler_rev == RevState::Idle);
+    CHECK(s.status().cooler_rev_next_s > 0.0f && s.status().cooler_rev_next_s < 2.0f);
+    m.run(s, 1.5f);
+    CHECK(s.status().cooler_rev == RevState::StopBefore);
+    m.run(s, 5.0f);
+    CHECK(s.status().cooler_rev == RevState::Idle);
+    CHECK(s.status().cooler_rev_next_s > 50.0f);
+}
+
+TEST(slip_alarm_wheel_vs_gps) {
+    Seeder s = make([](Settings &st) {
+        st.speed_src = 0; st.wheel_ppm = 1000.0f; st.slip_alarm_pct = 10.0f; st.slip_delay_s = 2.0f;
+    });
+    Machine m = down_machine();
+    PulseGen w;
+    auto run = [&](float wheel_kmh, float gps_kmh, float secs) {
+        for (int i = 0; i < static_cast<int>(secs / 0.05f); ++i) {
+            m.in.wheel = w.step(wheel_kmh / 3.6 * 10.0, 0.05);   // 1000 imp/100 m = 10 imp/m
+            m.in.isobus.aog = {true, gps_kmh, 100};
+            m.step(s);
+        }
+    };
+    run(8.0f, 8.0f, 6.0f);
+    CHECK_NEAR(s.status().slip_pct, 0.0, 1.5);
+    CHECK(!has_alarm(s, AlarmId::SpeedMismatch));
+    run(6.8f, 8.0f, 1.0f);   // 15% csúszás, még a késleltetésen belül
+    CHECK(!has_alarm(s, AlarmId::SpeedMismatch));
+    run(6.8f, 8.0f, 3.0f);
+    CHECK(has_alarm(s, AlarmId::SpeedMismatch));
+    CHECK_NEAR(s.status().slip_pct, 15.0, 2.0);
+    run(7.5f, 8.0f, 2.0f);   // 6% < 7% (hiszterézis)
+    CHECK(!has_alarm(s, AlarmId::SpeedMismatch));
+    // nincs GPS: nem számolható
+    for (int i = 0; i < 40; ++i) {
+        m.in.wheel = w.step(8.0 / 3.6 * 10.0, 0.05);
+        m.in.isobus.aog = IsobusSpeedValue{};
+        m.step(s);
+    }
+    CHECK(s.status().slip_pct < 0.0f);
+}
+
+TEST(aog_speed_source_and_fallback) {
+    Settings st = default_settings();
+    st.speed_src = 4;
+    st.wheel_ppm = 500.0f;
+    IsobusSpeeds iso;
+    iso.aog = {true, 9.5f, 100};
+    SpeedResult r = select_speed(st, 7.0f, iso);
+    CHECK(r.valid && r.used == SpeedSource::Aog);
+    CHECK_NEAR(r.kmh, 9.5, 1e-6);
+    iso.aog.age_ms = 5000;   // elavult
+    r = select_speed(st, 7.0f, iso);
+    CHECK(!r.valid);
+    st.speed_src = 5;        // kiesésnél kerék
+    r = select_speed(st, 7.0f, iso);
+    CHECK(r.valid && r.fallback && r.used == SpeedSource::Wheel);
+    CHECK_NEAR(r.kmh, 7.0, 1e-6);
+}
+
+TEST(aog_section_control) {
+    Seeder s = make([](Settings &st) { st.sec_src = 2; st.aog_enable = 1; });
+    Machine m = down_machine();
+    m.run(s, 0.2f);
+    s.toggle_section_auto();          // nincs AgOpenGPS kapcsolat
+    m.run(s, 0.1f);
+    CHECK(!s.status().sec_auto_req);
+    m.in.aog.connected = true;
+    m.in.aog.sections_valid = true;
+    m.in.aog.sections = 0x1;          // csak az 1. szakasz
+    m.run(s, 0.2f);
+    s.toggle_section_auto();
+    m.run(s, 0.5f);
+    CHECK(s.status().sec_auto && s.status().aog_section_auto && !s.status().tc_section_auto);
+    CHECK(s.outputs().clutch_drive[0] && !s.outputs().clutch_drive[1]);
+    m.in.aog.sections = 0x3;
+    m.run(s, 0.2f);
+    CHECK(s.outputs().clutch_drive[0] && s.outputs().clutch_drive[1]);
+    // a kezelő gombja felülbírálja
+    s.toggle_meter(1);
+    m.run(s, 0.2f);
+    CHECK(!s.outputs().clutch_drive[1]);
+    s.toggle_meter(1);
+    // kapcsolat megszakad: a gombok érvényesek, figyelmeztetés
+    m.in.aog.connected = false;
+    m.in.aog.sections = 0;
+    m.run(s, 0.3f);
+    CHECK(!s.status().sec_auto);
+    CHECK(s.outputs().clutch_drive[0] && s.outputs().clutch_drive[1]);
+    CHECK(has_alarm(s, AlarmId::AogLost));
+    // a TC nem kapcsolhatja automatára, ha a forrás AgOpenGPS
+    Seeder t = make([](Settings &st) { st.sec_src = 2; st.aog_enable = 1; });
+    t.tc_set_section_auto(true);
+    CHECK(!t.tc_section_auto_requested());
+}
+
+TEST(sec_src_none_and_one_section_aog) {
+    Seeder s = make([](Settings &st) { st.sec_src = 0; });
+    Machine m = down_machine();
+    m.in.tc_connected = true;
+    s.toggle_section_auto();
+    m.run(s, 0.2f);
+    CHECK(!s.status().sec_auto_req && !s.status().sec_auto);
+    // 1 szakasz: bármelyik AgOpenGPS szakasz bekapcsolja mindkét adagolót
+    Seeder t = make([](Settings &st) { st.sec_src = 2; st.aog_enable = 1; st.section_count = 1; });
+    Machine n = down_machine();
+    n.in.aog = AogInput{true, true, 0x4};
+    n.run(t, 0.2f);
+    t.toggle_section_auto();
+    n.run(t, 0.3f);
+    CHECK(t.outputs().clutch_drive[0] && t.outputs().clutch_drive[1]);
+    n.in.aog.sections = 0;
+    n.run(t, 0.2f);
+    CHECK(!t.outputs().clutch_drive[0] && !t.outputs().clutch_drive[1]);
+}
+
+TEST(ip_parse) {
+    std::uint8_t ip[4];
+    CHECK(parse_ipv4("192.168.5.130", ip) && ip[0] == 192 && ip[3] == 130);
+    CHECK(!parse_ipv4("192.168.5", ip));
+    CHECK(!parse_ipv4("192.168.5.256", ip));
+    CHECK(!parse_ipv4("1.2.3.4x", ip));
+    CHECK(!parse_ipv4("", ip));
+    Settings st = default_settings();
+    std::snprintf(st.aog_ip, sizeof(st.aog_ip), "%s", "rossz");
+    normalize(st);
+    CHECK(std::strcmp(st.aog_ip, "192.168.5.130") == 0);
+}
+
+// =====================================================================================================
+// AgOpenGPS protokoll
+// =====================================================================================================
+namespace {
+std::vector<std::uint8_t> agio(std::uint8_t pgn, std::vector<std::uint8_t> data) {
+    std::vector<std::uint8_t> f = {0x80, 0x81, 0x7F, pgn, static_cast<std::uint8_t>(data.size())};
+    f.insert(f.end(), data.begin(), data.end());
+    f.push_back(0);
+    f.back() = aog::checksum(f.data(), f.size());
+    return f;
+}
+struct Sent {
+    std::vector<std::vector<std::uint8_t>> frames;
+    aog::Link::Sender fn() {
+        return [this](const std::uint8_t *d, std::size_t n) {
+            frames.emplace_back(d, d + n);
+            return true;
+        };
+    }
+    int count_pgn(std::uint8_t pgn) const {
+        int c = 0;
+        for (const auto &f : frames) c += f.size() > 3 && f[3] == pgn;
+        return c;
+    }
+};
+} // namespace
+
+TEST(aog_frames_speed_sections) {
+    aog::Link l;
+    Sent tx;
+    CHECK(!l.connected(0));
+    // PGN 254: 8,5 km/h
+    auto f = agio(254, {85, 0, 0, 0, 0, 0, 0, 0});
+    CHECK(aog::valid_frame(f.data(), f.size()));
+    l.on_packet(f.data(), f.size(), 1000, tx.fn());
+    CHECK(l.connected(1000) && l.speed_valid(1100));
+    CHECK_NEAR(l.speed_kmh(), 8.5, 1e-6);
+    CHECK(!l.speed_valid(3000));
+    CHECK(!l.connected(3100));
+    // hibás ellenőrzőösszeg / más forrás: eldobva
+    auto bad = f;
+    bad.back() ^= 0xFF;
+    l.on_packet(bad.data(), bad.size(), 4000, tx.fn());
+    CHECK(!l.connected(4000));
+    auto other = f;
+    other[2] = 0x7E;
+    other.back() = aog::checksum(other.data(), other.size());
+    l.on_packet(other.data(), other.size(), 4000, tx.fn());
+    CHECK(!l.connected(4000) && l.stats().rx_rejected == 2);
+    // irreális sebesség (90 km/h) eldobva
+    auto fast = agio(254, {0x84, 0x03, 0, 0, 0, 0, 0, 0});
+    l.on_packet(fast.data(), fast.size(), 4100, tx.fn());
+    CHECK_NEAR(l.speed_kmh(), 8.5, 1e-6);
+    // PGN 239: szakaszok
+    auto m = agio(239, {0, 72, 0, 0, 0, 0, 0x05, 0x01});
+    l.on_packet(m.data(), m.size(), 5000, tx.fn());
+    CHECK(l.sections_valid(5000));
+    CHECK(l.sections() == 0x0105);
+    CHECK(!l.sections_valid(7500));
+}
+
+TEST(aog_hello_scan_subnet) {
+    aog::Link l;
+    const std::uint8_t ip[4] = {192, 168, 5, 130};
+    l.set_own_ip(ip);
+    Sent tx;
+    auto h = agio(200, {56, 0, 0});
+    l.on_packet(h.data(), h.size(), 10, tx.fn());
+    CHECK(tx.count_pgn(123) == 1);
+    CHECK(aog::valid_frame(tx.frames[0].data(), tx.frames[0].size()));
+    auto sc = agio(202, {202, 202, 5});
+    l.on_packet(sc.data(), sc.size(), 20, tx.fn());
+    CHECK(tx.count_pgn(203) == 1);
+    const auto &r = tx.frames.back();
+    CHECK(r.size() == 13 && r[5] == 192 && r[8] == 130 && r[11] == 5);
+    CHECK(aog::valid_frame(r.data(), r.size()));
+    std::uint8_t sn[3];
+    CHECK(!l.take_subnet_request(sn));
+    auto sub = agio(201, {201, 201, 10, 0, 7});
+    l.on_packet(sub.data(), sub.size(), 30, tx.fn());
+    CHECK(l.take_subnet_request(sn) && sn[0] == 10 && sn[1] == 0 && sn[2] == 7);
+    CHECK(!l.take_subnet_request(sn));
+}
+
+TEST(aog_paint_burst_and_off_repeat) {
+    aog::Link l;
+    Sent tx;
+    aog::PaintState p;
+    p.enabled = true;
+    p.sections = 2;
+    p.work = false;
+    std::uint32_t t = 0;
+    auto run = [&](std::uint32_t ms) {
+        for (std::uint32_t k = 0; k < ms; k += 20) {
+            l.update(t, p, tx.fn());
+            t += 20;
+        }
+    };
+    run(1000);                       // fent: KI azonnal, utána 500 ms-onként
+    CHECK(tx.count_pgn(234) == 2 || tx.count_pgn(234) == 3);
+    CHECK(tx.frames.back()[5] == 0x02);
+    CHECK(aog::valid_frame(tx.frames.back().data(), tx.frames.back().size()));
+    tx.frames.clear();
+    p.work = true;                   // leengedés: 3 BE csomag, utána csend
+    run(2000);
+    CHECK(tx.count_pgn(234) == 3);
+    for (const auto &f : tx.frames) {
+        CHECK(f[5] == 0x01);
+        CHECK(f[6] == 0x03 && f[8] == 2);   // automata / zöld: mindkét szakasz automata csoportban
+    }
+    tx.frames.clear();
+    p.mode = 1;                      // kézi / sárga: az 1. szakasz BE, a 2. KI
+    p.on_mask = 0x1;
+    run(1000);
+    CHECK(tx.count_pgn(234) == 3);
+    CHECK(tx.frames.back()[6] == 0 && tx.frames.back()[9] == 0x01 && tx.frames.back()[10] == 0x02);
+    tx.frames.clear();
+    p.enabled = false;               // kikapcsolva: semmit nem küld
+    run(2000);
+    CHECK(tx.frames.empty());
 }
 
 int main() {

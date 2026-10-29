@@ -20,15 +20,17 @@ const char *b(bool v) { return v ? "true" : "false"; }
 } // namespace
 
 std::string isobus_diag_json(const IsobusDiag &d) {
-    char buf[600];
+    char buf[720];
     std::snprintf(buf, sizeof(buf),
                   "{\"claimed\":%s,\"address\":%d,\"vt_found\":%s,\"vt_connected\":%s,\"vt_w\":%u,\"vt_h\":%u,"
                   "\"sk_w\":%u,\"sk_h\":%u,\"phys_keys\":%u,\"virt_keys\":%u,\"vt_version\":%d,\"tc_found\":%s,"
-                  "\"tc_connected\":%s,\"ddop_uploads\":%u,\"vt_sent\":%u,\"vt_failed\":%u,\"page\":\"%s\"}",
+                  "\"tc_connected\":%s,\"ddop_uploads\":%u,\"vt_sent\":%u,\"vt_failed\":%u,\"page\":\"%s\","
+                  "\"started\":%s,\"start_in\":%.0f,\"announces\":%u,\"reconnects\":%u}",
                   b(d.address_claimed), d.address, b(d.vt_found), b(d.vt_connected), d.vt_width, d.vt_height,
                   d.vt_softkey_w, d.vt_softkey_h, d.vt_phys_keys, d.vt_virt_keys, d.vt_version, b(d.tc_found),
                   b(d.tc_connected), d.ddop_uploads, d.vt_cmd_sent, d.vt_cmd_failed,
-                  seeder::json_escape(d.page.c_str()).c_str());
+                  seeder::json_escape(d.page.c_str()).c_str(), b(d.started), static_cast<double>(d.start_in_s),
+                  d.announces, d.reconnects);
     return buf;
 }
 
@@ -127,6 +129,11 @@ ApiResult handle_api(Shared &shared, SeederApp *isobus, const std::string &metho
         if (!seeder::json_get_string(body.c_str(), "cmd", cmd)) return error("Hiányzó 'cmd'");
         double v = 0;
         seeder::json_get_number(body.c_str(), "value", v);
+        if (cmd == "isobus_reconnect") {
+            if (!isobus) return error("Az ISOBUS nem fut");
+            isobus->request_reconnect();
+            return ok("{\"ok\":true}");
+        }
         bool done = false;
         {
             std::lock_guard<std::mutex> g(shared.lock);

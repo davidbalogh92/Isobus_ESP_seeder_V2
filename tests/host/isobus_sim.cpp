@@ -289,11 +289,7 @@ int main(int argc, char **argv) {
                     d.vt_softkey_h);
     }
 
-    // --- VT: értékek frissülnek-e
-    {
-        std::lock_guard<std::mutex> g(shared.lock);
-        shared.core.set_master(true);
-    }
+    // --- VT: értékek frissülnek-e (talajhajtás: nincs vetés gomb, a munkakapcsoló indít)
     wait_for([] { return false; }, step, 4);
     check(vt.number(vt::OUT_SPEED) == 80, "VT: sebesség = 8,0 km/h");
     check(vt.pointer(vt::OP_K_MASTER) == vt::PIC_K_MASTER[1], "VT: vetés BE softkey ikon");

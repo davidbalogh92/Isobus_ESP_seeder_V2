@@ -19,7 +19,7 @@ const AlarmInfo ALARMS[] = {
     {"HOPPER1_EMPTY", "1. tartály kiürült", Severity::Alarm},
     {"HOPPER2_EMPTY", "2. tartály kiürült", Severity::Alarm},
     {"NO_SPEED", "Nincs sebességjel", Severity::Alarm},
-    {"SPEED_FALLBACK", "ISOBUS sebesség kiesett, kerékjeladó", Severity::Warning},
+    {"SPEED_FALLBACK", "GPS / ISOBUS sebesség kiesett, kerékjeladó", Severity::Warning},
     {"OIL_HOT", "Hidraulikaolaj túlmelegedett", Severity::Alarm},
     {"TEMP_SENSOR", "Olajhőmérő hiba", Severity::Warning},
     {"PRESSURE_SENSOR", "Nyomásszenzor hiba", Severity::Warning},
@@ -27,6 +27,8 @@ const AlarmInfo ALARMS[] = {
     {"WHEEL_NOT_CAL", "Kerékjeladó nincs kalibrálva", Severity::Info},
     {"SIMULATION", "Szimuláció aktív", Severity::Info},
     {"TC_LOST", "Task Controller kapcsolat megszakadt", Severity::Warning},
+    {"SPEED_MISMATCH", "Kerék és GPS sebesség eltér (csúszás)", Severity::Warning},
+    {"AOG_LOST", "AgOpenGPS kapcsolat megszakadt", Severity::Warning},
 };
 static_assert(sizeof(ALARMS) / sizeof(ALARMS[0]) == static_cast<std::size_t>(AlarmId::COUNT), "alarm table");
 
@@ -87,6 +89,7 @@ const char *speed_source_label(SpeedSource s) {
     case SpeedSource::IsobusMachine: return "ISOBUS gép által választott";
     case SpeedSource::Nmea: return "NMEA GPS";
     case SpeedSource::Simulated: return "Szimulált";
+    case SpeedSource::Aog: return "AgOpenGPS";
     default: return "Nincs";
     }
 }
@@ -101,6 +104,15 @@ const char *sow_state_label(SowState s) {
     case SowState::Alarm: return "Riasztás";
     }
     return "";
+}
+
+const char *rev_label(RevState s) {
+    switch (s) {
+    case RevState::StopBefore: return "Leállás (irányváltás előtt)";
+    case RevState::Reverse: return "Visszafúvás";
+    case RevState::StopAfter: return "Leállás (irányváltás után)";
+    default: return "Normál";
+    }
 }
 
 const char *prefill_label(PrefillState s) {
@@ -179,6 +191,19 @@ SpeedResult select_speed(const Settings &s, float wheel_kmh, const IsobusSpeeds 
         r.kmh = s.sim_speed;
         r.used = SpeedSource::Simulated;
         r.valid = true;
+        return r;
+    case 4:
+    case 5:
+        if (ok(iso.aog)) {
+            r.kmh = iso.aog.kmh < 0.0f ? 0.0f : iso.aog.kmh;
+            r.used = SpeedSource::Aog;
+            r.valid = true;
+        } else if (s.speed_src == 5) {
+            r.kmh = wheel_kmh;
+            r.used = SpeedSource::Wheel;
+            r.valid = s.wheel_ppm >= 1.0f;
+            r.fallback = true;
+        }
         return r;
     default: break;
     }
@@ -303,6 +328,7 @@ bool Seeder::set_param(std::uint16_t id, float value) {
             for (auto &m : motor_) m.reset();
             prefill_ = PrefillState::Idle;
             crank_.motor_running = false;
+            crank_.hold = false;
         }
         update_crank_result();
     }
@@ -329,8 +355,17 @@ void Seeder::replace_settings(const Settings &s) {
 
 // --- kezelőparancsok ---------------------------------------------------------------------
 void Seeder::set_master(bool on) {
+    if (!electric_drive(settings_)) {
+        if (on) say("Talajhajtásnál a vetést a munkakapcsoló indítja");
+        master_ = false;
+        return;
+    }
     if (master_ && !on) persistent_dirty = true;
-    if (on && crank_.motor_running) crank_.motor_running = false;
+    if (on) {
+        crank_.hold = false;
+        crank_.motor_running = false;
+        crank_.session = false;
+    }
     master_ = on;
     if (!on && prefill_ == PrefillState::AfterRun) prefill_ = PrefillState::Idle;
 }
@@ -343,16 +378,35 @@ void Seeder::toggle_meter(int i) {
 }
 
 void Seeder::toggle_section_auto() {
-    if (!settings_.tc_enable || !settings_.tc_sec) {
-        say("A TC-SEC ki van kapcsolva a beállításokban");
+    switch (settings_.sec_src) {
+    case 1:
+        if (!settings_.tc_enable || !settings_.tc_sec) {
+            say("A TC-SEC ki van kapcsolva a beállításokban");
+            return;
+        }
+        if (!status_.tc_connected && !sec_auto_) {
+            say("Nincs Task Controller kapcsolat");
+            return;
+        }
+        break;
+    case 2:
+        if (!settings_.aog_enable) {
+            say("Az AgOpenGPS kapcsolat ki van kapcsolva a beállításokban");
+            return;
+        }
+        if (!status_.aog_connected && !sec_auto_) {
+            say("Nincs AgOpenGPS kapcsolat");
+            return;
+        }
+        break;
+    default:
+        sec_auto_ = false;
+        say("Nincs automata szakaszolás (Szakaszolás forrása: Nincs)");
         return;
     }
-    if (!status_.tc_connected && !tc_section_auto_) {
-        say("Nincs Task Controller kapcsolat");
-        return;
-    }
-    tc_section_auto_ = !tc_section_auto_;
-    say(tc_section_auto_ ? "Automata szakaszolás" : "Kézi szakaszolás");
+    sec_auto_ = !sec_auto_;
+    say(sec_auto_ ? (settings_.sec_src == 2 ? "Automata szakaszolás (AgOpenGPS)" : "Automata szakaszolás (TC)")
+                  : "Kézi szakaszolás");
 }
 
 void Seeder::set_auto(bool on) {
@@ -386,7 +440,7 @@ bool Seeder::copy_meter(int from) {
 }
 
 bool Seeder::crank_copy_to_other() {
-    if (crank_.motor_running) {
+    if (crank_.hold) {
         say("Előbb állítsd le a leforgatást");
         return false;
     }
@@ -424,12 +478,32 @@ void Seeder::toggle_cooler() {
     cooler_manual_on_ = !cooler_manual_on_;
 }
 
+bool Seeder::cooler_reverse() {
+    if (!settings_.temp_enable || !settings_.rev_enable) {
+        say("A visszafúvás nincs engedélyezve (Olajhőmérséklet beállítások)");
+        return false;
+    }
+    if (rev_ == RevState::Idle) {
+        rev_ = RevState::StopBefore;
+        rev_timer_ = 0.0f;
+        say("Visszafúvás: a ventilátor leáll, utána irányt vált");
+    } else if (rev_ == RevState::StopBefore) {
+        rev_ = RevState::Idle;
+        say("Visszafúvás megszakítva");
+    } else if (rev_ == RevState::Reverse) {
+        rev_ = RevState::StopAfter;   // biztonságos visszaváltás: előbb leáll
+        rev_timer_ = 0.0f;
+        say("Visszafúvás leállítva");
+    }
+    return true;
+}
+
 bool Seeder::prefill_start() {
     if (!electric_drive(settings_)) {
         say("Feltöltés csak elektromos adagolóhajtással");
         return false;
     }
-    if (crank_.motor_running) {
+    if (crank_.hold) {
         say("Előbb állítsd le a leforgatást");
         return false;
     }
@@ -489,18 +563,32 @@ bool Seeder::wheel_cal_save() {
 }
 
 // --- leforgatás --------------------------------------------------------------------------------
+double Seeder::crank_effective_revs() const {
+    double n = crank_.counted_revs;
+    if (n <= 0.0) return 0.0;
+    const Settings &S = settings_;
+    const int ppr = electric_drive(S) ? S.encoder_ppr : S.meter_ppr;
+    // fél fordulatos cél (42,5) kevés impulzusos jeladóval: a 42 egész után a felet a kezelő kézzel teszi rá
+    const double target = chart::turns(crank_.turn_option);
+    const double whole = std::floor(target);
+    if (ppr < 2 && target - whole > 0.25 && std::fabs(n - whole) < 0.01) n += 0.5;
+    return n;
+}
 void Seeder::update_crank_result() {
     const int m = crank_.meter < meter_count(settings_) ? crank_.meter : 0;
+    float sum = 0.0f;
+    for (int i = 0; i < crank_.weight_count; ++i) sum += crank_.weights[i];
+    crank_.measured_kg = sum;
+    crank_.motor_revs_done = crank_.counted_revs;
     crank_result_ = chart::calculate(crank_.crop, rate_setting(settings_, m), crank_.turn_option, crank_.measured_kg,
-                                     crank_.hectares, crank_.test_scale);
+                                     crank_.hectares, crank_.test_scale, crank_effective_revs());
     status_.crank = crank_;
     status_.crank_result = crank_result_;
 }
 void Seeder::crank_set_meter(int meter) {
-    if (crank_.motor_running) return;
+    if (crank_.hold) return;
     crank_.meter = meter >= 0 && meter < meter_count(settings_) ? meter : 0;
-    crank_.meter_pulses = 0;
-    update_crank_result();
+    crank_reset_count();
 }
 void Seeder::crank_set_crop(int crop) {
     if (crop >= 0 && crop < chart::CROP_COUNT) crank_.crop = crop;
@@ -508,18 +596,49 @@ void Seeder::crank_set_crop(int crop) {
 }
 void Seeder::crank_set_turns(int option) {
     if (option >= 0 && option < chart::TURN_OPTIONS) crank_.turn_option = option;
+    crank_.target_reached = crank_.counted_revs >= chart::turns(crank_.turn_option) - 0.01;
     update_crank_result();
 }
 void Seeder::crank_set_test_scale(float scale) {
     crank_.test_scale = clampf(scale, 0.0f, 200.0f);
     update_crank_result();
 }
-void Seeder::crank_set_measured(float kg) {
-    crank_.measured_kg = clampf(kg, 0.0f, 500.0f);
-    update_crank_result();
-}
 void Seeder::crank_set_hectares(float ha) {
     crank_.hectares = clampf(ha, 0.0f, 10000.0f);
+    update_crank_result();
+}
+void Seeder::crank_set_measured(float kg) {
+    // a teljes mért tömeg megadása (pl. a VT számmezőjéből): a részmérések helyére egy tétel kerül
+    crank_.weight_count = 0;
+    kg = clampf(kg, 0.0f, 500.0f);
+    if (kg > 0.0f) crank_.weights[crank_.weight_count++] = kg;
+    update_crank_result();
+}
+bool Seeder::crank_add_weight(float kg) {
+    if (!(kg > 0.0f)) {
+        say("A tömeg legyen nagyobb 0-nál");
+        return false;
+    }
+    if (crank_.weight_count >= CrankCalibration::MAX_WEIGHTS) {
+        say("Legfeljebb 10 részmérés lehet");
+        return false;
+    }
+    crank_.weights[crank_.weight_count++] = clampf(kg, 0.0f, 500.0f);
+    update_crank_result();
+    static char msg[48];   // say() a mutatót tárolja
+    std::snprintf(msg, sizeof(msg), "%d. mérés hozzáadva", crank_.weight_count);
+    say(msg);
+    return true;
+}
+void Seeder::crank_del_weight(int index) {
+    if (index < 0 || index >= crank_.weight_count) return;
+    for (int i = index; i + 1 < crank_.weight_count; ++i) crank_.weights[i] = crank_.weights[i + 1];
+    crank_.weights[--crank_.weight_count] = 0.0f;
+    update_crank_result();
+}
+void Seeder::crank_clear_weights() {
+    crank_.weight_count = 0;
+    for (float &w : crank_.weights) w = 0.0f;
     update_crank_result();
 }
 bool Seeder::crank_take_scale() {
@@ -527,9 +646,11 @@ bool Seeder::crank_take_scale() {
         say("Nincs érvényes mérlegadat");
         return false;
     }
-    crank_set_measured(status_.scale.net_kg > 0.0f ? status_.scale.net_kg : 0.0f);
-    say("Tömeg átvéve a mérlegről");
-    return true;
+    if (status_.scale.net_kg <= 0.0f) {
+        say("A mérleg üres (előbb tárázz, majd tedd rá a vödröt)");
+        return false;
+    }
+    return crank_add_weight(status_.scale.net_kg);
 }
 bool Seeder::crank_save() {
     update_crank_result();
@@ -539,10 +660,16 @@ bool Seeder::crank_save() {
     }
     const int m = crank_.meter < meter_count(settings_) ? crank_.meter : 0;
     set_param(m == 1 ? P_cal2_kg_rev : P_cal1_kg_rev, static_cast<float>(crank_result_.kg_per_rev));
+    crank_.session = false;
     say("Kg/fordulat elmentve");
     return true;
 }
-bool Seeder::crank_motor_start() {
+bool Seeder::crank_hold(bool pressed, float timeout_s) {
+    if (!pressed) {
+        crank_.hold = false;
+        crank_hold_timer_ = 0.0f;
+        return true;
+    }
     if (!electric_drive(settings_)) {
         say("Motoros leforgatás csak elektromos hajtással (talajhajtásnál kézzel tekerj)");
         return false;
@@ -551,18 +678,34 @@ bool Seeder::crank_motor_start() {
         say("Leforgatás csak álló gépnél, vetés KI állapotban");
         return false;
     }
-    prefill_ = PrefillState::Idle;
-    crank_.motor_running = true;
-    crank_.motor_revs_done = 0.0f;
-    crank_.meter_pulses = 0;
-    motor_[crank_.meter].reset();
-    say("Motoros leforgatás fut");
+    if (settings_.crank_autostop && crank_.target_reached) {
+        if (!crank_.hold) say("Elérted a célfordulatot – mérd le, vagy nullázd a számlálót");
+        return false;
+    }
+    if (!crank_.hold) {
+        prefill_ = PrefillState::Idle;
+        if (!crank_.session) {
+            crank_.session = true;
+            crank_last_whole_ = static_cast<int>(crank_.counted_revs);
+        }
+        motor_[crank_.meter].reset();
+    }
+    crank_.hold = true;
+    crank_hold_timer_ = timeout_s > 0.05f ? timeout_s : 0.05f;
     return true;
 }
-void Seeder::crank_motor_stop() { crank_.motor_running = false; }
 void Seeder::crank_reset_count() {
     crank_.meter_pulses = 0;
+    crank_.counted_revs = 0.0f;
     crank_.motor_revs_done = 0.0f;
+    crank_.target_reached = false;
+    const int ppr = electric_drive(settings_) ? settings_.encoder_ppr : settings_.meter_ppr;
+    crank_.armed = ppr >= 4;   // sok impulzusnál (enkóder) nem kell nullpontot keresni
+    crank_.session = true;
+    crank_idle_s_ = 0.0f;
+    crank_last_whole_ = 0;
+    crank_last_reached_ = false;
+    update_crank_result();
 }
 
 // --- mérleg, nyomás ----------------------------------------------------------------------------
@@ -642,7 +785,12 @@ void Seeder::tick(const TickInputs &input) {
     const int n_sec = section_count(S);
     const int n_tank = tank_count(S);
     const bool elec = electric_drive(S);
-    if (!elec) manual_ = false; // talajhajtásnál nincs kézi mód
+    if (!elec) {
+        manual_ = false;   // talajhajtásnál nincs kézi mód
+        master_ = false;   // és nincs vetés BE/KI gomb: a munkakapcsoló indít
+    }
+    // talajhajtásnál a vetés "be van kapcsolva": a munkakapcsoló (gép lent) és a haladás dönt
+    const bool master = elec ? master_ : true;
     const bool invert = S.out_invert != 0;
 
     if (S.sim_inputs) update_simulation(in, dt);
@@ -655,6 +803,33 @@ void Seeder::tick(const TickInputs &input) {
     const float wheel_kmh = S.wheel_ppm >= 1.0f ? wheel_hz / S.wheel_ppm * 100.0f * 3.6f : 0.0f;
     const SpeedResult sp = select_speed(S, wheel_kmh, in.isobus);
     const bool moving = sp.valid && sp.kmh >= S.min_work_speed;
+
+    // --- kerék – GPS eltérés (csúszás): referencia a GPS (AgOpenGPS / ISOBUS), ha a kerék nem az
+    float ref_kmh = -1.0f;
+    {
+        const std::uint32_t to = static_cast<std::uint32_t>(S.speed_timeout_ms);
+        auto fresh = [to](const IsobusSpeedValue &v) { return v.valid && v.age_ms <= to; };
+        if (sp.valid && sp.used != SpeedSource::Wheel && sp.used != SpeedSource::Simulated) ref_kmh = sp.kmh;
+        else if (fresh(in.isobus.aog)) ref_kmh = in.isobus.aog.kmh;
+        else if (fresh(in.isobus.ground)) ref_kmh = in.isobus.ground.kmh;
+        else if (fresh(in.isobus.nmea)) ref_kmh = in.isobus.nmea.kmh;
+        else if (fresh(in.isobus.machine)) ref_kmh = in.isobus.machine.kmh;
+    }
+    const float ref_min = maxf(0.5f, S.min_work_speed);
+    const float slip = (ref_kmh >= ref_min && S.wheel_ppm >= 1.0f) ? std::fabs(wheel_kmh - ref_kmh) / ref_kmh * 100.0f
+                                                                    : -1.0f;
+    if (S.slip_alarm_pct > 0.0f && slip >= 0.0f) {
+        if (slip > S.slip_alarm_pct) {
+            slip_timer_ += dt;
+            if (slip_timer_ >= S.slip_delay_s) slip_alarm_ = true;
+        } else {
+            slip_timer_ = 0.0f;
+            if (slip < S.slip_alarm_pct * 0.7f) slip_alarm_ = false;   // hiszterézis
+        }
+    } else {
+        slip_timer_ = 0.0f;
+        slip_alarm_ = false;
+    }
 
     // --- munkakapcsoló (300 ms pergésszűrés)
     bool work_raw = true;
@@ -688,14 +863,18 @@ void Seeder::tick(const TickInputs &input) {
         }
     }
 
-    // --- szakaszok (kézi + TC-SEC)
-    const bool tc_auto = S.tc_enable && S.tc_sec && tc_section_auto_ && in.tc_connected;
-    // TC kiesésekor a kezelő gombjai érvényesek (biztonságos visszaesés kézi módba)
-    // automatában a munkakapcsoló csak akkor szól bele, ha így állították be
+    // --- szakaszok (kézi + automata: ISOBUS TC-SEC vagy AgOpenGPS)
+    if (S.sec_src == 0) sec_auto_ = false;
+    const bool tc_auto = S.sec_src == 1 && S.tc_enable && S.tc_sec && sec_auto_ && in.tc_connected;
+    const bool aog_auto = S.sec_src == 2 && S.aog_enable && sec_auto_ && in.aog.connected && in.aog.sections_valid;
+    // a forrás kiesésekor a kezelő gombjai érvényesek (biztonságos visszaesés kézi módba)
+    // TC automatában a munkakapcsoló csak akkor szól bele, ha így állították be
     const bool work_ok = (tc_auto && !S.work_sw_tc) ? true : work_down_;
     bool meter_on[MAX_METERS] = {false, false};
     for (int i = 0; i < n_met; ++i) {
         if (tc_auto) meter_on[i] = meter_enable_[i] && (n_sec == 2 ? tc_setpoint_[i] : tc_setpoint_[0]);
+        else if (aog_auto)
+            meter_on[i] = meter_enable_[i] && (n_sec == 2 ? ((in.aog.sections >> i) & 1u) != 0 : in.aog.sections != 0);
         else meter_on[i] = meter_enable_[i];
     }
     bool section_on[MAX_SECTIONS] = {false, false};
@@ -713,6 +892,7 @@ void Seeder::tick(const TickInputs &input) {
     if (elec && S.prefill_auto && !crank_.motor_running && prefill_ == PrefillState::Idle && !moving &&
         (work_edge || master_edge))
         prefill_start();
+    if (!elec && last_work_down_ && !work_down_) persistent_dirty = true;   // kiemeléskor mentjük a számlálókat
     last_work_down_ = work_down_;
     last_master_ = master_;
     if (prefill_ == PrefillState::Filling) {
@@ -731,9 +911,30 @@ void Seeder::tick(const TickInputs &input) {
     // --- előírt érték
     const bool use_tc_rate = S.tc_enable && S.tc_geo && tc_rate_valid_ && in.tc_connected;
     const float offset_pct = static_cast<float>(rate_offset_steps_) * S.rate_step_pct;
-    const bool run_cond = (master_ && work_ok && moving) || prefill_active;
+    const bool run_cond = (master && work_ok && moving) || prefill_active;
     const float v_eff = prefill_active ? maxf(moving ? sp.kmh : 0.0f, S.prefill_speed_kmh) : (moving ? sp.kmh : 0.0f);
-    if (crank_.motor_running && (master_ || moving)) crank_.motor_running = false; // biztonság
+
+    // --- leforgatás: nyomva tartás (VT / web időkorláttal frissítve, gépre szerelt gomb közvetlenül)
+    const bool btn = S.crank_btn && in.crank_button;
+    if (elec) {
+        if (btn && !crank_btn_last_) crank_hold(true, 0.2f);
+        else if (btn && crank_.hold) crank_hold_timer_ = maxf(crank_hold_timer_, 0.2f);
+        else if (!btn && crank_btn_last_) crank_hold(false);
+        crank_btn_time_ = 0.0f;
+    } else {
+        // talajhajtás: 2 s nyomás = új leforgatás (számláló nullázása)
+        crank_btn_time_ = btn ? crank_btn_time_ + dt : 0.0f;
+        if (btn && crank_btn_time_ >= 2.0f && crank_btn_time_ - dt < 2.0f) {
+            crank_reset_count();
+            say("Leforgatás: számláló nullázva (gépre szerelt gomb)");
+        }
+    }
+    crank_btn_last_ = btn;
+    if (crank_.hold) {
+        crank_hold_timer_ -= dt;
+        if (crank_hold_timer_ <= 0.0f || master_ || moving || !elec) crank_.hold = false; // biztonság
+    }
+    bool crank_drive = false;
 
     // --- adagolók
     Status &st = status_;
@@ -749,7 +950,16 @@ void Seeder::tick(const TickInputs &input) {
         m.rpm = ppr > 0.0f ? hz * 60.0f / ppr : 0.0f;
         if (mp.count > 0) since_pulse_[i] = 0.0f;
         else since_pulse_[i] += dt;
-        if (i == crank_.meter) crank_.meter_pulses += mp.count;
+        if (i == crank_.meter && mp.count > 0 && !(elec && run_cond)) {
+            std::uint32_t c = mp.count;
+            if (!crank_.armed) {   // nullpont: az első impulzus
+                crank_.armed = true;
+                --c;
+            }
+            crank_.meter_pulses += c;
+            crank_.counted_revs = ppr > 0.0f ? static_cast<float>(crank_.meter_pulses) / ppr : 0.0f;
+            crank_idle_s_ = 0.0f;
+        }
         const float revs = ppr > 0.0f ? static_cast<float>(mp.count) / ppr : 0.0f;
 
         m.enabled = meter_enable_[i];
@@ -761,18 +971,16 @@ void Seeder::tick(const TickInputs &input) {
         const bool drive = exists && meter_on[i] && run_cond;
 
         float target_rpm = 0.0f;
-        const bool crank_this = crank_.motor_running && crank_.meter == i;
+        const bool crank_this = elec && crank_.hold && crank_.meter == i && exists;
         if (elec) {
             if (crank_this) {
-                const double turns = chart::turns(crank_.turn_option);
-                crank_.motor_revs_done += revs;
-                const double left = turns - crank_.motor_revs_done;
+                const double left = chart::turns(crank_.turn_option) - crank_.counted_revs;
                 const float crank_rpm = S.motor_max_rpm * 0.5f < 40.0f ? S.motor_max_rpm * 0.5f : 40.0f;
-                if (left <= 0.0) {
-                    crank_.motor_running = false;
-                    say("Leforgatás kész – mérd le a vetőmagot");
+                if (S.crank_autostop && left <= 0.005) {
+                    crank_.hold = false;
                 } else {
-                    target_rpm = left < 1.5 ? crank_rpm * 0.3f : crank_rpm;
+                    target_rpm = (S.crank_autostop && left < 1.5) ? crank_rpm * 0.3f : crank_rpm;
+                    crank_drive = true;
                 }
             } else if (drive && manual_ && !prefill_active) {
                 // kézi adagolás: a kezelő által léptetett állandó fordulat, a sebességtől függetlenül
@@ -793,8 +1001,9 @@ void Seeder::tick(const TickInputs &input) {
         } else {
             motor_[i].reset();
             outputs_.motor_pwm_pct[i] = 0.0f;
-            outputs_.clutch_drive[i] = exists && meter_on[i] && master_ && work_ok;
-            m.running = outputs_.clutch_drive[i] && moving;
+            // a kuplungot alapból csak a szakaszolás / a gombok kapcsolják (kiemelt gépnél úgysem forog)
+            outputs_.clutch_drive[i] = exists && meter_on[i] && (S.clutch_lift == 0 ? work_ok : true);
+            m.running = outputs_.clutch_drive[i] && moving && work_ok;
             alarms_.set(METER_RATE[i], false);
             rate_dev_timer_[i] = 0.0f;
         }
@@ -826,14 +1035,43 @@ void Seeder::tick(const TickInputs &input) {
         else if (alarms_.active(METER_STOPPED[i]) || alarms_.active(METER_RATE[i])) m.view = MeterView::Alarm;
         else if (!meter_on[i]) m.view = MeterView::ShutDown;
         else if (m.running && (moving || prefill_active || crank_this)) m.view = MeterView::Work;
-        else m.view = master_ ? MeterView::Ready : MeterView::Idle;
+        else m.view = master ? MeterView::Ready : MeterView::Idle;
+    }
+    crank_.motor_running = crank_drive;
+
+    // --- leforgatás visszajelzés (munkalámpa, hangjelző), cél elérése
+    {
+        const double target = chart::turns(crank_.turn_option);
+        crank_.target_reached = crank_.counted_revs > 0.0f && crank_effective_revs() >= target - 0.01;
+        if (crank_.target_reached && !crank_last_reached_) {
+            if (crank_.session) {
+                crank_beep_s_ = 1.5f;
+                say("Leforgatás kész – mérd le a vetőmagot");
+            }
+            if (S.crank_autostop) crank_.hold = false;
+        }
+        crank_last_reached_ = crank_.target_reached;
+        const int whole = static_cast<int>(crank_.counted_revs);
+        if (crank_.session && whole > crank_last_whole_) {
+            crank_flash_s_ = 0.3f;
+            if (crank_beep_s_ <= 0.0f) crank_beep_s_ = 0.08f;
+        }
+        crank_last_whole_ = whole;
+        crank_idle_s_ += dt;
+        if (crank_.session && (crank_idle_s_ > 600.0f || (run_cond && moving && crank_idle_s_ > 3.0f) ||
+                               (elec && master_)))
+            crank_.session = false;
+        crank_flash_s_ = crank_flash_s_ > 0.0f ? crank_flash_s_ - dt : 0.0f;
+        crank_beep_s_ = crank_beep_s_ > 0.0f ? crank_beep_s_ - dt : 0.0f;
+        crank_blink_s_ += dt;
+        if (crank_blink_s_ >= 1.0f) crank_blink_s_ -= 1.0f;
     }
     if (any_running && (n_met == 1 || S.meter_layout == 1)) sown_w = S.width_m;
 
     // --- turbina
     const float fan_hz = fan_rate_.update(dt, in.fan, 2.0f);
     const float fan_rpm = S.fan_ppr > 0 ? fan_hz * 60.0f / static_cast<float>(S.fan_ppr) : 0.0f;
-    const bool fan_watch = S.work_sw != 0 ? (work_down_ && moving) : (moving && master_);
+    const bool fan_watch = S.work_sw != 0 ? (work_down_ && moving) : (moving && master);
     fan_low_timer_ = (fan_watch && S.fan_min_rpm > 0 && fan_rpm < static_cast<float>(S.fan_min_rpm))
                          ? fan_low_timer_ + dt : 0.0f;
     fan_high_timer_ = (fan_watch && S.fan_max_rpm > 0 && fan_rpm > static_cast<float>(S.fan_max_rpm))
@@ -890,10 +1128,44 @@ void Seeder::tick(const TickInputs &input) {
         } else if (ctrl <= S.cooler_off_c) {
             cooler_on_ = false;
         }
+        // visszafúvás: leállás → irányváltó relé → ventilátor vissza → leállás → relé vissza
+        if (!S.rev_enable) rev_ = RevState::Idle;
+        rev_timer_ += dt;
+        switch (rev_) {
+        case RevState::Idle:
+            if (S.rev_enable && S.rev_interval_min > 0 && cooler_on_) {
+                rev_since_s_ += dt;
+                if (rev_since_s_ >= static_cast<float>(S.rev_interval_min) * 60.0f) {
+                    rev_ = RevState::StopBefore;
+                    rev_timer_ = 0.0f;
+                }
+            }
+            break;
+        case RevState::StopBefore:
+            if (rev_timer_ >= S.rev_pause_s) {
+                rev_ = RevState::Reverse;
+                rev_timer_ = 0.0f;
+            }
+            break;
+        case RevState::Reverse:
+            if (rev_timer_ >= S.rev_time_s + 0.5f) {
+                rev_ = RevState::StopAfter;
+                rev_timer_ = 0.0f;
+            }
+            break;
+        case RevState::StopAfter:
+            if (rev_timer_ >= S.rev_pause_s) {
+                rev_ = RevState::Idle;
+                rev_timer_ = 0.0f;
+                rev_since_s_ = 0.0f;
+            }
+            break;
+        }
         alarms_.set(AlarmId::TempSensor, !st.temp_ok[0] || !st.temp_ok[1]);
         alarms_.set(AlarmId::OilHot, S.temp_alarm_c > 0.0f && temp_any && temp_max >= S.temp_alarm_c);
     } else {
         cooler_on_ = false;
+        rev_ = RevState::Idle;
         alarms_.set(AlarmId::TempSensor, false);
         alarms_.set(AlarmId::OilHot, false);
     }
@@ -924,19 +1196,21 @@ void Seeder::tick(const TickInputs &input) {
 
     // --- egyéb riasztások
     for (int i = 0; i < 2; ++i) alarms_.set(HOPPER_EMPTY[i], i < n_tank && hopper_empty_[i]);
-    alarms_.set(AlarmId::NoSpeed, master_ && !sp.valid);
-    alarms_.set(AlarmId::SpeedFallback, sp.fallback && master_);
+    alarms_.set(AlarmId::NoSpeed, (elec ? master_ : work_down_) && !sp.valid);
+    alarms_.set(AlarmId::SpeedFallback, sp.fallback && (elec ? master_ : work_down_));
+    alarms_.set(AlarmId::SpeedMismatch, slip_alarm_);
+    alarms_.set(AlarmId::AogLost, S.sec_src == 2 && S.aog_enable && sec_auto_ && !in.aog.connected);
     const bool wheel_used = S.speed_src == 0 || sp.used == SpeedSource::Wheel;
     alarms_.set(AlarmId::WheelNotCalibrated, wheel_used && S.wheel_ppm == PARAMS[P_wheel_ppm].def);
     alarms_.set(AlarmId::SimulationActive, S.sim_inputs || S.sim_wheel || S.speed_src == 3);
-    alarms_.set(AlarmId::TcLost, S.tc_enable && S.tc_sec && tc_section_auto_ && !in.tc_connected);
+    alarms_.set(AlarmId::TcLost, S.sec_src == 1 && S.tc_enable && S.tc_sec && sec_auto_ && !in.tc_connected);
     alarms_.tick(dt, static_cast<float>(S.realarm_s));
 
     // --- elszámolás
     const double dist = sp.valid ? static_cast<double>(sp.kmh) / 3.6 * dt : 0.0;
     persistent_.day.distance_m += dist;
     persistent_.total.distance_m += dist;
-    const bool sowing = master_ && work_ok && moving && sown_w > 0.0f;
+    const bool sowing = master && work_ok && moving && sown_w > 0.0f;
     if (sowing) {
         persistent_.day.area_m2 += dist * sown_w;
         persistent_.total.area_m2 += dist * sown_w;
@@ -954,9 +1228,16 @@ void Seeder::tick(const TickInputs &input) {
         const bool energized = elec ? false : (S.clutch_mode == 0 ? outputs_.clutch_drive[i] : !outputs_.clutch_drive[i]);
         outputs_.clutch_level[i] = energized != invert;
     }
-    for (int i = 0; i < 2; ++i) outputs_.lamp_level[i] = (S.lights_enable && lamp_[i]) != invert;
+    // leforgatás közben a munkalámpa fordulatonként felvillan (bekapcsolt lámpánál kialszik), a célnál villog
+    const bool crank_signal = S.crank_lamp && S.lights_enable && crank_.session;
+    const bool flash = crank_signal && (crank_.target_reached ? crank_blink_s_ < 0.5f : crank_flash_s_ > 0.0f);
+    for (int i = 0; i < 2; ++i) outputs_.lamp_level[i] = ((S.lights_enable && lamp_[i]) != flash) != invert;
     outputs_.valve_level = (S.valve_enable && valve_) != invert;
-    outputs_.cooler_level = (S.temp_enable && cooler_on_) != invert;
+    const bool rev_on = S.temp_enable && rev_ != RevState::Idle;
+    const bool fan_on = S.temp_enable && (rev_on ? (rev_ == RevState::Reverse && rev_timer_ >= 0.5f) : cooler_on_);
+    outputs_.cooler_level = fan_on != invert;
+    outputs_.cooler_rev_level = (rev_on && rev_ != RevState::StopBefore) != invert;
+    outputs_.buzzer = crank_.session && crank_beep_s_ > 0.0f;
 
     // --- állapot
     st.speed_kmh = sp.kmh;
@@ -967,12 +1248,26 @@ void Seeder::tick(const TickInputs &input) {
     st.moving = moving;
     st.work_down = work_down_;
     st.work_contact = in.work_contact;
-    st.master = master_;
+    st.master = master;
+    st.ground_drive = !elec;
+    st.wheel_kmh = wheel_kmh;
+    st.ref_kmh = ref_kmh;
+    st.slip_pct = slip;
+    st.sec_src = S.sec_src;
+    st.sec_auto_req = sec_auto_;
+    st.aog_section_auto = aog_auto;
+    st.sec_auto = tc_auto || aog_auto;
+    st.aog_connected = in.aog.connected;
+    st.aog_sections = in.aog.sections;
+    st.aog_kmh = (in.isobus.aog.valid && in.isobus.aog.age_ms <= static_cast<std::uint32_t>(S.speed_timeout_ms))
+                     ? in.isobus.aog.kmh
+                     : -1.0f;
+    st.crank_button = in.crank_button;
     st.meter_count = n_met;
     st.section_count = n_sec;
     st.tank_count = n_tank;
     for (int i = 0; i < MAX_SECTIONS; ++i) {
-        st.section_on[i] = section_on[i] && master_ && work_ok;
+        st.section_on[i] = section_on[i] && master && work_ok;
         st.tc_setpoint[i] = tc_setpoint_[i];
     }
     st.tc_section_auto = tc_auto;
@@ -990,7 +1285,17 @@ void Seeder::tick(const TickInputs &input) {
         st.lamp[i] = S.lights_enable && lamp_[i];
     }
     st.valve_marker = S.valve_enable && valve_;
-    st.cooler_on = S.temp_enable && cooler_on_;
+    st.cooler_on = fan_on;
+    st.cooler_rev = rev_;
+    {
+        float left = 0.0f;
+        if (rev_ == RevState::StopBefore || rev_ == RevState::StopAfter) left = S.rev_pause_s - rev_timer_;
+        else if (rev_ == RevState::Reverse) left = S.rev_time_s + 0.5f - rev_timer_;
+        st.cooler_rev_left_s = left > 0.0f ? left : 0.0f;
+        st.cooler_rev_next_s = (S.temp_enable && S.rev_enable && S.rev_interval_min > 0 && rev_ == RevState::Idle)
+                                   ? maxf(0.0f, static_cast<float>(S.rev_interval_min) * 60.0f - rev_since_s_)
+                                   : -1.0f;
+    }
     st.cooler_manual = persistent_.cooler_manual != 0;
     st.wheel_cal = wheel_cal_;
     st.wheel_cal_ok = wheel_cal_.compute(st.wheel_cal_ppm, &st.wheel_cal_error);
@@ -1009,7 +1314,7 @@ void Seeder::tick(const TickInputs &input) {
     for (int i = 0; i < n_met; ++i)
         meter_alarm |= alarms_.active(METER_STOPPED[i]) || alarms_.active(METER_RATE[i]);
     if (prefill_active) st.state = SowState::Prefill;
-    else if (!master_) st.state = SowState::Off;
+    else if (!master) st.state = SowState::Off;
     else if (S.work_sw != 0 && !work_down_) st.state = SowState::Raised;
     else if (!moving) st.state = SowState::Standing;
     else if (meter_alarm || alarms_.active(AlarmId::FanLow)) st.state = SowState::Alarm;
@@ -1065,8 +1370,19 @@ std::string Seeder::status_json() const {
     o += st.tc_setpoint[0] ? "true," : "false,";
     o += st.tc_setpoint[1] ? "true" : "false";
     o += "],";
-    append_kv(o, "sec_auto", st.tc_section_auto);
-    append_kv(o, "sec_auto_req", tc_section_auto_);
+    append_kv(o, "sec_auto", st.sec_auto);
+    append_kv(o, "sec_auto_req", st.sec_auto_req);
+    append_kv(o, "tc_sec_auto", st.tc_section_auto);
+    append_kv(o, "aog_sec_auto", st.aog_section_auto);
+    append_kv(o, "sec_src", static_cast<double>(st.sec_src), 0);
+    append_kv(o, "aog", st.aog_connected);
+    append_kv(o, "aog_sections", static_cast<double>(st.aog_sections), 0);
+    append_kv(o, "aog_kmh", st.aog_kmh, 1);
+    append_kv(o, "ground", st.ground_drive);
+    append_kv(o, "wheel_kmh", st.wheel_kmh, 2);
+    append_kv(o, "ref_kmh", st.ref_kmh, 2);
+    append_kv(o, "slip", st.slip_pct, 1);
+    append_kv(o, "crank_button", st.crank_button);
     append_kv(o, "sown_w", st.sown_width_m, 2);
     append_kv(o, "rate_offset", st.rate_offset_pct, 0);
     append_kv(o, "manual", st.manual);
@@ -1098,6 +1414,10 @@ std::string Seeder::status_json() const {
     o += "],";
     append_kv(o, "cooler_on", st.cooler_on);
     append_kv(o, "cooler_manual", st.cooler_manual);
+    append_kv(o, "cooler_rev", rev_label(st.cooler_rev));
+    append_kv(o, "cooler_rev_id", static_cast<double>(st.cooler_rev), 0);
+    append_kv(o, "cooler_rev_left", st.cooler_rev_left_s, 0);
+    append_kv(o, "cooler_rev_next", st.cooler_rev_next_s, 0);
     o += "\"scale\":{";
     append_kv(o, "valid", st.scale.valid);
     append_kv(o, "raw", st.scale.raw, 0);
@@ -1127,9 +1447,21 @@ std::string Seeder::status_json() const {
     append_kv(o, "measured", c.measured_kg, 3);
     append_kv(o, "hectares", c.hectares, 2);
     append_kv(o, "motor_running", c.motor_running);
-    append_kv(o, "motor_revs", c.motor_revs_done, 2);
-    const float cppr = static_cast<float>(electric_drive(settings_) ? settings_.encoder_ppr : settings_.meter_ppr);
-    append_kv(o, "counted_revs", cppr > 0 ? static_cast<double>(c.meter_pulses) / cppr : 0.0, 2);
+    append_kv(o, "motor_revs", c.counted_revs, 2);
+    append_kv(o, "counted_revs", c.counted_revs, 2);
+    append_kv(o, "effective_revs", crank_effective_revs(), 2);
+    append_kv(o, "hold", c.hold);
+    append_kv(o, "armed", c.armed);
+    append_kv(o, "session", c.session);
+    append_kv(o, "target_reached", c.target_reached);
+    append_kv(o, "autostop", settings_.crank_autostop != 0);
+    o += "\"weights\":[";
+    for (int i = 0; i < c.weight_count; ++i) {
+        char wb[24];
+        std::snprintf(wb, sizeof(wb), "%s%.3f", i ? "," : "", static_cast<double>(c.weights[i]));
+        o += wb;
+    }
+    o += "],";
     append_kv(o, "scale", r.scale, 1);
     append_kv(o, "setup", chart::setup_text(r));
     append_kv(o, "expected_kg", r.expected_kg, 3);
@@ -1149,6 +1481,8 @@ std::string Seeder::status_json() const {
     append_kv(o, "lamp2_level", outputs_.lamp_level[1]);
     append_kv(o, "valve_level", outputs_.valve_level);
     append_kv(o, "cooler_level", outputs_.cooler_level);
+    append_kv(o, "cooler_rev_level", outputs_.cooler_rev_level);
+    append_kv(o, "buzzer", outputs_.buzzer);
     append_kv(o, "pwm1", outputs_.motor_pwm_pct[0], 1);
     append_kv(o, "pwm2", outputs_.motor_pwm_pct[1], 1);
     append_kv(o, "tc", st.tc_connected);

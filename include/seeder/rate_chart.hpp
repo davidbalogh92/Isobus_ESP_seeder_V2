@@ -133,8 +133,10 @@ struct Result {
 };
 
 /// wanted_kg_ha > 0; measured_kg = 0, ha még nincs mérlegelve. test_scale <= 0: a táblázati beállítás.
+/// revs > 0: a ténylegesen megszámolt fordulat (pl. 84,5 vagy megszakított leforgatás) – a kg/fordulat és a
+/// kg/ha ebből számolódik; 0 = a kiválasztott opció (85 / 42,5 / 17).
 inline Result calculate(int crop, double wanted_kg_ha, int turn_option, double measured_kg, double hectares,
-                        double test_scale = 0) {
+                        double test_scale = 0, double revs = 0) {
     Result r;
     r.drive = choose_drive(crop, wanted_kg_ha);
     r.flap = is_fine(crop) ? 'Z' : 'A';
@@ -147,8 +149,9 @@ inline Result calculate(int crop, double wanted_kg_ha, int turn_option, double m
     r.expected_kg = chart_test * test_area_ha(turn_option);
     r.seed_kg = wanted_kg_ha * (hectares > 0 ? hectares : 0);
     if (measured_kg > 0) {
-        r.actual_rate = measured_kg / test_area_ha(turn_option);
-        r.kg_per_rev = measured_kg / turns(turn_option);
+        const double n = revs > 0.05 ? revs : turns(turn_option);
+        r.actual_rate = measured_kg / (n / 850.0);
+        r.kg_per_rev = measured_kg / n;
         if (chart_test > 0 && r.test_range == 0) {
             const double factor = r.actual_rate / chart_test;          // ez a vetőmagtétel a táblázathoz képest
             r.corrected_scale = scale_for(k, wanted_kg_ha / factor, &r.corrected_range);

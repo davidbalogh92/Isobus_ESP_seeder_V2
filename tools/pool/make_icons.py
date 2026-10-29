@@ -207,6 +207,27 @@ ICONS["menu/menu_diag"] = svg(
     "Szimulacio", '<path d="M28 100l46-46" stroke-width="12"/><circle cx="84" cy="44" r="22" fill="white"/>'
                   '<path d="M84 24v20h20" stroke="#d32020" stroke-width="6"/><circle cx="26" cy="102" r="10" fill="#8a8a8a"/>')
 
+# visszafúvás: hűtő + fordított irányú nyíl
+REV_ARROW = ('<path d="M112 16a30 30 0 0 0-40 0" stroke="{c}" stroke-width="7"/>'
+             '<path d="M72 4v14h14" stroke="{c}" stroke-width="7"/>')
+ICONS["softkeys/softkey_cooler_rev"] = svg("Visszafujas", radiator("#bdbdbd", GREY) + REV_ARROW.format(c=BLUE))
+ICONS["softkeys/softkey_cooler_rev_on"] = svg("Visszafujas fut", radiator("#bdbdbd", YELLOW) + REV_ARROW.format(c=RED))
+# leforgatás számláló nullázása
+ICONS["softkeys/softkey_crank_reset"] = svg(
+    "Leforgatas nullazas", '<circle cx="56" cy="64" r="34" fill="white"/><circle cx="56" cy="64" r="8" fill="#171717"/>'
+                           '<path d="M56 64 L96 30" stroke-width="8"/><path d="M96 30h18" stroke-width="12"/>'
+                           + badge("0", 99, 99, 23, BLUE))
+# AgOpenGPS: műhold + traktor-nyomvonal
+ICONS["menu/menu_aog"] = svg(
+    "AgOpenGPS", '<path d="M20 112l26-58h36l26 58Z" fill="#258b28"/><path d="M64 60v48" stroke="white" stroke-width="5" '
+                 'stroke-dasharray="10 8"/><rect x="50" y="12" width="28" height="20" rx="3" fill="#1e5bd8"/>'
+                 '<path d="M30 22h20M78 22h20" stroke-width="8"/><path d="M64 32v12"/>')
+# diagnosztika: képernyő jelalakkal
+ICONS["menu/menu_diagnose"] = svg(
+    "Diagnosztika", '<rect x="12" y="20" width="104" height="76" rx="8" fill="white"/>'
+                    '<path d="M22 66h18l8-24 14 44 12-34 8 14h24" stroke="#258b28" stroke-width="6"/>'
+                    '<path d="M44 108h40M64 96v12"/>')
+
 if __name__ == "__main__":
     for name, text in ICONS.items():
         p = OUT / f"{name}.svg"

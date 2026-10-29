@@ -64,6 +64,29 @@ SeederApp::SeederApp(Shared &shared) : shared_(shared) {}
 SeederApp::~SeederApp() = default;
 
 bool SeederApp::start(std::uint8_t can_channel, const std::uint8_t *pool, std::uint32_t pool_size) {
+    if (!pool || pool_size < 256) return false;
+    can_channel_ = can_channel;
+    pool_ = pool;
+    pool_size_ = pool_size;
+    int delay = 0;
+    {
+        std::lock_guard<std::mutex> g(shared_.lock);
+        delay = shared_.core.settings().isobus_delay_s;
+    }
+    if (delay > 0) {
+        // a címigénylés (bejelentkezés a buszra) később indul, hogy a lassabban induló terminál lássa
+        start_pending_ = true;
+        start_delay_ = static_cast<float>(delay);
+        return true;
+    }
+    return do_start();
+}
+
+bool SeederApp::do_start() {
+    start_pending_ = false;
+    const std::uint8_t can_channel = can_channel_;
+    const std::uint8_t *pool = pool_;
+    const std::uint32_t pool_size = pool_size_;
     int ecu_instance = 0;
     {
         std::lock_guard<std::mutex> g(shared_.lock);
@@ -153,6 +176,9 @@ void SeederApp::update(float dt_s, const HwInputs &hw) {
     in.scale_valid = hw.scale_valid;
     in.scale_raw = hw.scale_raw;
     in.isobus = read_speeds();
+    in.isobus.aog = hw.aog_speed;
+    in.aog = hw.aog;
+    in.crank_button = hw.crank_button;
     in.tc_connected = tc_ && tc_->connected();
     Snapshot snap;
     {
@@ -163,7 +189,12 @@ void SeederApp::update(float dt_s, const HwInputs &hw) {
         snap.per = shared_.core.persistent();
         snap.out = shared_.core.outputs();
     }
+    if (start_pending_) {
+        start_delay_ -= dt_s;
+        if (start_delay_ <= 0.0f) do_start();
+    }
     if (!started_) return;
+    watchdog(dt_s, snap.set.isobus_retry_s);
     if (tc_) tc_->update(snap);
     ui_timer_ += dt_s;
     if (ui_timer_ >= 0.2f) {
@@ -172,8 +203,55 @@ void SeederApp::update(float dt_s, const HwInputs &hw) {
     }
 }
 
+void SeederApp::announce() {
+    // saját címigénylés (PGN 60928) újraküldése a globális címre: a később induló terminál is lásson
+    if (!ecu_ || !ecu_->get_address_valid()) return;
+    const std::uint64_t name = ecu_->get_NAME().get_full_name();
+    std::uint8_t d[8];
+    for (int i = 0; i < 8; ++i) d[i] = static_cast<std::uint8_t>(name >> (8 * i));
+    if (isobus::CANNetworkManager::CANNetwork.send_can_message(0xEE00, d, 8, ecu_, nullptr,
+                                                                isobus::CANIdentifier::CANPriority::PriorityDefault6))
+        ++announces_;
+}
+
+void SeederApp::watchdog(float dt, int retry_s) {
+    const bool vt_ok = vt_ && vt_->get_is_connected();
+    const bool vt_found = vt_partner_ && vt_partner_->get_address_valid();
+    if (reconnect_req_.exchange(false)) {
+        announce();
+        if (vt_) vt_->restart_communication();
+        if (tc_) tc_->restart();
+        ++reconnects_;
+        vt_down_s_ = vt_found_down_s_ = 0.0f;
+        return;
+    }
+    if (vt_ok || retry_s <= 0) {
+        vt_down_s_ = vt_found_down_s_ = announce_timer_ = 0.0f;
+        return;
+    }
+    vt_down_s_ += dt;
+    announce_timer_ += dt;
+    // nincs VT kapcsolat: időnként újra bejelentkezünk (ártalmatlan, a címet nem változtatja)
+    if (announce_timer_ >= static_cast<float>(retry_s)) {
+        announce_timer_ = 0.0f;
+        announce();
+    }
+    // a terminál a buszon van, mégsem jön létre a kapcsolat: a VT kapcsolatot újrakezdjük
+    // (3× hosszabb várakozás, hogy egy lassú pool-feltöltést ne szakítsunk meg)
+    vt_found_down_s_ = vt_found ? vt_found_down_s_ + dt : 0.0f;
+    if (vt_found_down_s_ >= 3.0f * static_cast<float>(retry_s)) {
+        vt_found_down_s_ = 0.0f;
+        if (vt_) vt_->restart_communication();
+        ++reconnects_;
+    }
+}
+
 IsobusDiag SeederApp::diag() const {
     IsobusDiag d;
+    d.started = started_;
+    d.start_in_s = start_pending_ ? (start_delay_ > 0.0f ? start_delay_ : 0.0f) : 0.0f;
+    d.announces = announces_;
+    d.reconnects = reconnects_;
     if (ecu_) {
         d.address_claimed = ecu_->get_address_valid();
         d.address = d.address_claimed ? ecu_->get_address() : -1;

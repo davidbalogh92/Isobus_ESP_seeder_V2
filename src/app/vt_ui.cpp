@@ -116,6 +116,7 @@ const char *VtUi::page_name() const {
     case Page::Menu: return "Menü";
     case Page::Settings: return "Beállítás";
     case Page::Calib: return "Leforgatás";
+    case Page::Diagnose: return "Diagnosztika";
     default: return "?";
     }
 }
@@ -128,6 +129,7 @@ void VtUi::go(Page page, std::uint16_t mask) {
     case Page::Info: page_mask_ = vt::DM_INFO; break;
     case Page::Menu: page_mask_ = vt::DM_MENU; break;
     case Page::Calib: page_mask_ = vt::DM_CALIB; break;
+    case Page::Diagnose: page_mask_ = vt::DM_DIAGNOSE; break;
     default: page_mask_ = mask; break;
     }
     if (page != Page::Settings) settings_from_calib_ = false;
@@ -136,6 +138,16 @@ void VtUi::go(Page page, std::uint16_t mask) {
 // ----------------------------------------------------------------------------- események
 void VtUi::on_softkey(std::uint16_t id, std::uint8_t activation) {
     const auto act = static_cast<VT::KeyActivationCode>(activation);
+    if (id == vt::K_CRANK_START) {
+        // nyomva tartásos leforgatás: lenyomás / "még nyomva" frissít, elengedés (vagy megszakítás) leállít.
+        // A VT a nyomva tartást ~200 ms-onként jelzi; 1,5 s jelzés nélkül a motor magától megáll.
+        std::lock_guard<std::mutex> g(shared_.lock);
+        if (act == VT::KeyActivationCode::ButtonPressedOrLatched || act == VT::KeyActivationCode::ButtonStillHeld)
+            shared_.core.crank_hold(true, 1.5f);
+        else
+            shared_.core.crank_hold(false);
+        return;
+    }
     if (act != VT::KeyActivationCode::ButtonUnlatchedOrReleased) return;
     std::lock_guard<std::mutex> g(shared_.lock);
     seeder::Seeder &c = shared_.core;
@@ -162,7 +174,7 @@ void VtUi::on_softkey(std::uint16_t id, std::uint8_t activation) {
     case vt::K_FUNC: go(Page::Func); break;
     case vt::K_CRANK:
     case vt::K_PG_CALIB:
-        c.crank_reset_count();
+        if (!st.crank.session) c.crank_reset_count();   // folyamatban lévő (megszakított) leforgatás megmarad
         go(Page::Calib);
         break;
     case vt::K_BACK: {
@@ -171,8 +183,10 @@ void VtUi::on_softkey(std::uint16_t id, std::uint8_t activation) {
             if (settings_from_calib_) go(Page::Calib);
             else go(Page::Menu);
         } else if (pg == Page::Calib) {
-            c.crank_motor_stop();
+            c.crank_hold(false);
             go(Page::Main);
+        } else if (pg == Page::Diagnose) {
+            go(Page::Menu);
         } else {
             go(Page::Main);
         }
@@ -225,8 +239,9 @@ void VtUi::on_softkey(std::uint16_t id, std::uint8_t activation) {
                 settings_from_calib_ = true;
             }
         break;
-    case vt::K_CRANK_START: c.crank_motor_start(); break;
-    case vt::K_CRANK_STOP: c.crank_motor_stop(); break;
+    case vt::K_CRANK_RESET: c.crank_reset_count(); break;
+    case vt::K_WEIGHT_CLEAR: c.crank_clear_weights(); break;
+    case vt::K_COOLER_REV: c.cooler_reverse(); break;
     case vt::K_ACK:
         c.ack_alarms();
         if (alarm_shown_) {
@@ -246,9 +261,13 @@ void VtUi::on_button(std::uint16_t id, std::uint8_t activation) {
         go(Page::Info);
         return;
     }
+    if (id == vt::BTN_PAGE_DIAGNOSE) {
+        go(Page::Diagnose);
+        return;
+    }
     if (id == vt::BTN_PAGE_CALIB) {
         std::lock_guard<std::mutex> g(shared_.lock);
-        shared_.core.crank_reset_count();
+        if (!shared_.core.status().crank.session) shared_.core.crank_reset_count();
         go(Page::Calib);
         return;
     }
@@ -413,6 +432,7 @@ void VtUi::update(const Snapshot &s) {
     const auto pg = static_cast<Page>(page_.load());
     if (pg == Page::Info) update_info(s);
     if (pg == Page::Calib) update_calib(s);
+    if (pg == Page::Diagnose) update_diagnose(s);
     if (pg == Page::Settings) {
         update_inputs(s);
         update_pages(s);
@@ -422,6 +442,7 @@ void VtUi::update(const Snapshot &s) {
     update_info(s);
     update_inputs(s);
     update_pages(s);
+    update_diagnose(s);
 }
 
 void VtUi::update_main(const Snapshot &s) {
@@ -433,7 +454,8 @@ void VtUi::update_main(const Snapshot &s) {
 
     // softkey-ek
     if (pg == Page::Func) {
-        const int bits = (set.lights_enable ? 1 : 0) | (set.valve_enable ? 2 : 0) | (set.temp_enable ? 4 : 0);
+        const int bits = (set.lights_enable ? 1 : 0) | (set.valve_enable ? 2 : 0) | (set.temp_enable ? 4 : 0) |
+                         (set.temp_enable && set.rev_enable ? 8 : 0);
         softkeys(vt::DM_MAIN, vt::SK_FUNC[bits]);
     } else {
         softkeys(vt::DM_MAIN, vt::SK_MAIN[meters >= 2 ? 1 : 0][elec ? 1 : 0]);
@@ -441,7 +463,8 @@ void VtUi::update_main(const Snapshot &s) {
     num(vt::OP_K_MASTER, vt::PIC_K_MASTER[st.master ? 1 : 0]);
     num(vt::OP_K_METER1, vt::PIC_K_METER1[st.meter[0].enabled ? 1 : 0]);
     num(vt::OP_K_METER2, vt::PIC_K_METER2[st.meter[1].enabled ? 1 : 0]);
-    num(vt::OP_K_SEC, vt::PIC_K_SEC[st.tc_section_auto ? 1 : 0]);
+    num(vt::OP_K_SEC, vt::PIC_K_SEC[st.sec_auto ? 1 : 0]);
+    num(vt::OP_K_COOLER_REV, vt::PIC_K_COOLER_REV[st.cooler_rev != seeder::RevState::Idle ? 1 : 0]);
     num(vt::OP_K_MODE, vt::PIC_K_MODE[st.manual ? 1 : 0]);
     num(vt::OP_K_PREFILL, vt::PIC_K_PREFILL[st.prefill != seeder::PrefillState::Idle ? 1 : 0]);
     num(vt::OP_K_LAMP1, vt::PIC_K_LAMP1[st.lamp[0] ? 1 : 0]);
@@ -462,10 +485,14 @@ void VtUi::update_main(const Snapshot &s) {
     shown(vt::CONT_RATE2, meters >= 2);
     const bool prefilling = st.prefill == seeder::PrefillState::Filling;
     num(vt::OP_WORK, prefilling ? vt::PIC_M_PREFILL_76 : vt::PIC_WORK[st.work_down ? 1 : 0]);
-    num(vt::OUT_ACT1, std::lround(st.meter[0].actual_rate * 10.0f));
+    // talajhajtásnál a beállított kg/ha a nagy szám (menet közben nem állítható, a váltó adja), cél sor nincs
+    num(vt::OUT_ACT1, std::lround((elec ? st.meter[0].actual_rate : st.meter[0].target_rate) * 10.0f));
     num(vt::OUT_TGT1, std::lround(st.meter[0].target_rate * 10.0f));
-    num(vt::OUT_ACT2, std::lround(st.meter[1].actual_rate * 10.0f));
+    num(vt::OUT_ACT2, std::lround((elec ? st.meter[1].actual_rate : st.meter[1].target_rate) * 10.0f));
     num(vt::OUT_TGT2, std::lround(st.meter[1].target_rate * 10.0f));
+    shown(vt::CONT_TGT1, elec);
+    shown(vt::CONT_TGT2, elec);
+    shown(vt::CONT_OFFSET, elec);
     // kézi módban a % mező a motorfordulatot mutatja (a "fordulat 100% PWM-nél" %-ában)
     num(vt::OUT_OFFSET, std::lround(st.manual ? st.manual_pct : st.rate_offset_pct) + 100);
     shown(vt::CONT_PREFILL, st.prefill != seeder::PrefillState::Idle);
@@ -480,6 +507,12 @@ void VtUi::update_main(const Snapshot &s) {
         colour = C_YELLOW;
     } else if (st.crank.motor_running) {
         msg = vt::STR_MSG_CRANK;
+        colour = C_CYAN;
+    } else if (st.crank.session && st.crank.target_reached) {
+        msg = vt::STR_MSG_CRANK_DONE;
+        colour = C_LIME;
+    } else if (st.cooler_rev != seeder::RevState::Idle) {
+        msg = vt::STR_MSG_REV;
         colour = C_CYAN;
     } else if (st.prefill == seeder::PrefillState::Filling) {
         msg = vt::STR_MSG_PREFILL;
@@ -532,7 +565,7 @@ void VtUi::update_main(const Snapshot &s) {
     num(vt::OP_LAMP2, vt::PIC_LAMP_S[st.lamp[1] ? 1 : 0]);
     shown(vt::CONT_VALVE, set.valve_enable != 0);
     num(vt::OP_VALVE, vt::PIC_VALVE_S[st.valve_marker ? 1 : 0]);
-    num(vt::OP_SEC, set.tc_enable ? vt::PIC_SEC_S[st.tc_section_auto ? 1 : 0] : 0xFFFF);
+    num(vt::OP_SEC, set.sec_src != 0 ? vt::PIC_SEC_S[st.sec_auto ? 1 : 0] : 0xFFFF);
 }
 
 void VtUi::update_info(const Snapshot &s) {
@@ -564,7 +597,6 @@ void VtUi::update_pages(const Snapshot &s) {
     const auto &st = s.st;
     const auto &set = s.set;
     // sebesség
-    num(vt::OUT_SPEED2, std::lround(st.speed_kmh * 10.0f));
     num(vt::OUT_WCAL_RES, std::lround(st.wheel_cal_ppm * 10.0f));
     num(vt::OP_WCAL_STATE, vt::STR_CAL[static_cast<int>(st.wheel_cal.state)]);
     // turbina
@@ -584,12 +616,20 @@ void VtUi::update_pages(const Snapshot &s) {
     num(vt::OUT_TEMP2, st.temp_ok[1] ? std::lround(st.temp_c[1] * 10.0f) + 1000 : 0);
     num(vt::OP_COOLER_STATE, st.cooler_on ? vt::STR_ON : vt::STR_OFF);
     num(vt::OP_COOLER_MODE, st.cooler_manual ? vt::STR_MANUAL : vt::STR_AUTO);
+    num(vt::OP_REV_STATE, vt::STR_REV[static_cast<int>(st.cooler_rev) & 3]);
+    num(vt::OUT_REV_NEXT, st.cooler_rev_next_s >= 0.0f ? std::lround(std::ceil(st.cooler_rev_next_s / 60.0f)) : 0);
+    // AgOpenGPS
+    num(vt::OP_AOG_STATE, !set.aog_enable ? vt::STR_TC_DIS : (st.aog_connected ? vt::STR_TC_ON : vt::STR_TC_OFF));
+    text(vt::STR_AOG_IP, set.aog_ip_mode == 1 ? std::string("DHCP") : std::string(set.aog_ip));
+    num(vt::OUT_AOG_SPEED, st.aog_kmh >= 0.0f ? std::lround(st.aog_kmh * 10.0f) : 0);
+    num(vt::OP_AOG_S1, (st.aog_sections & 1u) ? vt::STR_ON : vt::STR_OFF);
+    num(vt::OP_AOG_S2, (st.aog_sections & 2u) ? vt::STR_ON : vt::STR_OFF);
     // mérleg (nyers: g + 100000, ill. érték + 2^23)
     num(vt::OUT_SCALE_KG, std::lround(st.scale.net_kg * 1000.0f) + 100000);
     num(vt::OUT_SCALE_RAW, std::lround(st.scale.raw) + 8388608);
     // TC, geometria
     num(vt::OP_TC_STATE, !set.tc_enable ? vt::STR_TC_DIS : (st.tc_connected ? vt::STR_TC_ON : vt::STR_TC_OFF));
-    num(vt::OP_TC_MODE, st.tc_section_auto ? vt::STR_AUTO : vt::STR_MANUAL);
+    num(vt::OP_TC_MODE, st.sec_auto ? vt::STR_AUTO : vt::STR_MANUAL);
     num(vt::OP_GEO, vt::PIC_GEO[geo_picture(set.hitch_type, set.geo_b_m, set.geo_c_m)]);
     // diagnosztika
     num(vt::OP_DIAG_CL1, s.out.clutch_drive[0] ? vt::STR_ON : vt::STR_OFF);
@@ -621,12 +661,36 @@ void VtUi::update_calib(const Snapshot &s) {
     num(vt::OP_CAL_SETUP, vt::STR_SETUP[setup]);
     num(vt::OUT_CAL_EXPECT, std::lround(r.expected_kg * 1000.0));
     num(vt::OUT_CAL_NEW, r.corrected_valid ? std::lround(r.corrected_scale * 10.0) : 0);
-    const float ppr = static_cast<float>(std::max<int>(1, set.meter_ppr));
-    const float revs = elec ? cr.motor_revs_done : static_cast<float>(cr.meter_pulses) / ppr;
-    num(vt::OUT_CAL_REVS, std::lround(revs * 10.0f));
+    num(vt::OUT_CAL_REVS, std::lround(cr.counted_revs * 10.0f));
+    num(vt::OUT_CAL_TARGET, std::lround(seeder::chart::turns(cr.turn_option) * 10.0));
+    num(vt::OUT_CAL_NW, cr.weight_count);
     num(vt::OUT_CAL_KGREV, std::lround((r.kg_per_rev > 0.0 ? r.kg_per_rev : seeder::cal_kg_rev(set, cr.meter)) * 10000.0));
     const auto note = seeder::chart::note(r, cr.measured_kg > 0.0f);
     num(vt::OP_CAL_NOTE, msg_timer_ > 0.0f ? vt::STR_MSG_DYN : vt::STR_NOTE[static_cast<int>(note)]);
+}
+
+void VtUi::update_diagnose(const Snapshot &s) {
+    const auto &st = s.st;
+    const auto &set = s.set;
+    num(vt::OP_DG_VT, vt::STR_OK);   // ha ezt látod, a terminál kapcsolat él
+    num(vt::OP_DG_TC, !set.tc_enable ? vt::STR_NONE : (st.tc_connected ? vt::STR_OK : vt::STR_NONE));
+    num(vt::OP_DG_AOG, !set.aog_enable ? vt::STR_TC_DIS : (st.aog_connected ? vt::STR_TC_ON : vt::STR_TC_OFF));
+    num(vt::OP_DG_SRC, vt::STR_SRC[static_cast<int>(st.speed_src) & 7]);
+    num(vt::OUT_DG_WKMH, std::lround(st.wheel_kmh * 10.0f));
+    num(vt::OUT_DG_GKMH, st.ref_kmh >= 0.0f ? std::lround(st.ref_kmh * 10.0f) : 0);
+    num(vt::OUT_DG_SLIP, st.slip_pct >= 0.0f ? std::lround(st.slip_pct * 10.0f) : 0);
+    num(vt::OP_DG_WORK, st.work_down ? vt::STR_DOWN : vt::STR_UP);
+    num(vt::OP_DG_BTN, st.crank_button ? vt::STR_CLOSED : vt::STR_OPEN);
+    num(vt::OUT_DG_RPM1, std::lround(st.meter[0].rpm * 10.0f));
+    num(vt::OUT_DG_RPM2, std::lround(st.meter[1].rpm * 10.0f));
+    num(vt::OUT_DG_WHZ, std::lround(st.wheel_hz * 10.0f));
+    num(vt::OUT_DG_FHZ, std::lround(st.fan_rpm * static_cast<float>(std::max<int>(1, set.fan_ppr)) / 6.0f));
+    num(vt::OP_DG_CL1, s.out.clutch_drive[0] ? vt::STR_ON : vt::STR_OFF);
+    num(vt::OP_DG_CL2, s.out.clutch_drive[1] ? vt::STR_ON : vt::STR_OFF);
+    num(vt::OP_DG_COOL, st.cooler_on ? vt::STR_ON : vt::STR_OFF);
+    num(vt::OP_DG_REV, (st.cooler_rev == seeder::RevState::Reverse || st.cooler_rev == seeder::RevState::StopAfter)
+                           ? vt::STR_ON
+                           : vt::STR_OFF);
 }
 
 } // namespace app

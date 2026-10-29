@@ -23,7 +23,7 @@ header .sub{color:var(--muted);font-size:12px}
 main{max-width:1100px;margin:0 auto;padding:14px 16px}
 .tab{display:none}.tab.active{display:block}
 nav{position:fixed;bottom:0;left:0;right:0;z-index:6;background:#33363a;border-top:1px solid var(--line);
-  display:grid;grid-template-columns:repeat(5,1fr);padding-bottom:env(safe-area-inset-bottom)}
+  display:grid;grid-template-columns:repeat(6,1fr);padding-bottom:env(safe-area-inset-bottom)}
 nav button{background:none;border:0;color:var(--muted);padding:9px 2px 8px;font-size:11.5px;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer}
 nav button svg{width:22px;height:22px}
 nav button.active{color:var(--accent)}
@@ -99,6 +99,21 @@ pre.log{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.55 ui-monospace,
 .toast.show{opacity:1}
 input[type=file]{color:var(--muted);max-width:100%}
 .hide{display:none!important}
+.crankbig{text-align:center;padding:14px 8px;border-radius:var(--radius);background:#33363b;border:2px solid var(--line)}
+.crankbig .n{font-size:min(26vw,150px);font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.crankbig .t{font-size:20px;color:var(--muted)}
+.crankbig.done{background:#7a1f1f;border-color:#ff5a5a}.crankbig.done .n{color:#fff}
+.crankbig.run{border-color:#36ab61}
+.holdbtn{min-height:84px;font-size:20px;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:none}
+.holdbtn.held{background:#36ab61;border-color:#5fd486}
+.wlist .kv b{display:flex;gap:10px;align-items:center}
+.xbtn{border:1px solid var(--line);background:#5a3030;color:#fff;border-radius:8px;padding:2px 10px;cursor:pointer;min-height:32px}
+.scope{font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:1px;white-space:nowrap}
+.scope.isobus{background:#2d4d70;color:#d9ebff}.scope.aog{background:#2b6a45;color:#d2f7e1}
+table.pins{width:100%;border-collapse:collapse;font-size:13.5px}
+table.pins td,table.pins th{padding:6px 6px;border-top:1px solid var(--line);text-align:left;vertical-align:top}
+table.pins th{color:var(--muted);font-weight:500}
+table.pins td:first-child{font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600}
 </style>
 </head>
 <body>
@@ -107,6 +122,7 @@ input[type=file]{color:var(--muted);max-width:100%}
   <div class="spacer"></div>
   <span class="pill" id="pillVt">VT</span>
   <span class="pill" id="pillTc">TC</span>
+  <span class="pill hide" id="pillAog">AOG</span>
 </header>
 
 <main>
@@ -120,20 +136,21 @@ input[type=file]{color:var(--muted);max-width:100%}
       <div class="grid" style="gap:10px">
         <div class="state" id="state">–</div>
         <button class="btn master wide" id="btnMaster" onclick="cmd('master_toggle')">VETÉS</button>
+        <p class="note hide" id="groundNote" style="margin:0">Talajhajtás: a vetést a munkakapcsoló (gép lent) és a haladás indítja, a dózist a váltó adja – menet közben nem állítható.</p>
         <div class="row">
-          <button class="btn wide" id="btnSec" onclick="cmd('sec_auto')">TC szakaszvezérlés</button>
+          <button class="btn wide" id="btnSec" onclick="cmd('sec_auto')">Automata szakaszolás</button>
           <button class="btn wide hide" id="btnPrefill" onclick="cmd(S&&S.status.prefill_id?'prefill_stop':'prefill_start')">Csőfeltöltés</button>
         </div>
         <div class="row hide" id="modeRow">
           <button class="btn wide" id="btnAuto" onclick="cmd('auto',1)">AUTOMATA adagolás</button>
           <button class="btn wide" id="btnManual" onclick="cmd('auto',0)">KÉZI (fordulat)</button>
         </div>
-        <div class="row">
+        <div class="row" id="rateRow">
           <button class="btn wide" onclick="cmd('rate_step',-1)" id="btnMinus">−</button>
           <button class="btn wide" onclick="cmd('rate_reset')" id="btnReset">100%</button>
           <button class="btn wide" onclick="cmd('rate_step',1)" id="btnPlus">+</button>
         </div>
-        <div class="badges"><span class="badge" id="bWork">Munkahelyzet</span><span class="badge" id="bTc">TC</span><span class="badge info hide" id="bGeo">TC térkép</span><span class="badge info hide" id="bSim">SZIMULÁCIÓ</span></div>
+        <div class="badges"><span class="badge" id="bWork">Munkahelyzet</span><span class="badge" id="bTc">TC</span><span class="badge hide" id="bAog">AgOpenGPS</span><span class="badge info hide" id="bGeo">TC térkép</span><span class="badge info hide" id="bSim">SZIMULÁCIÓ</span></div>
       </div>
     </div>
     <div class="grid" style="gap:var(--gap)">
@@ -160,6 +177,7 @@ input[type=file]{color:var(--muted);max-width:100%}
         <div class="kv"><span>Olajtartály</span><b id="temp0">–</b></div>
         <div class="kv"><span>Hűtő kimenet</span><b id="temp1">–</b></div>
         <div class="row" style="margin-top:8px"><button class="btn wide" id="btnCoolMode" onclick="cmd('cooler_mode')">Automata</button><button class="btn wide" id="btnCool" onclick="cmd('cooler')">Ventilátor</button></div>
+        <div class="row hide" style="margin-top:8px" id="revRow"><button class="btn wide" id="btnRev" onclick="cmd('cooler_reverse')">Visszafúvás</button></div>
       </div>
     </div>
     <p class="note" id="exNone">Nincs bekapcsolt kiegészítő (Beállítások → Kiegészítők).</p>
@@ -183,6 +201,17 @@ input[type=file]{color:var(--muted);max-width:100%}
   </div>
 
   <div class="calpage on" id="cal-crank">
+    <div class="card" style="margin-bottom:var(--gap)">
+      <div class="crankbig" id="crBig"><div class="n" id="crBigN">0,0</div><div class="t" id="crBigT">/ 85 fordulat</div></div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn go wide holdbtn hide" id="crHold">NYOMD – FORGAT</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn wide" onclick="cmd('crank_reset')">Új leforgatás (nullázás)</button>
+        <button class="btn wide" id="crSound" onclick="soundToggle()">Hang: KI</button>
+      </div>
+      <p class="note" id="crHint"></p>
+    </div>
     <div class="grid g2">
       <div class="card">
         <h2>Leforgatási segéd (Accord térfogatos adagoló)</h2>
@@ -193,18 +222,17 @@ input[type=file]{color:var(--muted);max-width:100%}
         <div class="field"><label>Fordulat</label><div class="inp"><select id="crTurns" onchange="cmd('crank_turns',+this.value)"><option value="0">85 (1/10 ha)</option><option value="1">42,5 (1/20 ha)</option><option value="2">17 (1/50 ha)</option></select></div></div>
         <div class="field"><label>Leforgatási skála (0 = táblázati)</label><div class="inp"><input id="crTest" type="number" step="0.1" inputmode="decimal" onchange="cmd('crank_test_scale',+this.value)"></div></div>
         <div class="kv"><span>Várható tömeg</span><b id="crExpect">–</b></div>
-        <div class="kv"><span>Számolt fordulat</span><b id="crRevs">–</b></div>
-        <div class="row" style="margin-top:10px" id="crMotorRow">
-          <button class="btn go wide" onclick="cmd('crank_motor_start')">Motoros leforgatás</button>
-          <button class="btn stop wide" onclick="cmd('crank_motor_stop')">Leállítás</button>
-        </div>
-        <div class="row" style="margin-top:10px"><button class="btn wide" onclick="cmd('crank_reset')">Fordulatszámláló nullázása</button></div>
-        <p class="note" id="crHint">Talajhajtásnál a kerékkel / kurblival tekerd le a megadott fordulatot; az adagolótengely jeladója számol.</p>
       </div>
       <div class="card">
         <h2>Mérlegelés és eredmény</h2>
-        <div class="field"><label>Lemért tömeg</label><div class="inp"><input id="crMeas" type="number" step="0.001" inputmode="decimal" onchange="cmd('crank_measured',+this.value)"><span class="u">kg</span></div></div>
-        <div class="row" style="margin:8px 0" id="crFromScaleRow"><button class="btn wide" onclick="cmd('crank_from_scale')">Átvétel a mérlegről (<span id="crScaleKg">–</span> kg)</button></div>
+        <p class="note" style="margin-top:0">Ha nem fér egy vödörbe: engedd el a gombot (vagy állj meg a tekeréssel), mérd le, ürítsd, és folytasd. A részméréseket összeadja, a kg/fordulatot a ténylegesen megszámolt fordulatból számolja.</p>
+        <div class="wlist" id="crWeights"></div>
+        <div class="field"><label>Részmérés</label><div class="inp"><input id="crAddKg" type="number" step="0.001" inputmode="decimal" placeholder="kg"><span class="u">kg</span></div></div>
+        <div class="row" style="margin:8px 0">
+          <button class="btn wide" onclick="addWeight()">+ Hozzáadás</button>
+          <button class="btn wide" id="crFromScaleRow" onclick="cmd('crank_from_scale')">+ Mérlegről (<span id="crScaleKg">–</span> kg)</button>
+        </div>
+        <div class="kv"><span>Összesen</span><b class="result" id="crMeasSum">–</b></div>
         <div class="kv"><span>Mért kijuttatás a próbaskálán</span><b id="crAct">–</b></div>
         <div class="kv"><span>Új skálaérték</span><b class="result" id="crNew">–</b></div>
         <div class="kv"><span>Kg / adagolófordulat</span><b id="crKgRev">–</b></div>
@@ -294,11 +322,21 @@ input[type=file]{color:var(--muted);max-width:100%}
   </div>
 </section>
 
+<!-- ============================ DIAGNOSZTIKA ============================ -->
+<section class="tab" id="tab-diag">
+  <div class="grid g2">
+    <div class="card"><h2>ISOBUS</h2><div id="isoInfo"></div>
+      <div class="row" style="margin-top:10px"><button class="btn wide" onclick="if(confirm('ISOBUS újracsatlakozás: bejelentkezés a buszra, a VT és a TC kapcsolat újrakezdése. Folytatod?'))cmd('isobus_reconnect').then(r=>r&&toast('Újracsatlakozás kérve'))">ISOBUS újracsatlakozás</button></div>
+      <p class="note">Ha a terminál (pl. Müller) nem találja a gépet, mert később indult: ez a gomb újra bejelentkezteti. Tartós megoldás: Beállítások → Rendszer → ISOBUS indulás késleltetése.</p></div>
+    <div class="card"><h2>AgOpenGPS / Ethernet</h2><div id="aogInfo"></div></div>
+    <div class="card"><h2>Sebesség</h2><div id="spdInfo"></div></div>
+    <div class="card"><h2>Bemenetek / kimenetek</h2><div id="ioInfo"></div></div>
+  </div>
+</section>
+
 <!-- ============================ RENDSZER ============================ -->
 <section class="tab" id="tab-system">
   <div class="grid g2">
-    <div class="card"><h2>ISOBUS</h2><div id="isoInfo"></div></div>
-    <div class="card"><h2>Bemenetek / kimenetek</h2><div id="ioInfo"></div></div>
     <div class="card"><h2>Hardver</h2><div id="hwInfo"></div></div>
     <div class="card">
       <h2>Beállítások mentése / visszatöltése</h2>
@@ -323,6 +361,11 @@ input[type=file]{color:var(--muted);max-width:100%}
     </div>
   </div>
   <div class="card" style="margin-top:var(--gap)">
+    <h2>Lábkiosztás – <span id="pinBoard">–</span></h2>
+    <div style="overflow:auto"><table class="pins"><thead><tr><th>Láb / csatlakozó</th><th>Funkció</th><th>Bekötés, megjegyzés</th></tr></thead><tbody id="pinRows"></tbody></table></div>
+    <p class="note">Minden bemenet aktív alacsony (a jel / érintkező GND felé zár). A relék alapállapota KI, a vezérlő csak az első vezérlési ciklus után kapcsol.</p>
+  </div>
+  <div class="card" style="margin-top:var(--gap)">
     <div class="row" style="justify-content:space-between"><h2 style="margin:0">Eseménynapló</h2><a class="btn" href="/api/log.txt" style="text-decoration:none">Letöltés</a></div>
     <pre class="log" id="log" style="margin-top:10px">–</pre>
   </div>
@@ -334,6 +377,7 @@ input[type=file]{color:var(--muted);max-width:100%}
   <button data-tab="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>Beállítások</button>
   <button data-tab="cal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18M5 21h14"/><path d="M4 8h16"/><path d="M6 8l-3 7h6zM18 8l-3 7h6z"/></svg>Kalibrálás</button>
   <button data-tab="count"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 4H7l6 8-6 8h10"/></svg>Számlálók</button>
+  <button data-tab="diag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M6 12h3l2-4 3 8 2-4h2"/></svg>Diagnosztika</button>
   <button data-tab="system"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>Rendszer</button>
 </nav>
 <div class="toast" id="toast"></div>
@@ -356,6 +400,21 @@ async function cmd(c,v=0){const r=await post('/api/cmd',{cmd:c,value:v});refresh
 async function setParam(key,value){const r=await post('/api/param',{key,value});if(r&&r.config)CFG=r.config;refresh();return r}
 function setRate(v){if(!S)return;setParam(S.status.crank.meter===1?'rate2':'rate1',v)}
 
+// ---------------------------------------------------------------- leforgatás: nyomva tartás, hang, részmérések
+let holdOn=false,holdTimer=0,soundOn=false,actx=null,lastWhole=-1,lastDone=false;
+function holdSend(v){fetch('/api/cmd',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cmd:'crank_hold',value:v})})
+  .then(r=>r.json()).then(j=>{if(j&&j.ok===false&&v){toast(j.error||'Nem indítható');holdStop()}}).catch(()=>holdStop())}
+function holdStart(e){e.preventDefault();if(holdOn)return;holdOn=true;unlockAudio();$('crHold').classList.add('held');holdSend(1);
+  holdTimer=setInterval(()=>holdSend(1),200)}   // a vezérlő 0,6 s jelzés nélkül magától megáll
+function holdStop(){if(!holdOn)return;holdOn=false;clearInterval(holdTimer);$('crHold').classList.remove('held');holdSend(0)}
+{const b=$('crHold');b.addEventListener('pointerdown',holdStart);['pointerup','pointercancel','pointerleave','lostpointercapture'].forEach(ev=>b.addEventListener(ev,holdStop));
+  b.addEventListener('contextmenu',e=>e.preventDefault());document.addEventListener('visibilitychange',()=>{if(document.hidden)holdStop()});window.addEventListener('blur',holdStop)}
+function unlockAudio(){try{if(!actx)actx=new (window.AudioContext||window.webkitAudioContext)();if(actx.state==='suspended')actx.resume()}catch(e){}}
+function soundToggle(){soundOn=!soundOn;unlockAudio();$('crSound').textContent='Hang: '+(soundOn?'BE':'KI');$('crSound').className='btn wide '+(soundOn?'on':'');if(soundOn)beep(660,0.08)}
+function beep(f,d){if(!soundOn||!actx)return;try{const o=actx.createOscillator(),g=actx.createGain();o.frequency.value=f;o.type='square';g.gain.value=0.25;
+  o.connect(g);g.connect(actx.destination);o.start();o.stop(actx.currentTime+d)}catch(e){}}
+function addWeight(){const v=+$('crAddKg').value;if(!(v>0)){toast('Add meg a tömeget');return}cmd('crank_add_weight',v).then(r=>{if(r)$('crAddKg').value=''})}
+
 // ---------------------------------------------------------------- navigáció
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>{
   activeTab=b.dataset.tab;document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('active',x===b));
@@ -371,7 +430,7 @@ async function loadSchema(){SCHEMA=await getJSON('/api/schema');await loadConfig
 async function loadConfig(){try{CFG=await getJSON('/api/config');fillInputs()}catch(e){}}
 async function loadCrops(){try{CROPS=await getJSON('/api/crops');
   const opts=CROPS.crops.map((c,i)=>`<option value="${i}">${esc(c.name)}</option>`).join('');$('crCrop').innerHTML=opts;$('chCrop').innerHTML=opts}catch(e){}}
-const GROUP_ICON={machine:'🚜',rate:'🌾',drive:'⚙️',fan:'🌀',speed:'⏱️',switches:'🔘',extras:'🧩',pressure:'🧭',cooling:'🌡️',scale:'⚖️',tc:'🛰️',sim:'🧪',system:'🖥️'};
+const GROUP_ICON={aog:'📡',machine:'🚜',rate:'🌾',drive:'⚙️',fan:'🌀',speed:'⏱️',switches:'🔘',extras:'🧩',pressure:'🧭',cooling:'🌡️',scale:'⚖️',tc:'🛰️',sim:'🧪',system:'🖥️'};
 function buildGroups(){
   const box=$('groups');box.innerHTML='';
   for(const g of SCHEMA.groups){
@@ -388,7 +447,8 @@ function fieldFor(p){
   if(p.kind==='enum'||p.kind==='bool')ctl=`<select id="p_${p.key}">${(p.options||[]).map((o,i)=>`<option value="${i}">${esc(o)}</option>`).join('')}</select>`;
   else if(p.kind==='str')ctl=`<input id="p_${p.key}" type="text" maxlength="${p.max}" style="text-align:left">`;
   else ctl=`<input id="p_${p.key}" type="number" inputmode="decimal" step="${p.step}" min="${p.min}" max="${p.max}">`;
-  f.innerHTML=`<label for="p_${p.key}">${esc(p.label)}</label><div class="inp">${ctl}${p.unit?`<span class="u">${esc(p.unit)}</span>`:''}</div>`+(p.help?`<div class="help">${esc(p.help)}</div>`:'');
+  const sc=p.scope==='isobus'?'<span class="scope isobus" title="Csak az ISOBUS terminálos / Task Controlleres működésre vonatkozik">ISOBUS</span>':p.scope==='aog'?'<span class="scope aog" title="Csak az AgOpenGPS kapcsolatra vonatkozik">AgOpenGPS</span>':'';
+  f.innerHTML=`<label for="p_${p.key}">${esc(p.label)}${sc}</label><div class="inp">${ctl}${p.unit?`<span class="u">${esc(p.unit)}</span>`:''}</div>`+(p.help?`<div class="help">${esc(p.help)}</div>`:'');
   const el=f.querySelector('input,select');
   el.addEventListener('change',async()=>{
     const wrap=el.parentElement;wrap.classList.remove('saved','err');
@@ -407,9 +467,16 @@ function relevant(key){
   if(key==='tank_count')return true;
   if(key==='hopper2_nc')return Math.round(CFG.tank_count)>1;
   if(['encoder_ppr','motor_max_rpm','pwm_min_pct','pwm_max_pct','ramp_up_s','ramp_down_s','reg_gain','pwm_freq_hz','prefill_auto','prefill_speed_kmh','prefill_time_s','prefill_after_s'].includes(key))return el;
-  if(['clutch_mode','meter_ppr'].includes(key))return !el;
-  if(key==='work_sw_tc')return ws;
-  if(key==='wheel_ppm')return sp===0||sp===2;
+  if(['clutch_mode','meter_ppr','clutch_lift'].includes(key))return !el;
+  if(key==='crank_autostop')return el;
+  if(key==='work_sw_tc')return ws&&Math.round(CFG.sec_src)===1;
+  if(key==='wheel_ppm')return sp===0||sp===2||sp===5||CFG.slip_alarm_pct>0;
+  if(key==='slip_delay_s')return CFG.slip_alarm_pct>0;
+  if(['rev_interval_min','rev_time_s','rev_pause_s'].includes(key))return !!CFG.rev_enable;
+  if(key==='aog_ip')return Math.round(CFG.aog_ip_mode)===0;
+  if(['aog_ip_mode','aog_paint'].includes(key))return !!CFG.aog_enable;
+  if(key==='aog_paint_mode')return !!CFG.aog_enable&&!!CFG.aog_paint;
+  if(['delay_on_ms','delay_off_ms','tc_sec','tc_geo'].includes(key))return !!CFG.tc_enable;
   if(key==='isobus_speed_pref')return sp===1||sp===2;
   if(key==='sim_speed')return sp===3;
   if(key==='geo_a_m')return Math.round(CFG.hitch_type)===1;
@@ -439,7 +506,7 @@ const VIEW=[['ready','▶','kész'],['work','⟳','hajt'],['shut','⏸','lekapcs
 function meterCard(st,i){
   const m=st.meter[i],v=VIEW[m.view]||VIEW[4],empty=st.tanks>1?st.hopper_empty[i]:st.hopper_empty[0];
   return `<div class="card"><h2>${i+1}. adagoló</h2><div class="meter"><div class="ico ${v[0]}">${v[1]}</div>
-    <div style="flex:1"><div><span class="mid">${fmt(m.actual_rate,1)}</span><span class="unit">kg/ha</span> <span class="muted">cél ${fmt(m.target_rate,1)}</span></div>
+    <div style="flex:1"><div>${st.electric?`<span class="mid">${fmt(m.actual_rate,1)}</span><span class="unit">kg/ha</span> <span class="muted">cél ${fmt(m.target_rate,1)}</span>`:`<span class="mid">${fmt(m.target_rate,1)}</span><span class="unit">kg/ha</span> <span class="muted">beállított</span>`}</div>
     <div class="muted" style="font-size:13px">${v[2]} · ${fmt(m.rpm,1)} 1/min${st.electric?` · cél ${fmt(m.target_rpm,1)} · PWM ${fmt(m.pwm,0)}%`:` · kuplung ${m.clutch?'hajt':'old'}`} · ${fmt(m.width,2)} m</div></div></div>
     <div class="row" style="margin-top:10px"><button class="btn wide ${m.enabled?'on':''}" onclick="cmd('meter',${i})">${m.enabled?'Engedélyezve':'Kikapcsolva'}</button></div>
     <div class="muted" style="font-size:13px;margin-top:8px">${st.tanks>1?(i+1)+'. tartály':'Tartály'}: <b style="color:${empty?'var(--bad)':'var(--text)'}">${empty?'ÜRES':'van mag'}</b></div>
@@ -449,6 +516,7 @@ function render(){
   $('pillVt').textContent=iso.vt_connected?'VT kapcsolódva':'VT nincs';$('pillVt').className='pill '+(iso.vt_connected?'ok':'bad');
   $('pillTc').textContent=iso.tc_connected?'TC kapcsolódva':(CFG.tc_enable===0?'TC ki':'TC nincs');$('pillTc').className='pill '+(iso.tc_connected?'ok':(CFG.tc_enable===0?'':'warn'));
   $('hdrSub').textContent=`${S.ssid||''} · ${S.fw||''}`;
+  show('pillAog',!!CFG.aog_enable);$('pillAog').textContent=st.aog?'AOG kapcsolódva':'AOG nincs';$('pillAog').className='pill '+(st.aog?'ok':'warn')+(CFG.aog_enable?'':' hide');
   const top=(st.alarm_list||[]).find(a=>a.new&&a.sev===2);
   $('alarmBox').classList.toggle('show',!!top);if(top)$('alarmText').textContent='⚠ '+top.text;
   if(st.message_seq!==lastMsg){if(lastMsg&&st.message){$('msgBox').textContent=st.message;$('msgBox').classList.add('show');clearTimeout(msgTimer);msgTimer=setTimeout(()=>$('msgBox').classList.remove('show'),5000)}lastMsg=st.message_seq}
@@ -456,8 +524,11 @@ function render(){
   const stEl=$('state');let txt=st.state;
   if(st.prefill_id===1)txt=`Csőfeltöltés… ${fmt(st.prefill_left,1)} s`;else if(st.prefill_id===2)txt=`START – indulhatsz! (${fmt(st.prefill_left,1)} s)`;
   if(st.manual&&st.state_id===3)txt+=' – KÉZI adagolás';stEl.textContent=txt;stEl.className='state '+(st.prefill_id?'pre':st.state_id===3?'sow':st.state_id===5?'al':'');
-  const m=$('btnMaster');m.textContent=st.master?'VETÉS: BE':'VETÉS: KI';m.className='btn master wide '+(st.master?'go':'stop');
-  const sb=$('btnSec');sb.textContent=st.sec_auto?'TC szakaszvezérlés: AUTO':'TC szakaszvezérlés: KÉZI';sb.className='btn wide '+(st.sec_auto?'on':'');sb.disabled=!CFG.tc_enable||!CFG.tc_sec;
+  const m=$('btnMaster');m.textContent=st.master?'VETÉS: BE':'VETÉS: KI';m.className='btn master wide '+(st.master?'go':'stop')+(st.electric?'':' hide');
+  show('groundNote',!st.electric);show('rateRow',st.electric);
+  const sb=$('btnSec'),src=st.sec_src,srcName=src===2?'AgOpenGPS':'TC';
+  sb.textContent=`Automata szakaszolás (${srcName}): `+(st.sec_auto?'AUTO':(st.sec_auto_req?'várakozik…':'KÉZI'));
+  sb.className='btn wide '+(st.sec_auto?'on':'')+(src===0?' hide':'');sb.disabled=src===1?(!CFG.tc_enable||!CFG.tc_sec):!CFG.aog_enable;
   show('btnPrefill',st.electric);$('btnPrefill').textContent=st.prefill_id?'Feltöltés leállítása':'Csőfeltöltés';$('btnPrefill').className='btn wide '+(st.prefill_id?'on':'')+(st.electric?'':' hide');
   show('modeRow',st.electric);$('btnAuto').className='btn wide '+(st.manual?'':'on');$('btnManual').className='btn wide '+(st.manual?'on':'');
   $('btnPlus').textContent=(st.manual?'+ fordulat ':'+ ')+fmt(CFG.rate_step_pct)+'%';$('btnMinus').textContent=(st.manual?'− fordulat ':'− ')+fmt(CFG.rate_step_pct)+'%';
@@ -465,6 +536,7 @@ function render(){
   $('btnReset').disabled=st.manual;
   $('bWork').textContent=Math.round(CFG.work_sw)?(st.work_down?'Gép LENT':'Gép FENT'):'Nincs munkakapcsoló';$('bWork').className='badge '+(st.work_down?'ok':'');
   $('bTc').textContent=st.tc?'TC kapcsolat':'Nincs TC';$('bTc').className='badge '+(st.tc?'info':'');
+  show('bAog',!!CFG.aog_enable);$('bAog').textContent=st.aog?'AgOpenGPS':'Nincs AgOpenGPS';$('bAog').className='badge '+(st.aog?'ok':'warn')+(CFG.aog_enable?'':' hide');
   show('bGeo',st.tc_rate);show('bSim',(st.alarm_list||[]).some(a=>a.code==='SIMULATION'));
   $('speed').textContent=fmt(st.speed,1);$('speedSrc').textContent=(st.speed_valid?st.speed_src:'Nincs sebességjel')+(st.speed_fallback?' (tartalék)':'');
   $('fan').textContent=fmt(st.fan_rpm);$('fanLim').textContent=`min ${fmt(CFG.fan_min_rpm)}${CFG.fan_max_rpm>0?' · max '+fmt(CFG.fan_max_rpm):''} 1/min`;
@@ -478,16 +550,32 @@ function render(){
   $('pressure').textContent=st.pressure_ok?fmt(st.pressure_bar,1)+' bar':'nincs jel';
   $('temp0').textContent=st.temp[0]!=null?fmt(st.temp[0],1)+' °C':'nincs érzékelő';$('temp1').textContent=st.temp[1]!=null?fmt(st.temp[1],1)+' °C':'nincs érzékelő';
   $('btnCoolMode').textContent=st.cooler_manual?'Kézi mód':'Automata';$('btnCoolMode').className='btn wide '+(st.cooler_manual?'':'on');
+  show('revRow',!!CFG.rev_enable);
+  $('btnRev').textContent=st.cooler_rev_id?`${st.cooler_rev} – ${fmt(st.cooler_rev_left)} s (leállítás)`:('Visszafúvás'+(st.cooler_rev_next>0?` (következő ${fmt(Math.ceil(st.cooler_rev_next/60))} perc múlva)`:''));
+  $('btnRev').className='btn wide '+(st.cooler_rev_id?'on':'');
   $('btnCool').textContent='Ventilátor: '+(st.cooler_on?'BE':'KI');$('btnCool').className='btn wide '+(st.cooler_on?'on':'');$('btnCool').disabled=!st.cooler_manual;
   // kalibrálás
   const cr=st.crank;
   if(document.activeElement!==$('crMeter'))$('crMeter').value=cr.meter;show('crMeterRow',st.meters>1);
   if(document.activeElement!==$('crCrop'))$('crCrop').value=cr.crop;
   setIfIdle('crWanted',cr.wanted);if(document.activeElement!==$('crTurns'))$('crTurns').value=cr.turn_option;
-  setIfIdle('crTest',cr.test_scale||0);setIfIdle('crMeas',cr.measured||'');setIfIdle('crHa',cr.hectares||'');
+  setIfIdle('crTest',cr.test_scale||0);setIfIdle('crHa',cr.hectares||'');
   $('crScale').textContent=`${fmt(cr.scale,1)} · ${cr.setup}`;$('crExpect').textContent=fmt(cr.expected_kg,3)+' kg';
-  $('crRevs').textContent=`${fmt(st.electric?cr.motor_revs:cr.counted_revs,1)} / ${fmt(cr.turns,1)}`+(cr.motor_running?' (fut)':'');
-  show('crMotorRow',st.electric);$('crHint').textContent=st.electric?'A motor pontosan a megadott fordulatot teszi meg (álló gépnél, vetés KI).':'Talajhajtásnál a kerékkel / kurblival tekerd le a megadott fordulatot; az adagolótengely jeladója számol.';
+  // nagy számláló: a célnál piros + hang (a telefon a gép mellett)
+  const done=cr.target_reached,whole=Math.floor(cr.counted_revs+1e-6);
+  $('crBigN').textContent=fmt(cr.counted_revs,1);$('crBigT').textContent=`/ ${fmt(cr.turns,1)} fordulat`+(cr.armed?'':' · tekerd a nullpontig (első jel)');
+  $('crBig').className='crankbig'+(done?' done':cr.motor_running?' run':'');
+  const fb=activeTab==='cal'&&cr.session&&soundOn;   // visszajelzés csak a leforgatás oldalon, bekapcsolt hangnál
+  if(fb&&lastWhole>=0&&whole>lastWhole&&!done){beep(990,0.06);if(navigator.vibrate)navigator.vibrate(40)}
+  if(fb&&done&&!lastDone&&lastWhole>=0){beep(440,1.2);if(navigator.vibrate)navigator.vibrate([300,100,300])}
+  lastWhole=whole;lastDone=done;
+  show('crHold',st.electric);
+  $('crHint').textContent=st.electric?(CFG.crank_autostop?'Amíg nyomod, forog; elengedve megáll, a számláló megmarad. A célfordulatnál magától megáll.':'Amíg nyomod, forog (a célnál sem áll meg – Beállítások → Adagolás).')+(CFG.crank_btn?' A gépre szerelt gomb ugyanígy működik.':'')
+    :'Talajhajtás: tekerd kézzel; 1 imp/ford jeladónál előbb az első jelig (nullpont), utána számol. 42,5-nél a 42. után a felet kézzel tedd rá.'+(CFG.crank_btn?' A gépre szerelt gomb 2 s nyomásra nulláz.':'');
+  const ws=cr.weights||[];
+  $('crWeights').innerHTML=ws.map((w,i)=>`<div class="kv"><span>${i+1}. mérés</span><b>${fmt(w,3)} kg <button class="xbtn" onclick="cmd('crank_del_weight',${i})">✕</button></b></div>`).join('')+
+    (ws.length>1?`<div class="kv"><span></span><b><button class="xbtn" onclick="if(confirm('Minden részmérés törlése?'))cmd('crank_clear_weights')">Mind törlése</button></b></div>`:'');
+  $('crMeasSum').textContent=cr.measured>0?`${fmt(cr.measured,3)} kg (${ws.length} db)`:'–';
   show('crFromScaleRow',CFG.scale_enable);show('crCopyRow',st.meters>1);$('crCopy').textContent=`${cr.meter+1}. adagoló adatai → ${2-cr.meter}. adagoló (kg/ford. + előírt)`;$('crScaleKg').textContent=st.scale.valid?fmt(st.scale.kg,3):'–';
   $('crAct').textContent=cr.measured>0?fmt(cr.actual_rate,1)+' kg/ha':'–';$('crNew').textContent=cr.corrected_valid?fmt(cr.corrected_scale,1):'–';
   $('crKgRev').textContent=cr.kg_per_rev>0?fmt(cr.kg_per_rev,4)+' kg':'–';$('crSeed').textContent=cr.seed_kg>0?fmt(cr.seed_kg)+' kg':'–';
@@ -505,11 +593,23 @@ function render(){
   const rows=[['Terület','ha',st.day.ha,st.total.ha,2],['Megtett út','km',st.day.km,st.total.km,2],['Vetési idő','óra',st.day.h,st.total.h,1],['1. adagoló','kg',st.day.kg1,st.total.kg1,0]];
   if(st.meters>1)rows.push(['2. adagoló','kg',st.day.kg2,st.total.kg2,0]);
   $('counters').innerHTML=rows.map(r=>`<tr style="border-top:1px solid var(--line)"><td style="padding:8px 0" class="muted">${r[0]} <small>(${r[1]})</small></td><td style="text-align:right"><b>${fmt(r[2],r[4])}</b></td><td style="text-align:right"><b>${fmt(r[3],r[4])}</b></td></tr>`).join('');
-  // rendszer
-  if(activeTab==='system'){
-    const kv=a=>a.map(([k,v])=>`<div class="kv"><span>${esc(k)}</span><b>${v}</b></div>`).join('');
-    const yes=v=>v?'<span class="badge ok">igen</span>':'<span class="badge">nem</span>';
-    const onoff=v=>v?'<span class="badge ok">BE</span>':'<span class="badge">KI</span>';
+  // diagnosztika, rendszer
+  const kv=a=>a.map(([k,v])=>`<div class="kv"><span>${esc(k)}</span><b>${v}</b></div>`).join('');
+  const yes=v=>v?'<span class="badge ok">igen</span>':'<span class="badge">nem</span>';
+  const onoff=v=>v?'<span class="badge ok">BE</span>':'<span class="badge">KI</span>';
+  if(activeTab==='diag'){
+    const ag=hw.aog||{};
+    $('aogInfo').innerHTML=!ag.eth?kv([['Ethernet','<span class="badge">nincs a panelen</span>']]):kv([
+      ['Ethernet',ag.link?'<span class="badge ok">kábel OK</span>':'<span class="badge warn">nincs kábel</span>'],['IP-cím',esc(ag.ip)],
+      ['AgOpenGPS',!ag.enabled?'<span class="badge">kikapcsolva</span>':ag.connected?'<span class="badge ok">kapcsolódva</span>':'<span class="badge warn">nincs forgalom</span>'],
+      ['GPS sebesség (PGN 254)',ag.speed_valid?fmt(ag.speed,1)+' km/h':'–'],['Szakaszok (PGN 239)',ag.sections_valid?[0,1].map(i=>(ag.sections>>i)&1?'BE':'KI').join(' / '):'–'],
+      ['Festés (PGN 234)',ag.main===1?'<span class="badge ok">BE</span>':ag.main===2?'<span class="badge">KI</span>':'–'],
+      ['Csomagok',`${fmt(ag.rx)} be (${fmt(ag.rejected)} eldobva) · ${fmt(ag.tx_paint)} festés ki`],
+      ['Hello / keresés',`${fmt(ag.hello)} / ${fmt(ag.scan)}`],['Utolsó PGN',fmt(ag.last_pgn)],
+      ['Leghosszabb szünet / kiesés',`${fmt(ag.max_gap_ms)} ms / ${fmt(ag.outages)}`]]);
+    $('spdInfo').innerHTML=kv([['Használt forrás',esc(st.speed_valid?st.speed_src:'nincs jel')+(st.speed_fallback?' (tartalék)':'')],
+      ['Sebesség',fmt(st.speed,1)+' km/h'],['Kerékjeladó',fmt(st.wheel_kmh,1)+' km/h ('+fmt(st.wheel_hz,1)+' Hz)'],
+      ['GPS / ISOBUS referencia',st.ref_kmh>=0?fmt(st.ref_kmh,1)+' km/h':'–'],['Csúszás (kerék – GPS)',st.slip>=0?fmt(st.slip,1)+' %':'–']]);
     $('isoInfo').innerHTML=kv([['Címfoglalás',iso.claimed?`<span class="badge ok">0x${(iso.address>>>0).toString(16).toUpperCase().padStart(2,'0')}</span>`:yes(false)],
       ['VT felismerve',yes(iso.vt_found)],['VT kapcsolat / pool',yes(iso.vt_connected)],
       ['VT méret',iso.vt_connected?`${iso.vt_w}×${iso.vt_h} px, softkey ${iso.sk_w}×${iso.sk_h}`:'–'],
@@ -525,7 +625,12 @@ function render(){
       ['I/O bővítő',yes(io.expander)],['ADS1115',io.ads?`A0–A3: ${(io.ads_v||[]).map(v=>fmt(v,2)).join(' / ')} V`:yes(false)],
       ['DS18B20',io.has?.temp?`${fmt(io.ds18b20)} db`:'<span class="badge">nincs a panelen</span>'],
       ['HX711',io.has?.scale?yes(io.hx711):'<span class="badge">nincs a panelen</span>'],
+      ['Leforgató gomb (IN8)',cont(st.crank_button)],['Hűtő irányváltó relé',onoff(st.cooler_rev_level)],['Hangjelző',onoff(st.buzzer)],
       ['Motoros hajtás',io.has?.motor?yes(true):'<span class="badge">nincs a panelen</span>']]);
+    $('isoInfo').innerHTML+=kv([['Indulás',iso.started?'elindult':iso.start_in>0?`késleltetve, még ${fmt(iso.start_in)} s`:'nem fut'],['Ismételt bejelentkezés / újracsatlakozás',`${fmt(iso.announces)} / ${fmt(iso.reconnects)}`]])}
+  if(activeTab==='system'){
+    $('pinBoard').textContent=io.board||hw.board||'–';
+    $('pinRows').innerHTML=(io.pins||[]).map(r=>`<tr><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td class="muted">${esc(r[2])}</td></tr>`).join('')||'<tr><td colspan="3" class="muted">A panel lábkiosztása itt nem érhető el (demó).</td></tr>';
     $('hwInfo').innerHTML=kv([['Panel',esc(hw.board||'–')],['CAN',esc(hw.can_state||'–')+` · TEC ${hw.tec??'–'} / REC ${hw.rec??'–'}`],
       ['Buszhibák',fmt(hw.bus_errors)],['Object pool',fmt(hw.pool)+' bájt'],
       ['Szabad memória',hw.heap?`${fmt(hw.heap/1024)} kB (min ${fmt(hw.heap_min/1024)} kB)`:'–'],['Mentések',`${fmt(hw.saves)} beállítás, ${fmt(hw.saves_p)} számláló`],

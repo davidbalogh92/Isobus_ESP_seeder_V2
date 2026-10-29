@@ -17,7 +17,7 @@
 namespace seeder {
 
 // ------------------------------------------------------------------------- sebesség
-enum class SpeedSource : std::uint8_t { None, Wheel, IsobusGround, IsobusWheel, IsobusMachine, Nmea, Simulated };
+enum class SpeedSource : std::uint8_t { None, Wheel, IsobusGround, IsobusWheel, IsobusMachine, Nmea, Simulated, Aog };
 const char *speed_source_label(SpeedSource s);
 
 struct IsobusSpeedValue {
@@ -27,6 +27,7 @@ struct IsobusSpeedValue {
 };
 struct IsobusSpeeds {
     IsobusSpeedValue ground, wheel, machine, nmea;
+    IsobusSpeedValue aog;      ///< AgOpenGPS (UDP, PGN 254) – nem ISOBUS, de ugyanígy kezeljük
 };
 struct SpeedResult {
     float kmh = 0.0f;
@@ -55,6 +56,8 @@ enum class AlarmId : std::uint8_t {
     WheelNotCalibrated,
     SimulationActive,
     TcLost,
+    SpeedMismatch,
+    AogLost,
     COUNT
 };
 enum class Severity : std::uint8_t { Info = 0, Warning = 1, Alarm = 2 };
@@ -120,17 +123,26 @@ struct WheelCalibration {
 
 /// Leforgatási segéd (Accord táblázat) + mérés.
 struct CrankCalibration {
+    static constexpr int MAX_WEIGHTS = 10;
     int meter = 0;                 ///< melyik adagoló (0/1)
     int crop = chart::WHEAT;
     int turn_option = 0;           ///< 0: 85, 1: 42,5, 2: 17 fordulat
     float test_scale = 0.0f;       ///< 0 = a táblázati beállítás
-    float measured_kg = 0.0f;
+    float measured_kg = 0.0f;      ///< a lemért részletek összege
+    float weights[MAX_WEIGHTS] = {};   ///< vödrönkénti mérések
+    int weight_count = 0;
     float hectares = 0.0f;
-    // motoros leforgatás (elektromos hajtás): pontosan N fordulat az enkóder alapján
-    bool motor_running = false;
-    float motor_revs_done = 0.0f;
-    // talajhajtásnál a tengelyjeladó számolja a kézi tekerést
-    std::uint32_t meter_pulses = 0;
+    // motoros leforgatás (elektromos hajtás): nyomva tartásos, a célfordulatnál megállhat
+    bool motor_running = false;    ///< a motor ebben a ciklusban hajtva
+    bool hold = false;             ///< a kezelő nyomja a gombot (VT / web / gépre szerelt gomb)
+    bool target_reached = false;   ///< a megszámolt fordulat elérte a célt
+    bool session = false;          ///< leforgatás folyamatban (nullázástól mentésig)
+    // számlálás: a tengelyjeladó (talajhajtás, kézi tekerés) vagy az enkóder (motor) impulzusai.
+    // Kevés impulzus/fordulatnál (pl. 1) az első impulzus a nullpont: addig tekerj, amíg megjön.
+    bool armed = false;
+    std::uint32_t meter_pulses = 0;    ///< a nullpont óta
+    float counted_revs = 0.0f;         ///< megszámolt fordulat
+    float motor_revs_done = 0.0f;      ///< (kompatibilitás) = counted_revs
 };
 
 struct ScaleState {
@@ -163,6 +175,13 @@ struct Persistent {
 };
 
 // ------------------------------------------------------------------------- vezérlő
+/// AgOpenGPS felől érkező adatok (UDP). A sebesség az IsobusSpeeds::aog mezőben jön.
+struct AogInput {
+    bool connected = false;            ///< friss AgIO forgalom
+    bool sections_valid = false;       ///< friss gépadat (PGN 239)
+    std::uint16_t sections = 0;        ///< bit0 = 1. szakasz
+};
+
 /// Egy ciklus bemenetei. A digitális érintkezőket nyersen kapja (zárt = true), a NO/NC-t a mag
 /// alkalmazza. Hiányzó analóg érték: NaN.
 struct TickInputs {
@@ -173,7 +192,9 @@ struct TickInputs {
     bool work_contact = false;         ///< munkakapcsoló érintkező zárva
     bool hopper_contact[2] = {false, false};
     IsobusSpeeds isobus;
+    AogInput aog;
     bool tc_connected = false;
+    bool crank_button = false;         ///< gépre szerelt leforgató gomb (IN8) zárva
     float pressure_v = -1.0f;          ///< ADS1115 feszültség (V), < 0 = nincs adat
     float temp_c[2] = {-300.0f, -300.0f}; ///< DS18B20: [0] olajtartály, [1] hűtő kimenet; < -100 = nincs
     bool scale_valid = false;
@@ -188,7 +209,12 @@ struct Outputs {
     bool lamp_level[2] = {false, false};
     bool valve_level = false;
     bool cooler_level = false;
+    bool cooler_rev_level = false;     ///< hűtőventilátor irányváltó (visszafúvás)
+    bool buzzer = false;               ///< hangjelző (leforgatás: fordulatonként rövid, célnál hosszú)
 };
+
+enum class RevState : std::uint8_t { Idle, StopBefore, Reverse, StopAfter };
+const char *rev_label(RevState s);
 
 enum class SowState : std::uint8_t { Off, Raised, Standing, Sowing, Prefill, Alarm };
 const char *sow_state_label(SowState s);
@@ -231,6 +257,17 @@ struct Status {
     bool section_on[MAX_SECTIONS] = {false, false};
     bool tc_setpoint[MAX_SECTIONS] = {false, false};
     bool tc_section_auto = false;  ///< a TC vezérli a szakaszokat
+    bool aog_section_auto = false; ///< az AgOpenGPS vezérli a szakaszokat
+    bool sec_auto = false;         ///< automata szakaszolás aktív (bármely forrás)
+    bool sec_auto_req = false;     ///< a kezelő / a navigáció automatát kért
+    int sec_src = 1;               ///< 0 nincs, 1 ISOBUS TC, 2 AgOpenGPS
+    bool aog_connected = false;
+    std::uint16_t aog_sections = 0;
+    float aog_kmh = -1.0f;         ///< AgOpenGPS sebesség (< 0 = nincs friss)
+    bool ground_drive = false;     ///< talajhajtás: a vetést a munkakapcsoló indítja
+    float wheel_kmh = 0.0f;        ///< kerékjeladó szerinti sebesség
+    float ref_kmh = -1.0f;         ///< GPS / ISOBUS referencia (< 0 = nincs)
+    float slip_pct = -1.0f;        ///< kerék–GPS eltérés (< 0 = nem számolható)
     float sown_width_m = 0.0f;
     float rate_offset_pct = 0.0f;
     bool manual = false;           ///< kézi adagolás (elektromos hajtás): állandó fordulat
@@ -253,6 +290,10 @@ struct Status {
     float temp_c[2] = {0.0f, 0.0f};
     bool cooler_on = false;
     bool cooler_manual = false;
+    RevState cooler_rev = RevState::Idle;
+    float cooler_rev_left_s = 0.0f;    ///< a visszafúvási lépésből hátralévő idő
+    float cooler_rev_next_s = -1.0f;   ///< a következő automatikus visszafúvásig (< 0 = nincs)
+    bool crank_button = false;
     ScaleState scale;
     // kalibrálás
     WheelCalibration wheel_cal;
@@ -301,6 +342,8 @@ public:
     void toggle_valve();
     void toggle_cooler_mode();
     void toggle_cooler();
+    /// visszafúvás indítása / megszakítása (kézi)
+    bool cooler_reverse();
     bool prefill_start();          ///< kézi csőfeltöltés (elektromos hajtás)
     void prefill_stop();
     void ack_alarms() { alarms_.ack_all(); }
@@ -308,10 +351,12 @@ public:
 
     // --- Task Controller felől ---
     void tc_set_section_setpoint(int index, bool on);
-    void tc_set_section_auto(bool on) { tc_section_auto_ = on; }
+    void tc_set_section_auto(bool on) {
+        if (settings_.sec_src == 1) sec_auto_ = on;
+    }
     void tc_set_rate(int meter, float kg_ha);
     void tc_clear_rate();
-    bool tc_section_auto_requested() const { return tc_section_auto_; }
+    bool tc_section_auto_requested() const { return sec_auto_ && settings_.sec_src == 1; }
 
     // --- kalibrálás ---
     void wheel_cal_start();
@@ -327,11 +372,18 @@ public:
     void crank_set_test_scale(float scale);
     void crank_set_measured(float kg);
     void crank_set_hectares(float ha);
-    bool crank_take_scale();       ///< mért tömeg = a mérleg nettó értéke
+    bool crank_take_scale();       ///< a mérleg nettó értéke új részmérésként a listára
+    bool crank_add_weight(float kg);
+    void crank_del_weight(int index);
+    void crank_clear_weights();
     bool crank_save();             ///< kg/ford mentése a kiválasztott adagolóhoz
-    bool crank_motor_start();      ///< elektromos hajtás: pontosan N fordulat
-    void crank_motor_stop();
-    void crank_reset_count();
+    /// Elektromos hajtás, nyomva tartásos leforgatás: amíg érkezik (timeout_s-en belül újra), forog.
+    bool crank_hold(bool pressed, float timeout_s = 0.6f);
+    bool crank_motor_start() { return crank_hold(true); }   ///< (régi parancs) egy tartás-impulzus
+    void crank_motor_stop() { crank_hold(false); }
+    void crank_reset_count();      ///< új leforgatás: számláló nullázása, nullpont keresése
+    /// a számoláshoz használt fordulat (fél fordulatos opció 1 imp/ford jeladónál is)
+    double crank_effective_revs() const;
     /// a leforgatott (kiválasztott) adagoló adatai a másikra: ha van mentetlen mérés, előbb ment
     bool crank_copy_to_other();
 
@@ -365,7 +417,7 @@ private:
 
     bool master_ = false;
     bool meter_enable_[MAX_METERS] = {true, true};
-    bool tc_section_auto_ = false;
+    bool sec_auto_ = false;
     bool tc_setpoint_[MAX_SECTIONS] = {false, false};
     float tc_rate_[MAX_METERS] = {0.0f, 0.0f};
     bool tc_rate_valid_ = false;
@@ -377,6 +429,21 @@ private:
     bool valve_ = false;
     bool cooler_manual_on_ = false;
     bool cooler_on_ = false;
+    RevState rev_ = RevState::Idle;
+    float rev_timer_ = 0.0f;
+    float rev_since_s_ = 0.0f;
+    float slip_timer_ = 0.0f;
+    bool slip_alarm_ = false;
+    // leforgatás
+    float crank_hold_timer_ = 0.0f;
+    float crank_btn_time_ = 0.0f;
+    bool crank_btn_last_ = false;
+    float crank_idle_s_ = 0.0f;
+    float crank_flash_s_ = 0.0f;
+    float crank_beep_s_ = 0.0f;
+    float crank_blink_s_ = 0.0f;
+    int crank_last_whole_ = 0;
+    bool crank_last_reached_ = false;
 
     // munkakapcsoló, tartályok szűrése
     bool work_down_ = false;

@@ -38,6 +38,8 @@ float meter_width(const Settings &s, int meter);
 /// Az i. szakasz szélessége (m).
 float section_width(const Settings &s, int section);
 float rate_setting(const Settings &s, int meter);
+/// "a.b.c.d" → 4 bájt. Hamis, ha a formátum hibás.
+bool parse_ipv4(const char *text, std::uint8_t out[4]);
 float cal_kg_rev(const Settings &s, int meter);
 
 std::string settings_to_json(const Settings &s);

@@ -154,6 +154,25 @@ float meter_width(const Settings &s, int meter) {
     return meter == 0 ? s.sec_w1 : s.width_m - s.sec_w1;
 }
 
+bool parse_ipv4(const char *text, std::uint8_t out[4]) {
+    if (!text) return false;
+    const char *p = text;
+    for (int i = 0; i < 4; ++i) {
+        if (*p < '0' || *p > '9') return false;
+        int v = 0, digits = 0;
+        while (*p >= '0' && *p <= '9') {
+            v = v * 10 + (*p++ - '0');
+            if (++digits > 3 || v > 255) return false;
+        }
+        out[i] = static_cast<std::uint8_t>(v);
+        if (i < 3) {
+            if (*p != '.') return false;
+            ++p;
+        }
+    }
+    return *p == '\0';
+}
+
 float rate_setting(const Settings &s, int meter) { return meter == 1 ? s.rate2 : s.rate1; }
 float cal_kg_rev(const Settings &s, int meter) { return meter == 1 ? s.cal2_kg_rev : s.cal1_kg_rev; }
 
@@ -178,6 +197,11 @@ void normalize(Settings &s, int changed_id) {
             const std::int32_t lo = (d.kind == ParamKind::Int) ? static_cast<std::int32_t>(d.min) : 0;
             if (v < lo || v > hi) v = static_cast<std::int32_t>(d.def);
         }
+    }
+    // IP-cím formátum (hibás → alapérték)
+    {
+        std::uint8_t ip[4];
+        if (!parse_ipv4(s.aog_ip, ip)) std::snprintf(s.aog_ip, sizeof(s.aog_ip), "%s", PARAMS[P_aog_ip].def_str);
     }
     // 2) adagoló / szakasz összefüggések: 1 adagolónál és első/hátsó soros gépnél csak 1 szakasz lehet
     if (s.meter_count < 2 || s.meter_layout == 1) s.section_count = 1;
@@ -390,6 +414,8 @@ std::string schema_json() {
         out += json_escape(d.help);
         out += "\",\"feature\":\"";
         out += d.feature;
+        out += "\",\"scope\":\"";
+        out += d.scope;
         out += "\",\"kind\":\"";
         static const char *const kinds[] = {"float", "int", "enum", "bool", "str"};
         out += kinds[static_cast<int>(d.kind)];

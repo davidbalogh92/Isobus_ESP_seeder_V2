@@ -50,7 +50,9 @@ bool json_get_number(const char *json, const char *key, double &out) {
 //   prefill_start, prefill_stop, ack, reset_day,
 //   wheel_cal_start|stop|cancel|save, wheel_cal_pulses, wheel_cal_distance,
 //   crank_meter, crank_crop, crank_turns, crank_test_scale, crank_measured, crank_hectares,
-//   crank_from_scale, crank_save, crank_motor_start, crank_motor_stop, crank_reset,
+//   crank_from_scale (új részmérés a mérlegről), crank_add_weight (kg), crank_del_weight (index),
+//   crank_clear_weights, crank_save, crank_hold (1: nyomva – 0,6 s-onként ismételni, 0: elengedve),
+//   crank_motor_start, crank_motor_stop, crank_reset, cooler_reverse,
 //   scale_tare, scale_calibrate (kg), pressure_calibrate (bar)
 bool apply_command(Seeder &s, const std::string &c, double v, std::string &error) {
     const int iv = static_cast<int>(v);
@@ -103,6 +105,15 @@ bool apply_command(Seeder &s, const std::string &c, double v, std::string &error
         if (!s.crank_motor_start()) return fail("Nem indítható");
     } else if (c == "crank_motor_stop") s.crank_motor_stop();
     else if (c == "crank_reset") s.crank_reset_count();
+    else if (c == "crank_hold") {
+        if (!s.crank_hold(iv != 0)) return fail("A leforgatás nem indítható");
+    } else if (c == "crank_add_weight") {
+        if (!s.crank_add_weight(fv)) return fail("Nem adható hozzá");
+    } else if (c == "crank_del_weight") s.crank_del_weight(iv);
+    else if (c == "crank_clear_weights") s.crank_clear_weights();
+    else if (c == "cooler_reverse") {
+        if (!s.cooler_reverse()) return fail("A visszafúvás nem indítható");
+    }
     else if (c == "scale_tare") s.scale_tare();
     else if (c == "scale_calibrate") {
         if (!s.scale_calibrate(fv)) return fail("A kalibrálás nem sikerült");

@@ -107,7 +107,8 @@ bool exp_out_valid = false;
 
 constexpr std::uint8_t expander_output_mask() {
     std::uint8_t m = 0;
-    const Pin outs[] = {board::CLUTCH[0], board::CLUTCH[1], board::VALVE, board::LAMP[0], board::LAMP[1], board::COOLER};
+    const Pin outs[] = {board::CLUTCH[0], board::CLUTCH[1], board::VALVE,     board::LAMP[0],
+                        board::LAMP[1],   board::COOLER,    board::COOLER_REV};
     for (const Pin &p : outs)
         if (p.kind == PinKind::Expander) m = static_cast<std::uint8_t>(m | (1u << p.num));
     return m;
@@ -332,7 +333,8 @@ void set_out(const Pin &p, bool level, std::uint8_t &exp_bits) {
 }
 
 void gpio_outputs_init() {
-    const Pin outs[] = {board::CLUTCH[0], board::CLUTCH[1], board::VALVE, board::LAMP[0], board::LAMP[1], board::COOLER};
+    const Pin outs[] = {board::CLUTCH[0], board::CLUTCH[1], board::VALVE,     board::LAMP[0],
+                        board::LAMP[1],   board::COOLER,    board::COOLER_REV};
     for (const Pin &p : outs) {
         if (p.kind != PinKind::Gpio) continue;
         gpio_reset_pin(static_cast<gpio_num_t>(p.num));
@@ -365,6 +367,34 @@ void pwm_setup(int freq) {
         }
     }
     pwm_freq = freq;
+}
+
+// hangjelző: passzív zümmer LEDC-vel (külön időzítő, hogy a motor-PWM frekvenciája ne hasson rá)
+bool buzzer_ready = false;
+bool buzzer_on = false;
+void buzzer_set(bool on) {
+    if (board::BUZZER_GPIO < 0) return;
+    if (!buzzer_ready) {
+        ledc_timer_config_t t{};
+        t.speed_mode = LEDC_LOW_SPEED_MODE;
+        t.duty_resolution = LEDC_TIMER_10_BIT;
+        t.timer_num = LEDC_TIMER_1;
+        t.freq_hz = 2700;
+        t.clk_cfg = LEDC_AUTO_CLK;
+        if (ledc_timer_config(&t) != ESP_OK) return;
+        ledc_channel_config_t c{};
+        c.gpio_num = board::BUZZER_GPIO;
+        c.speed_mode = LEDC_LOW_SPEED_MODE;
+        c.channel = LEDC_CHANNEL_2;
+        c.timer_sel = LEDC_TIMER_1;
+        c.duty = 0;
+        if (ledc_channel_config(&c) != ESP_OK) return;
+        buzzer_ready = true;
+    }
+    if (on == buzzer_on) return;
+    buzzer_on = on;
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_2, on ? 512 : 0);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_2);
 }
 
 // ============================================================== taszkok
@@ -525,6 +555,7 @@ bool init() {
     for (int i = 0; i < 2; ++i) ok &= setup_input(board::METER[i], &meter_ch[i]);
     ok &= setup_input(board::WORK, nullptr);
     for (const Pin &p : board::HOPPER) ok &= setup_input(p, nullptr);
+    if (board::CRANK_BTN.used()) ok &= setup_input(board::CRANK_BTN, nullptr);
     if (!ok) web::log("ERROR", "Bemenet beállítási hiba");
 
     // HX711
@@ -580,6 +611,7 @@ app::HwInputs read(const seeder::Settings &s) {
     };
     in.work_contact = closed(board::WORK);
     for (int i = 0; i < 2; ++i) in.hopper_contact[i] = closed(board::HOPPER[i]);
+    in.crank_button = closed(board::CRANK_BTN);
     // NC érintkező kiesett bővítőnél: "nyitott"-nak látszana → a mag szűrése után riaszt; ez szándékos
     const int ch = std::max<int>(0, std::min<int>(3, s.pressure_ch));
     in.pressure_v = ads_ok.load() ? ads_volt[ch].load() : -1.0f;
@@ -600,7 +632,9 @@ void apply(const seeder::Outputs &o, const seeder::Settings &s) {
     set_out(board::LAMP[0], o.lamp_level[0], bits);
     set_out(board::LAMP[1], o.lamp_level[1], bits);
     set_out(board::COOLER, o.cooler_level, bits);
+    set_out(board::COOLER_REV, o.cooler_rev_level, bits);
     exp_out_wanted = bits;
+    buzzer_set(o.buzzer);
     outputs_enabled = true;
     // adagolómotorok
     const int freq = std::max<int>(100, std::min<int>(20000, s.pwm_freq_hz));
@@ -634,7 +668,20 @@ std::string diag_json() {
                   static_cast<unsigned long>(meter_ch[0].total), static_cast<unsigned long>(meter_ch[1].total),
                   board::MOTOR_PWM_GPIO[0] >= 0 ? "true" : "false", board::HX711_DATA >= 0 ? "true" : "false",
                   board::ONEWIRE_GPIO >= 0 ? "true" : "false");
-    return b;
+    std::string o = b;
+    o.pop_back();   // '}'
+    o += ",\"board\":\"";
+    o += seeder::json_escape(board::NAME);
+    o += "\",\"pins\":[";
+    bool first = true;
+    for (const auto &p : board::PINMAP) {
+        if (!first) o += ',';
+        first = false;
+        o += "[\"" + seeder::json_escape(p.pin) + "\",\"" + seeder::json_escape(p.function) + "\",\"" +
+             seeder::json_escape(p.note) + "\"]";
+    }
+    o += "]}";
+    return o;
 }
 
 } // namespace io

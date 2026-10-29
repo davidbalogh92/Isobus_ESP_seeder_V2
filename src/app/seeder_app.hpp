@@ -4,6 +4,7 @@
 // Hordozható: ESP32-n (TWAI) és PC-n (virtuális CAN, szimuláció) is ugyanez a kód fut.
 #include "seeder/seeder.hpp"
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -47,6 +48,10 @@ struct IsobusDiag {
     unsigned ddop_uploads = 0;
     unsigned vt_cmd_sent = 0, vt_cmd_failed = 0;
     std::string page = "-";
+    bool started = false;
+    float start_in_s = 0.0f;       ///< késleltetett indulásig hátralévő idő
+    unsigned announces = 0;        ///< ismételt címbejelentések (terminál keresése)
+    unsigned reconnects = 0;       ///< VT/TC újracsatlakozások
 };
 
 /// Egy ciklus hardveres bemenetei (az ESP réteg vagy a szimulátor tölti ki).
@@ -58,6 +63,10 @@ struct HwInputs {
     float temp_c[2] = {-300.0f, -300.0f};
     bool scale_valid = false;
     float scale_raw = 0.0f;
+    bool crank_button = false;
+    // AgOpenGPS (UDP) – az ESP hálózati rétege tölti ki
+    seeder::IsobusSpeedValue aog_speed;
+    seeder::AogInput aog;
 };
 
 class VtUi;
@@ -77,8 +86,14 @@ public:
 
     IsobusDiag diag() const;
 
+    /// Kézi újracsatlakozás (web): címbejelentés + VT és TC kapcsolat újrakezdése. Szálbiztos.
+    void request_reconnect() { reconnect_req_ = true; }
+
 private:
     seeder::IsobusSpeeds read_speeds();
+    bool do_start();
+    void announce();
+    void watchdog(float dt_s, int retry_s);
 
     Shared &shared_;
     std::shared_ptr<isobus::InternalControlFunction> ecu_;
@@ -91,6 +106,18 @@ private:
     std::unique_ptr<isobus::NMEA2000MessageInterface> nmea_;
     float ui_timer_ = 0.0f;
     bool started_ = false;
+    // késleltetett indulás (a terminál lassabban indul, pl. Müller)
+    bool start_pending_ = false;
+    float start_delay_ = 0.0f;
+    std::uint8_t can_channel_ = 0;
+    const std::uint8_t *pool_ = nullptr;
+    std::uint32_t pool_size_ = 0;
+    // újracsatlakozás
+    std::atomic<bool> reconnect_req_{false};
+    float vt_down_s_ = 0.0f;
+    float vt_found_down_s_ = 0.0f;
+    float announce_timer_ = 0.0f;
+    unsigned announces_ = 0, reconnects_ = 0;
 };
 
 } // namespace app

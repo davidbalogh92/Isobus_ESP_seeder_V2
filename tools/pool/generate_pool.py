@@ -349,6 +349,7 @@ K_COOLER, PIC_K_COOLER = KEYPTR("K_COOLER", "OP_K_COOLER", ["softkey_cooler_auto
                                                             "softkey_cooler_off"])
 K_MODE, PIC_K_MODE = KEYPTR("K_MODE", "OP_K_MODE", ["softkey_mode_auto", "softkey_mode_manual"])
 K_CAL_METER, PIC_K_CAL_METER = KEYPTR("K_CAL_METER", "OP_K_CAL_METER", ["softkey_meter1_on", "softkey_meter2_on"])
+K_COOLER_REV, PIC_K_COOLER_REV = KEYPTR("K_COOLER_REV", "OP_K_COOLER_REV", ["softkey_cooler_rev", "softkey_cooler_rev_on"])
 K_MENU = KEY("K_MENU", "softkey_set")
 K_FUNC = KEY("K_FUNC", "softkey_func")
 K_CRANK = KEY("K_CRANK", "softkey_crank")
@@ -367,8 +368,9 @@ K_TARE = KEY("K_TARE", "softkey_tare")
 K_SCALE_CAL = KEY("K_SCALE_CAL", "softkey_save")
 K_SCALE_TAKE = KEY("K_SCALE_TAKE", "softkey_scale_take")
 K_SCALE_PAGE = KEY("K_SCALE_PAGE", "softkey_calib")
-K_CRANK_START = KEY("K_CRANK_START", "softkey_start")
-K_CRANK_STOP = KEY("K_CRANK_STOP", "softkey_stop")
+K_CRANK_START = KEY("K_CRANK_START", "softkey_start")      # nyomva tartásos (elektromos hajtás)
+K_CRANK_RESET = KEY("K_CRANK_RESET", "softkey_crank_reset")  # számláló nullázása, új leforgatás
+K_WEIGHT_CLEAR = KEY("K_WEIGHT_CLEAR", "softkey_cancel")     # részmérések törlése
 K_CRANK_SAVE = KEY("K_CRANK_SAVE", "softkey_save")
 K_CRANK_COPY = KEY("K_CRANK_COPY", "softkey_crank_copy")
 K_PRESS_CAL = KEY("K_PRESS_CAL", "softkey_save")
@@ -385,7 +387,8 @@ PAGE_INFO = {
     "pressure": ("Nyomás", "main/main_pressure"),
     "cooling": ("Olajhûtés", "main/main_temp"),
     "scale": ("Mérleg", "softkeys/softkey_calib"),
-    "tc": ("Task Contr.", "softkeys/softkey_tc"),
+    "tc": ("Szakaszolás", "softkeys/softkey_tc"),
+    "aog": ("AgOpenGPS", "menu/menu_aog"),
     "geometry": ("Geometria", "softkeys/softkey_geom"),
     "diag": ("Szimuláció", "menu/menu_diag"),
 }
@@ -396,10 +399,16 @@ K_PG_INFO = KEY("K_PG_INFO", child=PIC("menu/menu_counters", KEY_PIC, key=True))
 # --- főképernyő softkey maszkok: (adagolók 1/2) × (elektromos hajtás 0/1).
 # BASIC terminál: az első 5 gomb a jobb oszlop felülről, a következő 5 a bal oszlop.
 def main_keys(meters: int, electric: bool):
-    # a számlálók a Beállítások menübe kerültek; helyükön elektromos hajtásnál az AUTO/KÉZI gomb
-    right = [K_MASTER] + ([K_METER2] if meters == 2 else []) + [K_SEC_AUTO, K_MODE if electric else K_FUNC]
+    # elektromos hajtás: vetés BE/KI, +/− és 100% a főképernyőn; leforgatás, automata szakaszolás a Funkciókban.
+    # talajhajtás: nincs vetés gomb (a munkakapcsoló indít) és nincs +/− (a dózist a váltó adja): a kuplungok,
+    # az automata szakaszolás és a leforgatás van elöl.
+    if electric:
+        right = [K_MASTER] + ([K_METER2] if meters == 2 else []) + [K_RATE_PLUS, K_RATE_MINUS]
+        left = [K_METER1, K_RATE_RESET, K_MODE, K_FUNC, K_PREFILL]
+    else:
+        right = ([K_METER2] if meters == 2 else []) + [K_SEC_AUTO, K_CRANK]
+        left = [K_METER1, K_FUNC]
     right += K_BLANK[:4 - len(right)] + [K_MENU]
-    left = [K_METER1] + ([K_FUNC] if electric else []) + [K_CRANK] + ([K_PREFILL] if electric else [])
     return right + left
 
 
@@ -411,27 +420,29 @@ for meters in (1, 2):
 
 
 # --- funkció softkey maszkok (a főképernyőn): lámpák / szelep / hűtő engedélyezése szerint
-def func_keys(lights: bool, valve: bool, cooler: bool):
-    right = [K_BACK, K_RATE_PLUS, K_RATE_MINUS, K_RATE_RESET, K_ACK]
+def func_keys(lights: bool, valve: bool, cooler: bool, rev: bool):
+    right = [K_BACK, K_SEC_AUTO, K_CRANK, K_ACK, K_COOLER_REV if rev else K_BLANK[0]]
     left = ([K_LAMP1, K_LAMP2] if lights else []) + ([K_VALVE] if valve else []) + ([K_COOLER] if cooler else [])
     return right + left
 
 
+# bitek: 1 lámpák, 2 szelep, 4 hűtő, 8 visszafúvás
 SK_FUNC = []
-for bits in range(8):
-    SK_FUNC.append(P.softkey_mask(P.new_id(4000), func_keys(bool(bits & 1), bool(bits & 2), bool(bits & 4)),
-                                  name=f"SK_FUNC_{bits}"))
+for bits in range(16):
+    SK_FUNC.append(P.softkey_mask(P.new_id(4000), func_keys(bool(bits & 1), bool(bits & 2), bool(bits & 4),
+                                                            bool(bits & 8)), name=f"SK_FUNC_{bits}"))
 SK_BACK = P.softkey_mask(P.new_id(4000), [K_BACK], name="SK_BACK")
 SK_INFO = P.softkey_mask(P.new_id(4000), [K_BACK, K_RESET_DAY], name="SK_INFO")
 SK_MENU = P.softkey_mask(P.new_id(4000), [K_BACK, K_PG_CALIB, K_PG_INFO], name="SK_MENU")
 SK_WCAL = P.softkey_mask(P.new_id(4000), [K_BACK, K_START, K_STOP, K_SAVE, K_CANCEL], name="SK_WCAL")
 SK_SCALE = P.softkey_mask(P.new_id(4000), [K_BACK, K_TARE, K_SCALE_CAL], name="SK_SCALE")
 SK_PRESSURE = P.softkey_mask(P.new_id(4000), [K_BACK, K_PRESS_CAL], name="SK_PRESSURE")
-SK_COOLING = P.softkey_mask(P.new_id(4000), [K_BACK, K_COOLER], name="SK_COOLING")
+SK_COOLING = P.softkey_mask(P.new_id(4000), [K_BACK, K_COOLER, K_COOLER_REV], name="SK_COOLING")
 SK_CALIB = P.softkey_mask(P.new_id(4000), [K_BACK, K_CAL_METER, K_SCALE_TAKE, K_CRANK_SAVE, K_SCALE_PAGE,
-                                            K_CRANK_START, K_CRANK_STOP, K_CRANK_COPY], name="SK_CALIB")
+                                            K_CRANK_START, K_CRANK_RESET, K_WEIGHT_CLEAR, K_CRANK_COPY],
+                          name="SK_CALIB")
 SK_CALIB_GROUND = P.softkey_mask(P.new_id(4000), [K_BACK, K_CAL_METER, K_SCALE_TAKE, K_CRANK_SAVE, K_SCALE_PAGE,
-                                                   K_CRANK_COPY],
+                                                   K_CRANK_RESET, K_WEIGHT_CLEAR, K_CRANK_COPY],
                                  name="SK_CALIB_GROUND")
 SK_ALARM = P.softkey_mask(P.new_id(4000), [K_ACK], name="SK_ALARM")
 
@@ -439,13 +450,20 @@ SK_ALARM = P.softkey_mask(P.new_id(4000), [K_ACK], name="SK_ALARM")
 MSG = {}
 for key, text in [("manual", "KÉZI ADAGOLÁS"), ("off", "VETÉS KI"), ("raised", "GÉP KIEMELVE"), ("standing", "ÁLL - NEM VET"),
                   ("sowing", "VETÉS"), ("prefill", "CSÕFELTÖLTÉS..."), ("start", "START, INDULHATSZ!"),
-                  ("crank", "LEFORGATÁS FUT"), ("alarm", "RIASZTÁS")]:
+                  ("crank", "LEFORGATÁS FUT"), ("alarm", "RIASZTÁS"), ("rev", "HÛTÕ VISSZAFÚVÁS"),
+                  ("crank_done", "LEFORGATÁS KÉSZ")]:
     MSG[key] = S(text, 300, 28, F_MSG, name="STR_MSG_" + key.upper())
 ALARM_TEXTS = ["1. adagoló nem forog", "2. adagoló nem forog", "1. adagoló: adageltérés",
                "2. adagoló: adageltérés", "Turbina fordulat kicsi", "Turbina fordulat magas",
-               "1. tartály kiürült", "2. tartály kiürült", "Nincs sebességjel", "ISOBUS sebesség kiesett",
+               "1. tartály kiürült", "2. tartály kiürült", "Nincs sebességjel", "GPS sebesség kiesett",
                "Olaj túlmelegedett", "Olajhõmérõ hiba", "Nyomásszenzor hiba", "Mérleg nem válaszol",
-               "Kerék nincs kalibrálva", "Szimuláció aktív", "Task Controller kiesett"]
+               "Kerék nincs kalibrálva", "Szimuláció aktív", "Task Controller kiesett", "Kerék/GPS seb. eltér",
+               "AgOpenGPS kiesett"]
+REV_TEXTS = ["Normál", "Leállás", "Visszafúj", "Leállás"]
+STR_REV = [S(t, 136, 22, F_LABEL, name=f"STR_REV_{i}") for i, t in enumerate(REV_TEXTS)]
+SRC_TEXTS = ["Nincs", "Kerék", "ISOBUS föld", "ISOBUS kerék", "ISOBUS gép", "NMEA GPS", "Szimulált", "AgOpenGPS"]
+STR_SRC = [S(t, 150, 22, F_LABEL, name=f"STR_SRC_{i}") for i, t in enumerate(SRC_TEXTS)]
+STR_AOG_IP = P.out_str(P.new_id(11000), " " * 15, 186, 22, F_LABEL, name="STR_AOG_IP")
 STR_ALARM = [S(t.upper()[:25], 300, 28, F_LABEL_R, name=f"STR_ALARM_{i}") for i, t in enumerate(ALARM_TEXTS)]
 STR_ALARM_BIG = [S(t, 380, 30, F_RED, name=f"STR_ALARMBIG_{i}") for i, t in enumerate(ALARM_TEXTS)]
 CAL_STATE = [S("Indításra kész", 184, 22, F_LABEL, name="STR_CAL_IDLE"),
@@ -466,6 +484,8 @@ STR_FULL = S("TELE", 88, 22, F_LABEL, name="STR_FULL")
 STR_TC_ON = S("Kapcsolódva", 180, 22, F_LABEL, name="STR_TC_ON")
 STR_TC_OFF = S("Nincs kapcsolat", 180, 22, F_LABEL, name="STR_TC_OFF")
 STR_TC_DIS = S("Kikapcsolva", 180, 22, F_LABEL, name="STR_TC_DIS")
+STR_OK = S("OK", 88, 22, F_LABEL, name="STR_OK")
+STR_NONE = S("nincs", 88, 22, F_LABEL, name="STR_NONE")
 STR_AUTO = S("Automata", 180, 22, F_LABEL, name="STR_AUTO")
 STR_MANUAL = S("Kézi", 180, 22, F_LABEL, name="STR_MANUAL")
 STR_METER = [S("1. adagoló", 150, 22, F_LABEL, name="STR_METER1"),
@@ -519,15 +539,18 @@ add((METER2_CONT, MASK - 30 - METER_SIZE, MY))
 VY = MY + METER_SIZE + 2
 add((N("OUT_ACT1", 100, F_VALUE, decimals=1, scale=0.1, align=1), 18, VY))
 add((S("kg/ha", 60, 14, F_SMALL), 118, VY + 8))
-add((S("cél", 32, 14, F_SMALL), 18, VY + 28))
-add((N("OUT_TGT1", 70, F_LABEL, decimals=1, scale=0.1, align=0), 52, VY + 26))
+# a "cél" sor talajhajtásnál rejtett: ott a nagy szám a beállított kg/ha (menet közben nem változtatható)
+add((C(110, 20, [(S("cél", 32, 14, F_SMALL), 0, 2), (N("OUT_TGT1", 70, F_LABEL, decimals=1, scale=0.1, align=0), 34, 0)],
+       name="CONT_TGT1"), 18, VY + 26))
 RATE2_CONT = C(160, 48, [(N("OUT_ACT2", 100, F_VALUE, decimals=1, scale=0.1, align=1), 0, 0),
-                         (S("kg/ha", 60, 14, F_SMALL), 100, 8), (S("cél", 32, 14, F_SMALL), 0, 28),
-                         (N("OUT_TGT2", 70, F_LABEL, decimals=1, scale=0.1, align=0), 34, 26)], name="CONT_RATE2")
+                         (S("kg/ha", 60, 14, F_SMALL), 100, 8),
+                         (C(110, 20, [(S("cél", 32, 14, F_SMALL), 0, 2),
+                                      (N("OUT_TGT2", 70, F_LABEL, decimals=1, scale=0.1, align=0), 34, 0)],
+                            name="CONT_TGT2"), 0, 26)], name="CONT_RATE2")
 add((RATE2_CONT, MASK - 164, VY))
-# középen: eltérés % és feltöltés visszaszámlálás
-add((N("OUT_OFFSET", 44, F_LABEL, offset=-100, value=100, align=2), 160, VY + 4))
-add((S("%", 14, 16, F_LABEL), 206, VY + 4))
+# középen: eltérés % (csak elektromos hajtás) és feltöltés visszaszámlálás
+add((C(64, 22, [(N("OUT_OFFSET", 44, F_LABEL, offset=-100, value=100, align=2), 0, 0), (S("%", 14, 16, F_LABEL), 46, 0)],
+       name="CONT_OFFSET"), 160, VY + 4))
 PREFILL_CONT = C(80, 22, [(N("OUT_PREFILL", 50, F_LABEL, decimals=1, scale=0.1, align=2), 0, 0),
                           (S("s", 14, 16, F_LABEL), 52, 0)], hidden=True, name="CONT_PREFILL")
 add((PREFILL_CONT, 160, VY + 26))
@@ -586,17 +609,21 @@ DM_INFO = P.data_mask(1020, SK_INFO, info, name="DM_INFO")
 
 # ================================================================== MENÜ
 menu = title_bar("BEÁLLÍTÁSOK")
-menu_items = ["calib"] + [p for p, _ in pd.VT_PAGES] + ["info"]
-MENU_LABEL = {**{k: v[0] for k, v in PAGE_INFO.items()}, "calib": "Leforgatás", "info": "Számlálók"}
-MENU_ICON = {**{k: v[1] for k, v in PAGE_INFO.items()}, "calib": "softkeys/softkey_crank", "info": "menu/menu_counters"}
+# elöl a napi használat (leforgatás, számlálók, diagnosztika), utána a beállítóoldalak
+menu_items = ["calib", "info", "diagnose"] + [p for p, _ in pd.VT_PAGES]
+MENU_LABEL = {**{k: v[0] for k, v in PAGE_INFO.items()}, "calib": "Leforgatás", "info": "Számlálók",
+              "diagnose": "Diagnosztika"}
+MENU_ICON = {**{k: v[1] for k, v in PAGE_INFO.items()}, "calib": "softkeys/softkey_crank", "info": "menu/menu_counters",
+             "diagnose": "menu/menu_diagnose"}
 BTN = {}
 rows_n = (len(menu_items) + 1) // 2
 bh = (MASK - 44) // rows_n
 for i, pid in enumerate(menu_items):
     col, row = i % 2, i // 2
-    pic = PIC(MENU_ICON[pid], 36)
-    b = P.button(6000 + i, 192, bh - 4, 100 + i, [(pic, 4, (bh - 4 - 36) // 2 - 2),
-                                                 (S(MENU_LABEL[pid], 140, 20, F_LABEL), 44, (bh - 4 - 16) // 2 - 3)],
+    ps = min(36, bh - 10)
+    pic = PIC(MENU_ICON[pid], ps)
+    b = P.button(6000 + i, 192, bh - 4, 100 + i, [(pic, 4, (bh - 4 - ps) // 2 - 2),
+                                                 (S(MENU_LABEL[pid], 146, 20, F_LABEL), 42, (bh - 4 - 16) // 2 - 3)],
                  name="BTN_" + pid.upper())
     BTN[pid] = b
     menu.append((b, 4 + col * 198, 42 + row * bh))
@@ -607,7 +634,11 @@ VT_OPTION_SHORT = {
     "meter_layout": ("Bal / jobb", "Elsõ / hátsó"),
     "drive_type": ("Talaj+kuplung", "El. motor"),
     "clutch_mode": ("Áram: hajt", "Áram: old"),
-    "speed_src": ("Kerékjeladó", "ISOBUS", "ISOBUS+kerék", "Szimulált"),
+    "speed_src": ("Kerékjeladó", "ISOBUS", "ISOBUS+kerék", "Szimulált", "AgOpenGPS", "AOG+kerék"),
+    "clutch_lift": ("Old", "Nem old"),
+    "sec_src": ("Nincs (kézi)", "ISOBUS TC", "AgOpenGPS"),
+    "aog_ip_mode": ("Fix IP", "DHCP"),
+    "aog_paint_mode": ("Auto / zöld", "Kézi / sárga"),
     "isobus_speed_pref": ("Automatikus", "Föld/radar", "Trakt. kerék", "Gép választ.", "NMEA GPS"),
     "work_sw": ("Nincs", "NO lent zár", "NC lent bont"),
     "hopper1_nc": ("NO", "NC"),
@@ -702,8 +733,7 @@ for page_no, (pid, title) in enumerate(pd.VT_PAGES):
     params = [p for p in pd.P if p.vt_page == pid]
     extra = []
     if pid == "speed":
-        extra = [lambda h: output_row("Sebesség most", num_out("OUT_SPEED2", 1, 0.1), "km/h", h),
-                 lambda h: heading("KERÉKKALIBRÁLÁS (pl. 100 m)", h),
+        extra = [lambda h: heading("KERÉKKALIBRÁLÁS (pl. 100 m)", h),
                  lambda h: custom_row("Mért távolság", "VT_IN_WCAL_DIST", 1, 10, 1000, 0, "m", h, 100),
                  lambda h: custom_row("Számolt impulzus", "VT_IN_WCAL_PULSES", 1, 0, 1000000, 0, "imp", h),
                  lambda h: output_row("Eredmény", num_out("OUT_WCAL_RES", 1, 0.1), "/100m", h),
@@ -727,10 +757,14 @@ for page_no, (pid, title) in enumerate(pd.VT_PAGES):
                  lambda h: heading("KALIBRÁLÁS ISMERT NYOMÁSON", h),
                  lambda h: custom_row("Ismert nyomás", "VT_IN_PRESS_REF", 0.5, 0, 1000, 1, "bar", h, 50)]
     elif pid == "cooling":
-        extra = [lambda h: output_row("Olajtartály", num_out("OUT_TEMP1", 1, 0.1, -1000), "°C", h),
-                 lambda h: output_row("Hûtõ kimenet", num_out("OUT_TEMP2", 1, 0.1, -1000), "°C", h),
-                 lambda h: output_row("Ventilátor", P.obj_ptr(27127, STR_OFF, "OP_COOLER_STATE"), "", h),
-                 lambda h: output_row("Üzemmód", P.obj_ptr(27128, STR_AUTO, "OP_COOLER_MODE"), "", h)]
+        extra = [lambda h: output_row("Olaj / hûtõ °C", C(186, 28, [(N("OUT_TEMP1", 88, F_VALUE_N, 1, 0.1, -1000), 0, 0),
+                                                                (N("OUT_TEMP2", 88, F_VALUE_N, 1, 0.1, -1000), 96, 0)]),
+                                      "", h),
+                 lambda h: output_row("Ventilátor", C(186, 28, [(P.obj_ptr(27127, STR_OFF, "OP_COOLER_STATE"), 0, 0),
+                                                               (P.obj_ptr(27128, STR_AUTO, "OP_COOLER_MODE"), 64, 0)]),
+                                      "", h),
+                 lambda h: output_row("Visszafúvás", P.obj_ptr(27160, STR_REV[0], "OP_REV_STATE"), "", h),
+                 lambda h: output_row("Következõ", num_out("OUT_REV_NEXT"), "perc", h)]
     elif pid == "scale":
         extra = [lambda h: output_row("Nettó tömeg", num_out("OUT_SCALE_KG", 3, 0.001, -100000), "kg", h),
                  lambda h: output_row("Nyers érték", N("OUT_SCALE_RAW", ROW_W_INPUT, F_VALUE_N, offset=-8388608), "", h),
@@ -739,6 +773,14 @@ for page_no, (pid, title) in enumerate(pd.VT_PAGES):
     elif pid == "tc":
         extra = [lambda h: output_row("TC kapcsolat", P.obj_ptr(27129, STR_TC_OFF, "OP_TC_STATE"), "", h),
                  lambda h: output_row("Szakaszvezérlés", P.obj_ptr(27130, STR_MANUAL, "OP_TC_MODE"), "", h)]
+    elif pid == "aog":
+        extra = [lambda h: heading("ÁLLAPOT", h),
+                 lambda h: output_row("Kapcsolat", P.obj_ptr(27161, STR_TC_DIS, "OP_AOG_STATE"), "", h),
+                 lambda h: output_row("IP-cím", STR_AOG_IP, "", h),
+                 lambda h: output_row("GPS sebesség", num_out("OUT_AOG_SPEED", 1, 0.1), "km/h", h),
+                 lambda h: output_row("Szakasz 1 / 2", C(186, 28, [(P.obj_ptr(27162, STR_OFF, "OP_AOG_S1"), 0, 0),
+                                                                  (P.obj_ptr(27163, STR_OFF, "OP_AOG_S2"), 70, 0)]),
+                                      "", h)]
     elif pid == "diag":
         extra = [lambda h: heading("KIMENETEK / BEMENETEK", h),
                  lambda h: output_row("Kuplung 1 / 2", C(186, 28, [(P.obj_ptr(27131, STR_OFF, "OP_DIAG_CL1"), 0, 0),
@@ -782,12 +824,19 @@ cal_rows = [
                        "", h),
     lambda: custom_list("Fordulat", "VT_IN_CAL_TURNS", TURNS, h),
     lambda: custom_row("Próbaskála", "VT_IN_CAL_TSCALE", 0.1, 0, 200, 1, "", h),
-    lambda: output_row("Várható tömeg", num_out("OUT_CAL_EXPECT", 3, 0.001), "kg", h),
-    lambda: custom_row("Mért tömeg", "VT_IN_CAL_MEAS", 0.001, 0, 500, 3, "kg", h),
-    lambda: output_row("Új skála, ford.", C(186, 28, [(N("OUT_CAL_NEW", 64, F_VALUE_N, 1, 0.1), 0, 0),
-                                                      (N("OUT_CAL_REVS", 80, F_VALUE_N, 1, 0.1), 80, 0)]),
+    # megszámolt fordulat / cél (nyomva tartásos leforgatás: megszakítható, folytatható)
+    lambda: output_row("Megszámolt ford.", C(186, 28, [(N("OUT_CAL_REVS", 92, F_VALUE_N, 1, 0.1), 0, 0),
+                                                       (S("/", 16, 24, F_VALUE), 93, 0),
+                                                       (N("OUT_CAL_TARGET", 72, F_VALUE_N, 1, 0.1, align=0), 110, 0)]),
                        "", h),
-    lambda: output_row("Kg / fordulat", num_out("OUT_CAL_KGREV", 4, 0.0001), "kg", h),
+    lambda: custom_row("Mért (összes)", "VT_IN_CAL_MEAS", 0.001, 0, 500, 3, "kg", h),
+    lambda: output_row("Várható kg / db", C(186, 28, [(N("OUT_CAL_EXPECT", 110, F_VALUE_N, 3, 0.001), 0, 0),
+                                                      (N("OUT_CAL_NW", 40, F_VALUE_N), 120, 0),
+                                                      (S("db", 24, 14, F_SMALL), 162, 8)]),
+                       "", h),
+    lambda: output_row("Új skála, kg/ford", C(186, 28, [(N("OUT_CAL_NEW", 64, F_VALUE_N, 1, 0.1), 0, 0),
+                                                        (N("OUT_CAL_KGREV", 112, F_VALUE_N, 4, 0.0001), 70, 0)]),
+                       "", h),
     lambda: output_row("", P.obj_ptr(27142, STR_NOTE[6], "OP_CAL_NOTE"), "", h, x=6),
 ]
 for fn in cal_rows:
@@ -795,6 +844,41 @@ for fn in cal_rows:
     y += h
 assert y <= MASK + 2, y
 DM_CALIB = P.data_mask(1060, SK_CALIB_GROUND, cal, name="DM_CALIB")
+
+# ================================================================== DIAGNOSZTIKA
+dg = title_bar("DIAGNOSZTIKA")
+h = 29
+y = 42
+
+
+def pair(n1, n2, w=88, dec=1, scale=0.1):
+    return C(186, 28, [(N(n1, w, F_VALUE_N, dec, scale), 0, 0), (N(n2, w, F_VALUE_N, dec, scale), 96, 0)])
+
+
+def pair_ptr(a_id, a_name, b_id, b_name, target=None):
+    t = target if target is not None else STR_OFF
+    return C(186, 28, [(P.obj_ptr(a_id, t, a_name), 0, 0), (P.obj_ptr(b_id, t, b_name), 96, 0)])
+
+
+dg_rows = [
+    lambda: heading("KAPCSOLATOK", h),
+    lambda: output_row("Terminál / TC", pair_ptr(27170, "OP_DG_VT", 27171, "OP_DG_TC", STR_NONE), "", h),
+    lambda: output_row("AgOpenGPS", P.obj_ptr(27172, STR_TC_DIS, "OP_DG_AOG"), "", h),
+    lambda: output_row("Sebesség forrás", P.obj_ptr(27173, STR_SRC[0], "OP_DG_SRC"), "", h),
+    lambda: output_row("Kerék / GPS km/h", pair("OUT_DG_WKMH", "OUT_DG_GKMH"), "", h),
+    lambda: output_row("Csúszás", num_out("OUT_DG_SLIP", 1, 0.1), "%", h),
+    lambda: heading("BEMENETEK / KIMENETEK", h),
+    lambda: output_row("Munka / gomb", pair_ptr(27174, "OP_DG_WORK", 27175, "OP_DG_BTN", STR_UP), "", h),
+    lambda: output_row("Adag.1/2 [1/min]", pair("OUT_DG_RPM1", "OUT_DG_RPM2"), "", h),
+    lambda: output_row("Kerék/turb. [Hz]", pair("OUT_DG_WHZ", "OUT_DG_FHZ"), "", h),
+    lambda: output_row("Kuplung 1 / 2", pair_ptr(27176, "OP_DG_CL1", 27177, "OP_DG_CL2"), "", h),
+    lambda: output_row("Hûtõ / irányv.", pair_ptr(27178, "OP_DG_COOL", 27179, "OP_DG_REV"), "", h),
+]
+for fn in dg_rows:
+    dg += [(cid, x, y + yy) for cid, x, yy in fn()]
+    y += h
+assert y <= MASK + 2, y
+DM_DIAGNOSE = P.data_mask(1070, SK_BACK, dg, name="DM_DIAGNOSE")
 
 # ================================================================== RIASZTÁS
 alarm_kids = [(PIC("main/main_alarm", 120, bg=WHITE), (MASK - 120) // 2, 40),
@@ -821,6 +905,7 @@ ARRAYS = {
     "PIC_K_MASTER": PIC_K_MASTER, "PIC_K_METER1": PIC_K_METER1, "PIC_K_METER2": PIC_K_METER2, "PIC_K_SEC": PIC_K_SEC,
     "PIC_K_PREFILL": PIC_K_PREFILL, "PIC_K_MODE": PIC_K_MODE, "PIC_K_LAMP1": PIC_K_LAMP1, "PIC_K_LAMP2": PIC_K_LAMP2,
     "PIC_K_VALVE": PIC_K_VALVE, "PIC_K_COOLER": PIC_K_COOLER, "PIC_K_CAL_METER": PIC_K_CAL_METER,
+    "PIC_K_COOLER_REV": PIC_K_COOLER_REV, "STR_REV": STR_REV, "STR_SRC": STR_SRC,
     "SK_FUNC": SK_FUNC, "STR_ALARM": STR_ALARM, "STR_ALARMBIG": STR_ALARM_BIG, "STR_CAL": CAL_STATE,
     "STR_METER": STR_METER, "STR_SETUP": STR_SETUP, "STR_NOTE": STR_NOTE, "K_BLANK": K_BLANK,
 }
@@ -850,6 +935,7 @@ def header_text(pool_bytes: bytes) -> str:
     lines.append("};")
     lines.append(f"constexpr std::uint16_t BTN_PAGE_CALIB = {BTN['calib']};")
     lines.append(f"constexpr std::uint16_t BTN_PAGE_INFO = {BTN['info']};")
+    lines.append(f"constexpr std::uint16_t BTN_PAGE_DIAGNOSE = {BTN['diagnose']};")
     lines.append("")
     lines.append("// Egyedi (nem paraméter) beviteli mezők: id, lépés, min, max")
     lines.append("struct CustomInput { std::uint16_t id; float step, min, max; };")

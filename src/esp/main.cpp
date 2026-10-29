@@ -3,6 +3,7 @@
 // Accord-típusú (térfogatos adagolós) vetőgép: 1–2 adagoló talajhajtással + elektromágneses
 // kuplunggal vagy elektromos motorral, turbinafigyelés, tartályszint, munkakapcsoló, TC-SEC/GEO,
 // kiegészítők (lámpák, terelőszelep, lenyomatási nyomás, olajhűtés, mérleg).
+#include "aog_net.hpp"
 #include "board.hpp"
 #include "io.hpp"
 #include "storage.hpp"
@@ -73,6 +74,8 @@ extern "C" void app_main() {
     // --- Wi-Fi + web (a hálózati hiba nem állítja meg a vezérlést)
     const bool wifi_ok = web::start(&shared, nullptr, settings.wifi_pass);
     if (!wifi_ok) web::log("ERROR", "Wi-Fi / web indítás sikertelen");
+    // --- Ethernet + AgOpenGPS (csak Ethernetes panelen)
+    if (board::HAS_ETH && !aognet::start(&shared, settings)) web::log("WARN", "Ethernet nem indult");
 
     // --- CAN (250 kbit/s ISOBUS)
     twai_general_config_t general = TWAI_GENERAL_CONFIG_DEFAULT(
@@ -105,9 +108,11 @@ extern "C" void app_main() {
     float settings_save_timer = 0.0f;
     unsigned tick = 0;
     seeder::Settings cur = settings;
+    seeder::aog::PaintState paint;
     for (;;) {
         vTaskDelayUntil(&wake, pdMS_TO_TICKS(static_cast<int>(CYCLE_S * 1000.0f)));
-        const app::HwInputs hw = io::read(cur);
+        app::HwInputs hw = io::read(cur);
+        if (board::HAS_ETH) aognet::exchange(cur, paint, hw);
         isobus_app->update(CYCLE_S, hw);
 
         // kimenetek + mentések (beállítás: 2 s késleltetéssel, hogy a gyors egymás utáni módosítás egyszer íródjon)
@@ -118,6 +123,13 @@ extern "C" void app_main() {
             std::lock_guard<std::mutex> g(shared.lock);
             out = shared.core.outputs();
             cur = shared.core.settings();
+            // AgOpenGPS festés: főkapcsoló = gép lent és vet; automata (zöld) vagy kézi (sárga) szakaszok
+            const seeder::Status &st = shared.core.status();
+            paint.enabled = cur.aog_enable && cur.aog_paint;
+            paint.work = st.master && st.work_down;
+            paint.mode = (cur.sec_src == 2 && st.sec_auto_req) ? 0 : cur.aog_paint_mode;
+            paint.sections = st.section_count;
+            paint.on_mask = static_cast<std::uint16_t>((st.section_on[0] ? 1u : 0u) | (st.section_on[1] ? 2u : 0u));
             if (shared.core.settings_dirty) {
                 settings_save_timer += CYCLE_S;
                 if (settings_save_timer >= 2.0f) {
@@ -168,6 +180,7 @@ extern "C" void app_main() {
             hwd.free_heap = heap_caps_get_free_size(MALLOC_CAP_8BIT);
             hwd.min_free_heap = heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
             hwd.io_json = io::diag_json();
+            if (board::HAS_ETH) hwd.aog_json = aognet::diag_json();
             web::update_hw(hwd);
         }
     }

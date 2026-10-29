@@ -106,7 +106,8 @@ std::string hw_json() {
                   static_cast<unsigned long>(h.free_heap), static_cast<unsigned long>(h.min_free_heap),
                   static_cast<unsigned long>(h.saves_settings), static_cast<unsigned long>(h.saves_persistent),
                   board::NAME);
-    return std::string(buf) + (h.io_json.empty() ? std::string("{}") : h.io_json) + "}";
+    return std::string(buf) + (h.io_json.empty() ? std::string("{}") : h.io_json) +
+           ",\"aog\":" + (h.aog_json.empty() ? std::string("{}") : h.aog_json) + "}";
 }
 
 /// Közös API-kezelő: a logika a platformfüggetlen app::handle_api()-ban van.

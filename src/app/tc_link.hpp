@@ -49,6 +49,8 @@ public:
     /// Ciklikus hívás a vezérlő szálból (zár nélkül; a pillanatképből dolgozik).
     void update(const Snapshot &snap);
     bool connected() const;
+    /// a TC kapcsolat újrakezdése (DDOP újra)
+    void restart();
     unsigned uploads() const { return uploads_; }
 
 private:

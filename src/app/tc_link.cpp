@@ -235,6 +235,10 @@ TcLink::~TcLink() {
     if (client_) client_->terminate();
 }
 
+void TcLink::restart() {
+    if (client_ && started_) client_->restart();
+}
+
 bool TcLink::connected() const { return client_ && client_->get_is_connected(); }
 
 void TcLink::update(const Snapshot &snap) {
