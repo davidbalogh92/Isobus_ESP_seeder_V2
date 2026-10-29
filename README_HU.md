@@ -15,18 +15,22 @@ ikonok az ESC vetőgép-monitorból jönnek.
 | Adagolás | előírt mennyiség adagolónként (kg/ha), ±% léptetés; elektromos hajtásnál a kg/ha a leforgatásból kapott kg/fordulattal motorfordulatra számolva; a leforgatott adagoló adatai (kg/fordulat + előírt érték) **egy gombbal átmásolhatók a másik adagolóra** (bármelyik irányban) |
 | Kézi adagolás | elektromos hajtásnál AUTOMATA ↔ KÉZI: kézi módban a +/− a motorfordulatot lépteti, a sebességtől függetlenül (a vetés feltételei továbbra is kellenek) |
 | Csőfeltöltés | elektromos hajtásnál induláskor (gép leengedése / vetés BE álló gépnél) a motor a beállított „feltöltési sebességgel” előre adagol, majd „START – indulhatsz” várakozás – sarkoknál nem marad ki a vetés |
-| Szakaszvezérlés | a kezelő 2 független adagoló gombja + TC-SEC. 1 szakasznál (pl. 6 m, 2 adagoló) a TC mindkét adagolót együtt kapcsolja, a kezelő gombjai továbbra is külön működnek |
-| Sebesség | kerékjeladó (imp/100 m, **100 m-es kalibrálás** vagy kézi megadás), ISOBUS (föld/radar/GPS, traktor kerék, gép által választott, NMEA), ISOBUS + kerék tartalék, szimulált sebesség |
-| Munkakapcsoló | nincs / NO / NC érintkező; ha van, a „lent” a vetés feltétele; opció: a TC automatikus szakaszvezérlésnél is számítson-e |
+| Szakaszvezérlés | a kezelő 2 független adagoló gombja + automata szakaszolás. **Forrás választható: Nincs / ISOBUS Task Controller (TC-SEC) / AgOpenGPS.** 1 szakasznál (pl. 6 m, 2 adagoló) az automata mindkét adagolót együtt kapcsolja, a kezelő gombjai továbbra is külön működnek. A tehetetlenség BE/KI csak az ISOBUS TC-nek szól (AgOpenGPS-nél az előretekintést ott kell beállítani) |
+| AgOpenGPS | Ethernetes panelen (Waveshare) gépmodulként jelenik meg az AgIO-ban (5.7.2, 6.3.3, 6.7): **sebesség** (PGN 254), **szakaszok** (PGN 239), **festés / munkakapcsoló** (PGN 234: gép lent = főkapcsoló BE; zöld = automata, sárga = kézi). Leengedéskor 3 BE csomag, utána csend (az AgOpenGPS-ben kézzel leállítható), kiemelve KI 500 ms-onként. Fix IP (alap 192.168.5.130, az AgIO alhálózat-állítása átírja) vagy DHCP. Az autokormány-modulhoz (PGN 253) nem nyúl |
+| Sebesség | kerékjeladó (imp/100 m, **100 m-es kalibrálás** vagy kézi megadás), ISOBUS (föld/radar/GPS, traktor kerék, gép által választott, NMEA), ISOBUS + kerék tartalék, **AgOpenGPS, AgOpenGPS + kerék tartalék**, szimulált sebesség; **kerék – GPS eltérés (csúszás)** kijelzés és riasztás késleltetéssel, hiszterézissel |
+| Munkakapcsoló | nincs / NO / NC érintkező; ha van, a „lent” a vetés feltétele; opció: a TC automatikus szakaszvezérlésnél is számítson-e. **Talajhajtásnál nincs vetés BE/KI gomb: a munkakapcsoló és a haladás indítja a vetést** |
+| Kuplung | talajhajtásnál alapból **nem old kiemeléskor / megálláskor** (kiemelt gépnél úgysem forog), csak a szakaszolás és az adagológombok kapcsolják; a régi működés („old”) beállítható |
 | Turbina | imp/fordulat, min. és max. fordulat riasztás késleltetéssel; csak munka közben riaszt (munkakapcsolóval: lent + halad; nélküle: halad + vetés BE) |
 | Adagolófigyelés | talajhajtásnál: ha a hajtott adagolóról a beállított időn belül nem jön impulzus → riasztás; motornál: enkóder hiány és „mennyiség nem tartható” riasztás |
 | Tartályok | 2 normál kapcsoló, NO/NC menüből vagy webről, szűrési idővel |
-| Leforgatás | Accord beállítási táblázat (14 növény, normál és aprómag N/M hajtás), 85 / 42,5 / 17 fordulat, várható tömeg, mért tömegből új skála és kg/fordulat mentése; motoros hajtásnál pontosan N fordulatot tesz meg a motor |
+| Leforgatás | Accord beállítási táblázat (14 növény, normál és aprómag N/M hajtás), 85 / 42,5 / 17 fordulat, várható tömeg, új skála és kg/fordulat mentése. **Motoros hajtásnál nyomva tartásos** (VT gomb, telefon, gépre szerelt gomb az IN8-on): amíg nyomod, forog; elengedve megáll, a számláló megmarad – **megszakítható, folytatható**; a célfordulatnál magától megáll (kikapcsolható). **Részmérések** (vödrönként, max. 10, törölhetők) összeadódnak, a kg/fordulat a **ténylegesen megszámolt fordulatból** számolódik. 1 imp/ford jeladónál az első jel a nullpont, 42,5-nél a fél fordulatot a kezelő teszi rá. Visszajelzés: munkalámpa villan fordulatonként, célnál villog; a panel hangjelzője; a telefonon nagy számláló, célnál piros + hang |
 | Mérleg | HX711 + 50 kg-os cella („vödör”): méréshatár, tárázás, kalibrálás ismert súllyal; a leforgatásnál a tömeg egy gombbal átvehető (alapból kikapcsolva) |
 | Nyomás | ADS1115 + lenyomatási nyomásszenzor: méréshatár (pl. 250 bar), jel 0–5 / 0,5–4,5 / 0,5–5 / 0–4,5 V, **egypontos kalibrálás** ismert nyomáson; bekapcsolva piktogram + bar a főképernyőn (alapból ki) |
 | Lámpák | 2 munkalámpa külön kapcsolva (alapból ki) |
 | Funkcióváltó | hidraulika terelőszelep: szétnyitás ↔ nyomjelző (alapból ki) |
-| Olajhűtés | 2 db DS18B20 (olajtartály, hűtő kimenet), ventilátor BE a felső, KI az alsó hőfoknál; automata és kézi mód, túlmelegedés riasztás |
+| Olajhűtés | 2 db DS18B20 (olajtartály, hűtő kimenet), ventilátor BE a felső, KI az alsó hőfoknál; automata és kézi mód, túlmelegedés riasztás; **visszafúvás** (relé 7: motor polaritásváltó vagy hidraulika irányváltó): kézi gomb vagy időzített (perc), biztonságos sorrend: leállás → irányváltás → visszafúj → leállás → vissza |
+| ISOBUS indulás | késleltetett bejelentkezés (lassabban induló terminál, pl. Müller), automatikus ismételt bejelentkezés, ha nincs terminál, VT kapcsolat újrakezdése; webes **„ISOBUS újracsatlakozás”** gomb |
+| Diagnosztika | VT-n és weben: kapcsolatok (VT, TC, AgOpenGPS, Ethernet), sebességforrás, kerék / GPS, csúszás, bemenetek, kimenetek, csomagszámlálók |
 | Task Controller | DDOP a beállításokból: csatlakozó (függesztett, kormányzott vonórúd csuklóponttal, vonórúd, horog, gömbfej), A/B/C/D geometria, szakaszok, adagolónként termék (bin) kg/ha előírttal; változáskor automatikus újratöltés |
 | Kezelés | VT (softkey + gombos menü + beviteli mezők, ESC stílusú ikonok, szürke háttér) és Wi-Fi web (telefon / tablet), OTA frissítés |
 
@@ -35,21 +39,24 @@ ikonok az ESC vetőgép-monitorból jönnek.
 A képek a generált object poolból készülnek (`docs/vt_preview/`), a Müller BASIC elrendezésében
 (400×400 maszk, 120×80 softkey: az első 5 gomb a jobb oszlop, a többi a bal).
 
-| Főképernyő | Funkciók | Csőfeltöltés (1 adagoló) |
+| Főképernyő (motoros hajtás) | Főképernyő (talajhajtás) | Funkciók |
 |---|---|---|
-| ![](docs/vt_preview/01_fokepernyo.png) | ![](docs/vt_preview/02_funkciok.png) | ![](docs/vt_preview/03_feltoltes_1adagolo.png) |
+| ![](docs/vt_preview/01_fokepernyo.png) | ![](docs/vt_preview/01b_fokepernyo_talajhajtas.png) | ![](docs/vt_preview/02_funkciok.png) |
 
-| Beállítás menü | Leforgatás | Geometria |
+| Beállítás menü | Leforgatás | Diagnosztika |
 |---|---|---|
-| ![](docs/vt_preview/05_menu.png) | ![](docs/vt_preview/06_leforgatas.png) | ![](docs/vt_preview/21_beallitas_geometry.png) |
+| ![](docs/vt_preview/05_menu.png) | ![](docs/vt_preview/06_leforgatas.png) | ![](docs/vt_preview/07_diagnosztika.png) |
 
-**Főképernyő softkey-ek** – jobb oszlop: Vetés BE/KI · 2. adagoló · TC szakaszvezérlés ·
-AUTOMATA/KÉZI (motoros hajtás; talajhajtásnál itt a Funkciók) · Beállítások; bal oszlop: 1. adagoló ·
-Funkciók · Leforgatás · Csőfeltöltés (csak motoros hajtásnál). A Számlálók a Beállítások menüben vannak.
-Az automata szakaszvezérlést a Task Controller (navigáció) kapcsolja: a gép kezelői gomb nélkül átveszi
-és kijelzi; a saját gombbal a kezelő kézire válthat, ezt a TC is megkapja.
-**Funkciók:** vissza · előírt +/−/100% · nyugtázás · lámpa 1/2 · szétnyitás/nyomjelző · hűtő
-(automata → kézi BE → kézi KI). A gombok csak a bekapcsolt kiegészítőknél jelennek meg.
+**Főképernyő softkey-ek, motoros hajtás** – jobb oszlop: Vetés BE/KI · 2. adagoló · + · − · Beállítások;
+bal oszlop: 1. adagoló · 100% · AUTOMATA/KÉZI · Funkciók · Csőfeltöltés.
+**Talajhajtás** – nincs vetés gomb (a munkakapcsoló indít), nincs +/− és 100% (a dózist a váltó adja):
+jobb oszlop: 2. adagoló (kuplung) · automata szakaszolás · leforgatás · Beállítások; bal: 1. adagoló · Funkciók.
+A főlapon talajhajtásnál a **beállított kg/ha** látszik, „cél” sor nélkül.
+Az automata szakaszolást a navigáció (TC vagy AgOpenGPS) kapcsolja: a gép kezelői gomb nélkül átveszi
+és kijelzi; a saját gombbal a kezelő kézire válthat.
+**Funkciók:** vissza · automata szakaszolás · leforgatás · nyugtázás · visszafúvás · lámpa 1/2 ·
+szétnyitás/nyomjelző · hűtő (automata → kézi BE → kézi KI). A gombok csak a bekapcsolt kiegészítőknél
+jelennek meg. **Menü:** Leforgatás · Számlálók · Diagnosztika elöl, utána a beállítóoldalak.
 
 **Adagoló ikon:** kész · hajt · lekapcsolva (szakasz/gomb) · hiba · áll. Az állapotsor: VETÉS KI /
 GÉP KIEMELVE / ÁLL / VETÉS / CSŐFELTÖLTÉS / START, figyelmeztetésnél a hiba szövege; a parancsok
@@ -89,15 +96,31 @@ kipróbálható.
 
 ### Waveshare ESP32-S3-ETH-8DI-8RO-C (16 MB) – minden funkcióval
 
-| Jel | Láb |
-|---|---|
-| CAN | GPIO17 / GPIO18 |
-| IN1 kerék · IN2 turbina · IN3/IN4 adagoló jeladó vagy enkóder · IN5 munkahelyzet · IN6/IN7 tartályok | GPIO4–10 (IN8 = GPIO11 tartalék) |
-| Relé 1/2 kuplungok · 3 terelőszelep · 4/5 lámpák · 6 hűtőventilátor (7–8 tartalék) | TCA9554 (I2C 0x20, SDA 42 / SCL 41) |
-| Motor PWM 1 / 2 | GPIO47 / GPIO48 (Cytron MD13S / IBT-2, egy irány) |
-| HX711 | GPIO1 adat / GPIO2 órajel |
-| DS18B20 × 2 | GPIO3 (1-Wire, 4,7 kΩ felhúzó 3,3 V-ra) |
-| ADS1115 (külső, 5 V, I2C szintillesztővel) | A0 nyomás, A1–A2 motoráram (ACS712), A3 tartalék |
+| Láb / csatlakozó | Funkció | Megjegyzés |
+|---|---|---|
+| CAN TX / RX – GPIO17 / GPIO18 | ISOBUS 250 kbit/s | -C változat beépített adó-vevője |
+| IN1 – GPIO4 | Kerékjeladó | optós bemenet |
+| IN2 – GPIO5 | Turbina fordulat | |
+| IN3 – GPIO6 | 1. adagoló: tengelyjeladó vagy motorenkóder | |
+| IN4 – GPIO7 | 2. adagoló: tengelyjeladó vagy motorenkóder | |
+| IN5 – GPIO8 | Munkakapcsoló (gép lent) | NO / NC beállítás |
+| IN6 – GPIO9 | 1. tartály leürülésgátló | NO / NC |
+| IN7 – GPIO10 | 2. tartály leürülésgátló | NO / NC |
+| IN8 – GPIO11 | **Leforgató nyomógomb a gépen** | NO gomb, Beállítások → Kapcsolók |
+| Relé 1 / 2 | 1. / 2. adagoló kuplung | TCA9554 P0 / P1 (I2C 0x20, SDA 42 / SCL 41) |
+| Relé 3 | Nyitás / nyomjelző terelőszelep | P2 |
+| Relé 4 / 5 | 1. / 2. munkalámpa | P3 / P4 |
+| Relé 6 | Hűtőventilátor | P5 |
+| Relé 7 | **Hűtőventilátor irányváltó (visszafúvás)** | P6 – motor polaritásváltó vagy hidraulika irányváltó |
+| Relé 8 | Tartalék | P7 |
+| GPIO47 / GPIO48 | 1. / 2. adagolómotor PWM | Cytron MD13S / IBT-2, egy irány |
+| GPIO1 / GPIO2 | HX711 adat / órajel (leforgatási mérleg) | |
+| GPIO3 | DS18B20 × 2 (1-Wire) | 4,7 kΩ felhúzó a 3,3 V-ra |
+| ADS1115 (külső, 5 V, szintillesztővel) | A0 nyomás · A1–A2 motoráram · A3 tartalék | |
+| GPIO12–16 (belső) | W5500 Ethernet | AgOpenGPS / AgIO hálózat, web kábelen is |
+| GPIO46 (belső) | Hangjelző | leforgatás: fordulatonként rövid, célnál hosszú |
+
+Ugyanez a táblázat a webes felületen is látszik (Rendszer → Lábkiosztás), mindig a futó panelé.
 
 A két DS18B20 sorrendje a ROM-azonosítójuk szerint alakul; ha fordítva látszik, Beállítások →
 Olajhőmérséklet → „hőmérők felcserélése”.
@@ -122,10 +145,13 @@ az OTA oldal elutasítja. Hibás új firmware esetén a bootloader visszaáll az
 
 ## Webes felület
 
-Szürke téma, öt fül: **Munka** (vetés, adagolók, sebesség, turbina, kiegészítők) ·
+Szürke téma, hat fül: **Munka** (vetés, adagolók, sebesség, turbina, kiegészítők, visszafúvás) ·
 **Beállítások** (a paraméterek csoportokban, a kikapcsolt kiegészítők és a nem releváns mezők
-rejtve) · **Kalibrálás** (leforgatás, beállítási táblázat, mérleg, kerékjeladó, nyomás) ·
-**Számlálók** · **Rendszer** (ISOBUS, I/O és hardver diagnosztika, export/import, OTA, napló).
+rejtve; az ISOBUS-ra, ill. az AgOpenGPS-re vonatkozók címkével jelölve) · **Kalibrálás** (leforgatás
+nagy számlálóval, nyomva tartásos gombbal és részmérésekkel; beállítási táblázat, mérleg, kerékjeladó,
+nyomás) · **Számlálók** · **Diagnosztika** (ISOBUS + újracsatlakozás, AgOpenGPS / Ethernet, sebesség és
+csúszás, bemenetek / kimenetek) · **Rendszer** (hardver, lábkiosztás, export/import, OTA, napló).
+Ethernetes panelen a web a kábelen is elérhető (pl. http://192.168.5.130).
 
 ## Fejlesztés
 
