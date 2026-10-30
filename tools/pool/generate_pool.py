@@ -901,7 +901,7 @@ DM_DIAGNOSE = P.data_mask(1070, SK_BACK, dg, name="DM_DIAGNOSE")
 TUNE_TEXTS = ["Nincs mérés", "Indulás keres.", "Megállás keres.", "Ford. mérése", "Kész - mentés?",
               "Sikertelen"]
 STR_TUNE = [S(t, 186, 22, F_LABEL, name=f"STR_TUNE_{i}") for i, t in enumerate(TUNE_TEXTS)]
-STR_TUNE_MSG = S(" " * 32, 388, 20, F_SMALL, name="STR_TUNE_MSG")
+STR_TUNE_MSG = S(" " * 48, 388, 20, F_SMALL, name="STR_TUNE_MSG")
 tn = title_bar("MOTOR ÖNHANGOLÁS")
 h = 30
 y = 42

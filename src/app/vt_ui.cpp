@@ -765,7 +765,7 @@ void VtUi::update_tune(const Snapshot &s) {
     const char *msg = st.tune_message && *st.tune_message
                           ? st.tune_message
                           : (elec ? "Álló gép, vetés KI - tégy alá edényt" : "Csak elektromos hajtással");
-    text(vt::STR_TUNE_MSG, vt_latin1(msg, 32));
+    text(vt::STR_TUNE_MSG, vt_latin1(msg, 48));
     num(vt::OUT_TUNE_PROG, st.tune_progress);
     num(vt::OUT_TUNE_PWM, std::lround(s.out.motor_pwm_pct[meter == 1 ? 1 : 0] * 10.0f));
     num(vt::OUT_TUNE_RPM, std::lround(st.meter[meter == 1 ? 1 : 0].rpm * 10.0f));

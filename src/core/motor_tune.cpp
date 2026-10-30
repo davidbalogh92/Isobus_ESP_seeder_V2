@@ -113,7 +113,7 @@ float MotorTuner::step(float dt, float rpm, float since_pulse_s, std::uint32_t p
             first_run_pwm_ = -1.0f;
             pwm_ += START_RAMP_PCT_S * dt;
             if (pwm_ > START_MAX_PCT || pwm_ > cap_) {
-                fail("A motor nem indul el (enkóder, bekötés, PWM maximum?)");
+                fail("A motor nem indul (enkóder, bekötés, PWM max?)");
                 return 0.0f;
             }
         }
@@ -208,7 +208,7 @@ void MotorTuner::finish() {
     const double a = den != 0.0 ? (n * sxy - sx * sy) / den : 0.0;
     const double b = (sy - a * sx) / n;
     if (a <= 0.0) {
-        fail("A fordulat nem nő a PWM-mel (enkóder / hajtás hiba?)");
+        fail("A fordulat nem nő a PWM-mel (enkóder hiba?)");
         return;
     }
     res_.max_rpm = res_.pwm[n - 1] >= 99.9f ? res_.rpm[n - 1] : static_cast<float>(a * 100.0 + b);
