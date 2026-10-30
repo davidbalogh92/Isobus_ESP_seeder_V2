@@ -124,6 +124,23 @@ ApiResult handle_api(Shared &shared, SeederApp *isobus, const std::string &metho
         if (!done) return error("Érvénytelen érték");
         return ok("{\"ok\":true,\"config\":" + cfg + "}");
     }
+    if (method == "GET" && path == "/api/vt") {
+        if (!isobus) return error("A virtuális terminál nem fut");
+        return ok(isobus->virtual_vt_json());
+    }
+    if (method == "POST" && path == "/api/vt/event") {
+        if (!isobus) return error("A virtuális terminál nem fut");
+        std::string kind;
+        double id = 0, act = 0, value = 0;
+        if (!seeder::json_get_string(body.c_str(), "kind", kind) || !seeder::json_get_number(body.c_str(), "id", id))
+            return error("Hiányzó 'kind' / 'id'");
+        seeder::json_get_number(body.c_str(), "act", act);
+        seeder::json_get_number(body.c_str(), "value", value);
+        if (!isobus->virtual_vt_event(kind, static_cast<std::uint16_t>(id), static_cast<std::uint8_t>(act),
+                                      value < 0 ? 0u : static_cast<std::uint32_t>(value)))
+            return error("Ismeretlen esemény: " + kind);
+        return ok("{\"ok\":true}");
+    }
     if (method == "POST" && path == "/api/cmd") {
         std::string cmd, err;
         if (!seeder::json_get_string(body.c_str(), "cmd", cmd)) return error("Hiányzó 'cmd'");

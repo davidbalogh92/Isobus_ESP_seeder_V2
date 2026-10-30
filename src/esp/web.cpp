@@ -31,6 +31,8 @@
 #endif
 
 extern const char index_html_start[] asm("_binary_index_html_start");
+extern const char pool_bin_start[] asm("_binary_object_pool_iop_start");
+extern const char pool_bin_end[] asm("_binary_object_pool_iop_end");
 extern const char index_html_end[] asm("_binary_index_html_end");
 
 namespace web {
@@ -87,6 +89,13 @@ esp_err_t page_index(httpd_req_t *req) {
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     const std::size_t len = static_cast<std::size_t>(index_html_end - index_html_start);
     return httpd_resp_send(req, index_html_start, len > 0 ? len - 1 : 0); // a TEXT beágyazás \0-t fűz a végére
+}
+
+/// A VT object pool (a Windows-program ugyanezt rajzolja ki, mint a terminál)
+esp_err_t api_pool(httpd_req_t *req) {
+    httpd_resp_set_type(req, "application/octet-stream");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, pool_bin_start, static_cast<ssize_t>(pool_bin_end - pool_bin_start));
 }
 
 std::string hw_json() {
@@ -296,7 +305,7 @@ bool start(app::Shared *sh, app::SeederApp *ia, const char *wifi_password) {
 
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.stack_size = 10240;
-    cfg.max_uri_handlers = 16;
+    cfg.max_uri_handlers = 24;
     cfg.recv_wait_timeout = 20;
     cfg.send_wait_timeout = 15;
     cfg.lru_purge_enable = true;
@@ -315,6 +324,9 @@ bool start(app::Shared *sh, app::SeederApp *ia, const char *wifi_password) {
         {"/api/config", HTTP_POST, api_generic},
         {"/api/param", HTTP_POST, api_generic},
         {"/api/cmd", HTTP_POST, api_generic},
+        {"/api/vt", HTTP_GET, api_generic},
+        {"/api/vt/event", HTTP_POST, api_generic},
+        {"/api/pool", HTTP_GET, api_pool},
         {"/api/logs", HTTP_GET, api_logs},
         {"/api/log.txt", HTTP_GET, api_logs},
         {"/api/ota", HTTP_POST, api_ota},

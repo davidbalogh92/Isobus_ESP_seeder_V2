@@ -5,6 +5,7 @@
 
 #include "pool_scaler.hpp"
 #include "tc_link.hpp"
+#include "vt_sink.hpp"
 #include "vt_ui.hpp"
 
 #include "seeder/vt_ids.hpp"
@@ -60,7 +61,22 @@ bool pool_chunk(std::uint32_t, std::uint32_t offset, std::uint32_t n, std::uint8
 }
 } // namespace
 
-SeederApp::SeederApp(Shared &shared) : shared_(shared) {}
+SeederApp::SeederApp(Shared &shared) : shared_(shared) {
+    auto screen = std::make_unique<VirtualScreen>(vt::DM_MAIN);
+    vscreen_ = screen.get();
+    vui_ = std::make_unique<VtUi>(shared_, std::move(screen));
+}
+
+std::string SeederApp::virtual_vt_json() const { return vscreen_ ? vscreen_->json(vt::POOL_VERSION) : "{}"; }
+
+bool SeederApp::virtual_vt_event(const std::string &kind, std::uint16_t id, std::uint8_t act, std::uint32_t value) {
+    if (!vui_) return false;
+    if (kind == "key") vui_->on_softkey(id, act);
+    else if (kind == "button") vui_->on_button(id, act);
+    else if (kind == "num") vui_->on_numeric(id, value);
+    else return false;
+    return true;
+}
 SeederApp::~SeederApp() = default;
 
 bool SeederApp::start(std::uint8_t can_channel, const std::uint8_t *pool, std::uint32_t pool_size) {
@@ -122,7 +138,8 @@ bool SeederApp::do_start() {
     // saját méretezés feltöltés közben (lásd pool_chunk): a 400×400-ra tervezett pool a terminál
     // maszkjához, a softkey-képek a gomb valódi méretéhez igazodnak
     vt_->register_object_pool_data_chunk_callback(0, pool_size, &pool_chunk, vt::POOL_VERSION);
-    ui_ = std::make_unique<VtUi>(shared_, vt_);
+    ui_ = std::make_unique<VtUi>(shared_, make_real_vt_sink(vt_));
+    ui_->attach(*vt_);
     vt_->initialize(true);
 
     tc_ = std::make_unique<TcLink>(shared_, tc_partner_, ecu_);
@@ -188,6 +205,11 @@ void SeederApp::update(float dt_s, const HwInputs &hw) {
         snap.set = shared_.core.settings();
         snap.per = shared_.core.persistent();
         snap.out = shared_.core.outputs();
+    }
+    vui_timer_ += dt_s;
+    if (vui_ && vui_timer_ >= 0.2f) {
+        vui_timer_ = 0.0f;
+        vui_->update(snap);
     }
     if (start_pending_) {
         start_delay_ -= dt_s;

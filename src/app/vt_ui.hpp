@@ -1,10 +1,12 @@
 #pragma once
 // VT kezelőfelület: az object pool objektumainak frissítése és a kezelői események feldolgozása.
 #include "seeder_app.hpp"
+#include "vt_sink.hpp"
 
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 
@@ -16,9 +18,14 @@ std::string vt_latin1(const char *utf8, std::size_t max_chars);
 /// Geometria oldal vázlata (PIC_GEO index) a csatlakozás és a távolságok szerint.
 int geo_picture(int hitch, float b_m, float c_m);
 
+/// A valódi ISOBUS terminál mint kimenet.
+std::unique_ptr<VtSink> make_real_vt_sink(std::shared_ptr<isobus::VirtualTerminalClient> client);
+
+/// A kezelőfelület logikája (oldalak, softkey-ek, értékek). Ugyanez fut a terminálra és – külön
+/// példányban, saját oldalállapottal – a virtuális képernyőre (Windows-program).
 class VtUi {
 public:
-    VtUi(Shared &shared, std::shared_ptr<isobus::VirtualTerminalClient> client);
+    VtUi(Shared &shared, std::unique_ptr<VtSink> sink);
 
     /// Kijelzés frissítése a pillanatkép alapján (kb. 200 ms-onként hívandó).
     void update(const Snapshot &snap);
@@ -26,13 +33,20 @@ public:
     unsigned sent() const { return sent_; }
     unsigned failed() const { return failed_; }
     const char *page_name() const;
+    VtSink &sink() { return *sink_; }
+
+    // kezelői események (VT eseményszál vagy web); activation: 0 elengedve, 1 lenyomva, 2 nyomva tartva,
+    // 3 megszakítva (ISO 11783-6)
+    void on_softkey(std::uint16_t object, std::uint8_t activation);
+    void on_button(std::uint16_t object, std::uint8_t activation);
+    void on_numeric(std::uint16_t object, std::uint32_t value);
+
+    /// a VT esemény-diszpécsereire feliratkozik (valódi terminálnál)
+    void attach(isobus::VirtualTerminalClient &client);
 
 private:
     enum class Page : std::uint8_t { Main, Func, Info, Menu, Settings, Calib, Diagnose };
 
-    void on_softkey(std::uint16_t object, std::uint8_t activation);
-    void on_button(std::uint16_t object, std::uint8_t activation);
-    void on_numeric(std::uint16_t object, std::uint32_t value);
     void go(Page page, std::uint16_t mask = 0);
 
     // gyorsítótárazott küldés: csak változáskor, sikertelen küldésnél a következő ciklus újrapróbálja
@@ -54,7 +68,8 @@ private:
     void update_diagnose(const Snapshot &s);
 
     Shared &shared_;
-    std::shared_ptr<isobus::VirtualTerminalClient> vt_;
+    std::unique_ptr<VtSink> sink_;
+    std::recursive_mutex mx_;   ///< update() és az eseménykezelők között (cache_, időzítők)
     std::unordered_map<std::uint64_t, std::uint32_t> cache_;
     bool was_connected_ = false;
     int budget_ = 0;

@@ -71,6 +71,7 @@ struct HwInputs {
 
 class VtUi;
 class TcLink;
+class VirtualScreen;
 
 class SeederApp {
 public:
@@ -89,6 +90,11 @@ public:
     /// Kézi újracsatlakozás (web): címbejelentés + VT és TC kapcsolat újrakezdése. Szálbiztos.
     void request_reconnect() { reconnect_req_ = true; }
 
+    /// Virtuális terminál (Windows-program): a képernyő állapota JSON-ban (szálbiztos).
+    std::string virtual_vt_json() const;
+    /// Virtuális terminál esemény: kind "key" | "button" | "num"; act: 0 elengedve, 1 lenyomva, 2 tartva, 3 megszakítva.
+    bool virtual_vt_event(const std::string &kind, std::uint16_t id, std::uint8_t act, std::uint32_t value);
+
 private:
     seeder::IsobusSpeeds read_speeds();
     bool do_start();
@@ -101,6 +107,9 @@ private:
     std::shared_ptr<isobus::PartneredControlFunction> tc_partner_;
     std::shared_ptr<isobus::VirtualTerminalClient> vt_;
     std::unique_ptr<VtUi> ui_;
+    std::unique_ptr<VtUi> vui_;            ///< virtuális terminál (CAN nélkül is fut)
+    VirtualScreen *vscreen_ = nullptr;     ///< vui_ kimenete
+    float vui_timer_ = 0.0f;
     std::unique_ptr<TcLink> tc_;
     std::unique_ptr<isobus::SpeedMessagesInterface> speed_;
     std::unique_ptr<isobus::NMEA2000MessageInterface> nmea_;

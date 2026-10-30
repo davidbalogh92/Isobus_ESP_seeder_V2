@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Vetőgép-vezérlő Windows kezelőprogram (a VT / ISOBUS terminál teljes értékű helyettesítője).
+       A vezérlő webes API-ját használja (Ethernet vagy Wi-Fi), így a terminállal egyszerre is futhat. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>SeederVT</AssemblyName>
+    <RootNamespace>SeederVT</RootNamespace>
+    <Version>2.2.0</Version>
+    <Product>Vetőgép-vezérlő (Windows)</Product>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <NoWarn>$(NoWarn);CA1416;WFO1000</NoWarn>
+  </PropertyGroup>
+
+</Project>

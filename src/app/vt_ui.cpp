@@ -94,16 +94,47 @@ int geo_picture(int hitch, float b_m, float c_m) {
     return wheels_front ? 3 : 4;
 }
 
-VtUi::VtUi(Shared &shared, std::shared_ptr<isobus::VirtualTerminalClient> client)
-    : shared_(shared), vt_(std::move(client)) {
+namespace {
+class RealVtSink final : public VtSink {
+public:
+    explicit RealVtSink(std::shared_ptr<VT> vt) : vt_(std::move(vt)) {}
+    bool connected() const override { return vt_->get_is_connected(); }
+    bool numeric(std::uint16_t id, std::uint32_t v) override { return vt_->send_change_numeric_value(id, v); }
+    bool hide_show(std::uint16_t id, bool show) override {
+        return vt_->send_hide_show_object(id, show ? VT::HideShowObjectCommand::ShowObject
+                                                   : VT::HideShowObjectCommand::HideObject);
+    }
+    bool fill_colour(std::uint16_t id, std::uint8_t colour) override {
+        return vt_->send_change_fill_attributes(id, VT::FillType::FillWithSpecifiedColourInFillColourAttribute, colour,
+                                                0xFFFF);
+    }
+    bool string_value(std::uint16_t id, const std::string &s) override { return vt_->send_change_string_value(id, s); }
+    bool active_mask(std::uint16_t mask) override { return vt_->send_change_active_mask(vt::WORKING_SET, mask); }
+    bool softkey_mask(std::uint16_t dm, std::uint16_t sk) override {
+        return vt_->send_change_softkey_mask(VT::MaskType::DataMask, dm, sk);
+    }
+
+private:
+    std::shared_ptr<VT> vt_;
+};
+} // namespace
+
+std::unique_ptr<VtSink> make_real_vt_sink(std::shared_ptr<isobus::VirtualTerminalClient> client) {
+    return std::make_unique<RealVtSink>(std::move(client));
+}
+
+VtUi::VtUi(Shared &shared, std::unique_ptr<VtSink> sink) : shared_(shared), sink_(std::move(sink)) {
     page_mask_ = vt::DM_MAIN;
-    vt_->get_vt_soft_key_event_dispatcher().add_listener([this](const VT::VTKeyEvent &e) {
+}
+
+void VtUi::attach(isobus::VirtualTerminalClient &client) {
+    client.get_vt_soft_key_event_dispatcher().add_listener([this](const VT::VTKeyEvent &e) {
         on_softkey(e.objectID, static_cast<std::uint8_t>(e.keyEvent));
     });
-    vt_->get_vt_button_event_dispatcher().add_listener([this](const VT::VTKeyEvent &e) {
+    client.get_vt_button_event_dispatcher().add_listener([this](const VT::VTKeyEvent &e) {
         on_button(e.objectID, static_cast<std::uint8_t>(e.keyEvent));
     });
-    vt_->get_vt_change_numeric_value_event_dispatcher().add_listener(
+    client.get_vt_change_numeric_value_event_dispatcher().add_listener(
         [this](const VT::VTChangeNumericValueEvent &e) { on_numeric(e.objectID, e.value); });
 }
 
@@ -137,6 +168,7 @@ void VtUi::go(Page page, std::uint16_t mask) {
 
 // ----------------------------------------------------------------------------- események
 void VtUi::on_softkey(std::uint16_t id, std::uint8_t activation) {
+    std::lock_guard<std::recursive_mutex> ui(mx_);
     const auto act = static_cast<VT::KeyActivationCode>(activation);
     if (id == vt::K_CRANK_START) {
         // nyomva tartásos leforgatás: lenyomás / "még nyomva" frissít, elengedés (vagy megszakítás) leállít.
@@ -256,6 +288,7 @@ void VtUi::on_softkey(std::uint16_t id, std::uint8_t activation) {
 }
 
 void VtUi::on_button(std::uint16_t id, std::uint8_t activation) {
+    std::lock_guard<std::recursive_mutex> ui(mx_);
     if (static_cast<VT::KeyActivationCode>(activation) != VT::KeyActivationCode::ButtonUnlatchedOrReleased) return;
     if (id == vt::BTN_PAGE_INFO) {
         go(Page::Info);
@@ -276,11 +309,13 @@ void VtUi::on_button(std::uint16_t id, std::uint8_t activation) {
 }
 
 void VtUi::on_numeric(std::uint16_t id, std::uint32_t value) {
+    std::lock_guard<std::recursive_mutex> ui(mx_);
     std::lock_guard<std::mutex> g(shared_.lock);
     seeder::Seeder &c = shared_.core;
     // a VT már kijelzi az új értéket: a gyorsítótár is ezt tudja, így csak akkor küldünk vissza,
     // ha a vezérlő korrigálta (pl. tartományra vágás)
     remember(key(CMD_NUM, id), value);
+    sink_->input_echo(id, value);
     if (id >= vt::VT_INPUT_BASE && id < vt::VT_INPUT_BASE + seeder::PARAM_COUNT) {
         const auto pid = static_cast<std::uint16_t>(id - vt::VT_INPUT_BASE);
         c.set_param(pid, from_raw(PARAMS[pid], value));
@@ -311,7 +346,7 @@ void VtUi::num(std::uint16_t id, std::int64_t value) {
     const auto k = key(CMD_NUM, id);
     if (cached(k, v) || !budget_ok()) return;
     --budget_;
-    if (vt_->send_change_numeric_value(id, v)) {
+    if (sink_->numeric(id, v)) {
         remember(k, v);
         ++sent_;
     } else {
@@ -323,8 +358,7 @@ void VtUi::shown(std::uint16_t id, bool show) {
     const auto k = key(CMD_SHOW, id);
     if (cached(k, show) || !budget_ok()) return;
     --budget_;
-    if (vt_->send_hide_show_object(id, show ? VT::HideShowObjectCommand::ShowObject
-                                            : VT::HideShowObjectCommand::HideObject)) {
+    if (sink_->hide_show(id, show)) {
         remember(k, show);
         ++sent_;
     } else {
@@ -336,8 +370,7 @@ void VtUi::fill(std::uint16_t id, std::uint8_t colour) {
     const auto k = key(CMD_FILL, id);
     if (cached(k, colour) || !budget_ok()) return;
     --budget_;
-    if (vt_->send_change_fill_attributes(id, VT::FillType::FillWithSpecifiedColourInFillColourAttribute, colour,
-                                         0xFFFF)) {
+    if (sink_->fill_colour(id, colour)) {
         remember(k, colour);
         ++sent_;
     } else {
@@ -351,7 +384,7 @@ void VtUi::text(std::uint16_t id, const std::string &value) {
     const auto k = key(CMD_TEXT, id);
     if (cached(k, h) || !budget_ok()) return;
     --budget_;
-    if (vt_->send_change_string_value(id, value)) {
+    if (sink_->string_value(id, value)) {
         remember(k, h);
         ++sent_;
     } else {
@@ -363,7 +396,7 @@ void VtUi::active_mask(std::uint16_t mask) {
     const auto k = key(CMD_MASK, 0);
     if (cached(k, mask) || !budget_ok()) return;
     --budget_;
-    if (vt_->send_change_active_mask(vt::WORKING_SET, mask)) {
+    if (sink_->active_mask(mask)) {
         remember(k, mask);
         ++sent_;
     } else {
@@ -375,7 +408,7 @@ void VtUi::softkeys(std::uint16_t mask, std::uint16_t sk) {
     const auto k = key(CMD_SK, mask);
     if (cached(k, sk) || !budget_ok()) return;
     --budget_;
-    if (vt_->send_change_softkey_mask(VT::MaskType::DataMask, mask, sk)) {
+    if (sink_->softkey_mask(mask, sk)) {
         remember(k, sk);
         ++sent_;
     } else {
@@ -385,7 +418,8 @@ void VtUi::softkeys(std::uint16_t mask, std::uint16_t sk) {
 
 // ----------------------------------------------------------------------------- frissítés
 void VtUi::update(const Snapshot &s) {
-    const bool connected = vt_->get_is_connected();
+    std::lock_guard<std::recursive_mutex> ui(mx_);
+    const bool connected = sink_->connected();
     if (!connected) {
         was_connected_ = false;
         return;
@@ -397,7 +431,7 @@ void VtUi::update(const Snapshot &s) {
         remember(key(CMD_MASK, 0), vt::DM_MAIN);
         was_connected_ = true;
     }
-    budget_ = 30;
+    budget_ = sink_->budget();
 
     // parancs-visszajelzés (pl. elutasítás oka) néhány másodpercig
     if (s.st.message_seq != last_msg_seq_) {

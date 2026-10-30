@@ -33,18 +33,19 @@ int main(int argc, char **argv) {
         shared.core.load(s, p);
     }
     std::atomic<bool> run{true};
+    // ISOBUS (CAN) nélküli alkalmazásréteg: a virtuális terminál (Windows-program) így is működik
+    app::SeederApp seeder_app(shared);
     std::thread ticker([&] {
         while (run) {
+            app::HwInputs hw;
+            hw.pressure_v = 1.9f;          // szimulált analóg értékek
+            hw.temp_c[0] = 57.5f;
+            hw.temp_c[1] = 44.0f;
+            hw.scale_valid = true;
+            hw.scale_raw = 1000000.0f;
+            seeder_app.update(0.05f, hw);
             {
                 std::lock_guard<std::mutex> g(shared.lock);
-                seeder::TickInputs in;
-                in.dt_s = 0.05f;
-                in.pressure_v = 1.9f;          // szimulált analóg értékek
-                in.temp_c[0] = 57.5f;
-                in.temp_c[1] = 44.0f;
-                in.scale_valid = true;
-                in.scale_raw = 1000000.0f;
-                shared.core.tick(in);
                 shared.core.settings_dirty = shared.core.persistent_dirty = false;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -52,7 +53,7 @@ int main(int argc, char **argv) {
     });
     httplib::Server srv;
     auto api = [&](const httplib::Request &req, httplib::Response &res) {
-        const auto r = app::handle_api(shared, nullptr, req.method, req.path, req.body,
+        const auto r = app::handle_api(shared, &seeder_app, req.method, req.path, req.body,
                                        "{\"board\":\"PC demó (szimuláció)\",\"can_state\":\"-\"}", "demo", "PC-DEMO");
         res.status = r.status;
         res.set_content(r.body, r.content_type);
@@ -66,8 +67,14 @@ int main(int argc, char **argv) {
     srv.Get("/api/logs", [](const httplib::Request &, httplib::Response &res) {
         res.set_content("[{\"ms\":0,\"level\":\"INFO\",\"message\":\"PC demó\"}]", "application/json");
     });
-    for (const char *p : {"/api/state", "/api/schema", "/api/config", "/api/crops"}) srv.Get(p, api);
-    for (const char *p : {"/api/config", "/api/param", "/api/cmd"}) srv.Post(p, api);
+    srv.Get("/api/pool", [](const httplib::Request &, httplib::Response &res) {
+        std::ifstream f(std::string(POOL_FILE), std::ios::binary);
+        std::stringstream ss;
+        ss << f.rdbuf();
+        res.set_content(ss.str(), "application/octet-stream");
+    });
+    for (const char *p : {"/api/state", "/api/schema", "/api/config", "/api/crops", "/api/vt"}) srv.Get(p, api);
+    for (const char *p : {"/api/config", "/api/param", "/api/cmd", "/api/vt/event"}) srv.Post(p, api);
     std::printf("Webes demó: http://localhost:%d\n", port);
     srv.listen("0.0.0.0", port);
     run = false;

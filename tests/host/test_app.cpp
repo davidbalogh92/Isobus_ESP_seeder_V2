@@ -4,6 +4,8 @@
 #include "seeder_app.hpp"
 #include "tc_link.hpp"
 #include "vt_ui.hpp"
+#include "vt_sink.hpp"
+#include "seeder/vt_ids.hpp"
 
 #include "isobus/isobus/isobus_device_descriptor_object_pool.hpp"
 #include "seeder/vt_scale.hpp"
@@ -322,6 +324,66 @@ TEST(pool_scaler_fonts) {
     auto only_small = [](std::uint8_t c) { return c <= 3; };
     CHECK(scale_font(6, 1.0f, only_small) == 3);
     CHECK(scale_font(20, 1.0f, nullptr) == 20);            // érvénytelen kód változatlan
+}
+
+// --------------------------------------------------------------------------- virtuális terminál
+namespace {
+std::string vt_json(app::SeederApp &a) { return a.virtual_vt_json(); }
+bool has(const std::string &s, const std::string &needle) { return s.find(needle) != std::string::npos; }
+void run_app(app::SeederApp &a, float seconds) {
+    for (int k = 0; k < static_cast<int>(seconds / 0.05f); ++k) a.update(0.05f, app::HwInputs{});
+}
+} // namespace
+
+TEST(virtual_terminal_without_can) {
+    // CAN / ISOBUS indítása nélkül is működik a virtuális terminál (Windows-program)
+    app::Shared shared;
+    {
+        Settings st = default_settings();
+        st.drive_type = 1;
+        st.speed_src = 3;
+        normalize(st);
+        shared.core.load(st, Persistent{});
+    }
+    app::SeederApp a(shared);
+    run_app(a, 0.5f);
+    std::string j = vt_json(a);
+    CHECK(has(j, "\"mask\":" + std::to_string(vt::DM_MAIN)));
+    CHECK(has(j, std::string("\"pool\":\"") + vt::POOL_VERSION + "\""));
+    // softkey: Beállítások (elengedéskor hat) → menü
+    CHECK(a.virtual_vt_event("key", vt::K_MENU, 1, 0));
+    CHECK(a.virtual_vt_event("key", vt::K_MENU, 0, 0));
+    run_app(a, 0.3f);
+    CHECK(has(vt_json(a), "\"mask\":" + std::to_string(vt::DM_MENU)));
+    // vissza, majd vetés BE a VT softkey-jével
+    a.virtual_vt_event("key", vt::K_BACK, 0, 0);
+    a.virtual_vt_event("key", vt::K_MASTER, 0, 0);
+    run_app(a, 0.3f);
+    {
+        std::lock_guard<std::mutex> g(shared.lock);
+        CHECK(shared.core.status().master);
+    }
+    CHECK(has(vt_json(a), "\"" + std::to_string(vt::OP_K_MASTER) + "\":" + std::to_string(vt::PIC_K_MASTER[1])));
+    // beviteli mező: paraméter (munkaszélesség, 0,01 m lépés) a virtuális terminálról
+    const auto pid = static_cast<std::uint16_t>(vt::VT_INPUT_BASE + P_width_m);
+    CHECK(a.virtual_vt_event("num", pid, 0, 450));
+    {
+        std::lock_guard<std::mutex> g(shared.lock);
+        CHECK(std::fabs(shared.core.settings().width_m - 4.5f) < 1e-3f);
+    }
+    CHECK(has(vt_json(a), "\"" + std::to_string(pid) + "\":450"));
+    CHECK(!a.virtual_vt_event("rossz", 1, 0, 0));
+}
+
+TEST(virtual_screen_json_escapes_latin1) {
+    app::VirtualScreen v(1000);
+    v.string_value(11000, std::string("\xC1rv\xEDzt\xFBr\xF5 \"t\xFCk\xF6rf\xFAr\xF3g\xE9p\""));
+    const auto j = v.json("SD00000");
+    CHECK(has(j, "\"11000\":\"\u00c1rv\u00edzt\u00fbr\u00f5 \\\"t") || has(j, "\"11000\":\"\xC3\x81rv"));
+    const auto ver = v.version();
+    v.numeric(5, 7);
+    v.numeric(5, 7);   // azonos érték: a verzió csak egyszer nő
+    CHECK(v.version() == ver + 1);
 }
 
 int main() {

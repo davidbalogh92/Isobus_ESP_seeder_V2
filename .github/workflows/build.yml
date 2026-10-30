@@ -72,9 +72,39 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  windows:
+    name: Windows-program (SeederVT.exe)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Fordítás és egyfájlos .exe
+        shell: pwsh
+        run: |
+          $ver = (Select-String -Path platformio.ini -Pattern 'SEEDER_FW_VERSION=\\"([0-9.]+)' | Select-Object -First 1).Matches[0].Groups[1].Value
+          dotnet publish windows/SeederVT/SeederVT.csproj -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:Version=$ver -o out 2>&1 | Tee-Object -FilePath build.log
+          if ($LASTEXITCODE -ne 0) {
+            # a fordítási hibák annotációként (a napló nélkül is olvashatók)
+            Select-String -Path build.log -Pattern 'error ' | Select-Object -First 40 | ForEach-Object { Write-Output "::error::$($_.Line)" }
+            exit 1
+          }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $tag = $ver -replace '\.', ''
+          Copy-Item out/SeederVT.exe "dist/VETOGEP_WINDOWS_v$tag.exe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VETOGEP-windows
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
   release:
     name: Letölthető .bin fájlok (GitHub Release)
-    needs: [tests, firmware]
+    needs: [tests, firmware, windows]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -92,6 +122,7 @@ jobs:
           NOTES="Vetőgép-vezérlő firmware v${VER} – ${GITHUB_SHA::7} ($(date -u +%Y-%m-%d))
 
           VETOGEP_WAVESHARE_16MB_* – Waveshare ESP32-S3-ETH-8DI-8RO-C (16 MB, CAN GPIO17/18)
+          VETOGEP_WINDOWS_*.exe    – Windows kezelőprogram (a terminál felülete + diagnosztika), telepítés nélkül fut
 
           ELSŐ TELEPÍTÉS USB-n (https://espressif.github.io/esptool-js/):
             *_FULL_0x0.bin  → Flash Address: 0x0
@@ -101,5 +132,5 @@ jobs:
 
           A FULL fájlt soha ne töltsd fel az OTA oldalon!"
           gh release delete legujabb --cleanup-tag --yes || true
-          gh release create legujabb dist/*.bin dist/MANIFEST_*.json \
+          gh release create legujabb dist/*.bin dist/*.exe dist/MANIFEST_*.json \
             --title "Legújabb firmware (v${VER})" --notes "$NOTES" --target "$GITHUB_SHA"
