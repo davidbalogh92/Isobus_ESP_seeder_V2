@@ -23,6 +23,14 @@ public sealed class VtView : Control
     private ushort _pressedKey = 0xFFFF;
     private readonly Dictionary<(int, bool), Font> _fonts = new();
     private string _overlay = "";
+    private readonly System.Drawing.Imaging.ImageAttributes _tile = MakeTile();
+
+    private static System.Drawing.Imaging.ImageAttributes MakeTile()
+    {
+        var a = new System.Drawing.Imaging.ImageAttributes();
+        a.SetWrapMode(WrapMode.TileFlipXY);
+        return a;
+    }
 
     /// <summary>Softkey esemény: (objektum, aktiválás 0 elengedve / 1 lenyomva / 2 tartva / 3 megszakítva).</summary>
     public event Action<ushort, int>? SoftKey;
@@ -232,7 +240,12 @@ public sealed class VtView : Control
             case VtType.Picture:
             {
                 var bmp = _pool.Picture(o);
-                if (bmp != null) g.DrawImage(bmp, new RectangleF(x, y, o.W, o.H));
+                if (bmp != null)
+                {
+                    // a széleken ne keveredjen be átlátszó szegély (halvány keret) a nagyításkor
+                    var dest = new[] { new PointF(x, y), new PointF(x + o.W, y), new PointF(x, y + o.H) };
+                    g.DrawImage(bmp, dest, new RectangleF(0, 0, o.W, o.H), GraphicsUnit.Pixel, _tile);
+                }
                 break;
             }
         }
@@ -375,6 +388,7 @@ public sealed class VtView : Control
         if (disposing)
         {
             _holdTimer.Dispose();
+            _tile.Dispose();
             foreach (var f in _fonts.Values) f.Dispose();
         }
         base.Dispose(disposing);
