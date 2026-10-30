@@ -968,13 +968,23 @@ TEST(crank_ground_zero_point_half_turn_and_feedback) {
     CHECK(s.status().crank.target_reached);
     s.crank_set_measured(5.0f);
     CHECK_NEAR(s.status().crank_result.kg_per_rev, 5.0 / 42.5, 1e-6);
-    // a célnál a lámpa villog
+    // a célnál a lámpa gyorsan villog (5 Hz), 5 s után folyamatosan világít
     bool on = false, off = false;
-    for (int i = 0; i < 30; ++i) {
+    int changes = 0;
+    bool last = s.outputs().lamp_level[0];
+    for (int i = 0; i < 20; ++i) {   // 1 s
         m.step(s);
         (s.outputs().lamp_level[0] ? on : off) = true;
+        if (s.outputs().lamp_level[0] != last) ++changes;
+        last = s.outputs().lamp_level[0];
     }
     CHECK(on && off);
+    CHECK(changes >= 8);              // ~10 váltás / s: nem téveszthető össze a fordulatonkénti villanással
+    m.run(s, 5.0f);
+    for (int i = 0; i < 10; ++i) {
+        m.step(s);
+        CHECK(s.outputs().lamp_level[0]);
+    }
     // mentés után vége a jelzésnek
     CHECK(s.crank_save());
     m.run(s, 1.0f);

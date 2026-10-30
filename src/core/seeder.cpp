@@ -1046,6 +1046,7 @@ void Seeder::tick(const TickInputs &input) {
         if (crank_.target_reached && !crank_last_reached_) {
             if (crank_.session) {
                 crank_beep_s_ = 1.5f;
+                crank_blink_s_ = 0.0f;   // a "kész" jelzés innen indul
                 say("Leforgatás kész – mérd le a vetőmagot");
             }
             if (S.crank_autostop) crank_.hold = false;
@@ -1053,7 +1054,7 @@ void Seeder::tick(const TickInputs &input) {
         crank_last_reached_ = crank_.target_reached;
         const int whole = static_cast<int>(crank_.counted_revs);
         if (crank_.session && whole > crank_last_whole_) {
-            crank_flash_s_ = 0.3f;
+            crank_flash_s_ = 0.15f;   // rövid villanás: lassú tekerésnél se tűnjön villogásnak
             if (crank_beep_s_ <= 0.0f) crank_beep_s_ = 0.08f;
         }
         crank_last_whole_ = whole;
@@ -1063,8 +1064,7 @@ void Seeder::tick(const TickInputs &input) {
             crank_.session = false;
         crank_flash_s_ = crank_flash_s_ > 0.0f ? crank_flash_s_ - dt : 0.0f;
         crank_beep_s_ = crank_beep_s_ > 0.0f ? crank_beep_s_ - dt : 0.0f;
-        crank_blink_s_ += dt;
-        if (crank_blink_s_ >= 1.0f) crank_blink_s_ -= 1.0f;
+        if (crank_blink_s_ < 1000.0f) crank_blink_s_ += dt;
     }
     if (any_running && (n_met == 1 || S.meter_layout == 1)) sown_w = S.width_m;
 
@@ -1230,7 +1230,9 @@ void Seeder::tick(const TickInputs &input) {
     }
     // leforgatás közben a munkalámpa fordulatonként felvillan (bekapcsolt lámpánál kialszik), a célnál villog
     const bool crank_signal = S.crank_lamp && S.lights_enable && crank_.session;
-    const bool flash = crank_signal && (crank_.target_reached ? crank_blink_s_ < 0.5f : crank_flash_s_ > 0.0f);
+    // kész: 5 s gyors villogás (5 Hz – kézzel ilyen gyorsan nem lehet tekerni), utána folyamatos fény a mentésig
+    const bool done_flash = crank_blink_s_ >= 5.0f || std::fmod(crank_blink_s_, 0.2f) < 0.1f;
+    const bool flash = crank_signal && (crank_.target_reached ? done_flash : crank_flash_s_ > 0.0f);
     for (int i = 0; i < 2; ++i) outputs_.lamp_level[i] = ((S.lights_enable && lamp_[i]) != flash) != invert;
     outputs_.valve_level = (S.valve_enable && valve_) != invert;
     const bool rev_on = S.temp_enable && rev_ != RevState::Idle;

@@ -216,8 +216,8 @@ add("out_invert", "switches", "Kimenetek fordított szintje (relémodul)", "Kime
 # --------------------------------------------------------------------------- kiegészítők
 add("lights_enable", "extras", "Munkalámpák (2 db)", "Munkalámpák", "bool", 0, options=YES_NO, vt_page="extras")
 add("crank_lamp", "extras", "Munkalámpa villan leforgatásnál", "Lámpa leforgatás", "bool", 1, options=YES_NO,
-    vt_page="extras", help="Minden megszámolt fordulatnál röviden felvillan, a célfordulat elérésekor "
-                           "folyamatosan villog (a gép mögött is látszik). Csak ha a munkalámpák engedélyezve vannak.")
+    vt_page="extras", help="Minden megszámolt fordulatnál röviden (0,15 s) felvillan; a célfordulatnál 5 s-ig gyorsan "
+                           "villog, utána a mentésig folyamatosan világít (a gép mögött is látszik). Csak ha a munkalámpák engedélyezve vannak.")
 add("valve_enable", "extras", "Nyitás / nyomjelző váltószelep", "Nyitás/nyomjelző", "bool", 0, options=YES_NO,
     vt_page="extras", help="Alapban a hidraulikakör a gépet nyitja/csukja; a szelep bekapcsolva a nyomjelzőre tereli.")
 add("pressure_enable", "extras", "Nyomásmérés (lenyomatás, ADS1115)", "Nyomásmérés", "bool", 0, options=YES_NO,

@@ -86,7 +86,7 @@ _Generált fájl (tools/gen_params.py). Minden paraméter a webes felületen (Be
 | Kulcs | Megnevezés | Alapérték | Tartomány | VT oldal | Megjegyzés |
 |---|---|---|---|---|---|
 | `lights_enable` | Munkalámpák (2 db) | Nem | Nem / Igen | KIEGÉSZÍTÕK |  |
-| `crank_lamp` | Munkalámpa villan leforgatásnál | Igen | Nem / Igen | KIEGÉSZÍTÕK | Minden megszámolt fordulatnál röviden felvillan, a célfordulat elérésekor folyamatosan villog (a gép mögött is látszik). Csak ha a munkalámpák engedélyezve vannak. |
+| `crank_lamp` | Munkalámpa villan leforgatásnál | Igen | Nem / Igen | KIEGÉSZÍTÕK | Minden megszámolt fordulatnál röviden (0,15 s) felvillan; a célfordulatnál 5 s-ig gyorsan villog, utána a mentésig folyamatosan világít (a gép mögött is látszik). Csak ha a munkalámpák engedélyezve vannak. |
 | `valve_enable` | Nyitás / nyomjelző váltószelep | Nem | Nem / Igen | KIEGÉSZÍTÕK | Alapban a hidraulikakör a gépet nyitja/csukja; a szelep bekapcsolva a nyomjelzőre tereli. |
 | `pressure_enable` | Nyomásmérés (lenyomatás, ADS1115) | Nem | Nem / Igen | KIEGÉSZÍTÕK |  |
 | `temp_enable` | Olajhőmérséklet + hűtőventilátor (2× DS18B20) | Nem | Nem / Igen | KIEGÉSZÍTÕK |  |
