@@ -148,6 +148,7 @@ const char *VtUi::page_name() const {
     case Page::Settings: return "Beállítás";
     case Page::Calib: return "Leforgatás";
     case Page::Diagnose: return "Diagnosztika";
+    case Page::Tune: return "Önhangolás";
     default: return "?";
     }
 }
@@ -161,6 +162,7 @@ void VtUi::go(Page page, std::uint16_t mask) {
     case Page::Menu: page_mask_ = vt::DM_MENU; break;
     case Page::Calib: page_mask_ = vt::DM_CALIB; break;
     case Page::Diagnose: page_mask_ = vt::DM_DIAGNOSE; break;
+    case Page::Tune: page_mask_ = vt::DM_TUNE; break;
     default: page_mask_ = mask; break;
     }
     if (page != Page::Settings) settings_from_calib_ = false;
@@ -219,6 +221,12 @@ void VtUi::on_softkey(std::uint16_t id, std::uint8_t activation) {
             go(Page::Main);
         } else if (pg == Page::Diagnose) {
             go(Page::Menu);
+        } else if (pg == Page::Tune) {
+            if (c.status().tune_phase == seeder::TunePhase::StartUp || c.status().tune_phase == seeder::TunePhase::StopDown ||
+                c.status().tune_phase == seeder::TunePhase::Points)
+                c.motor_tune_stop();   // a lapot elhagyva a mérés leáll
+            for (const auto &p : vt::PAGES)
+                if (std::strcmp(p.id, "drive") == 0) go(Page::Settings, p.mask);
         } else {
             go(Page::Main);
         }
@@ -261,6 +269,15 @@ void VtUi::on_softkey(std::uint16_t id, std::uint8_t activation) {
         break;
     }
     case vt::K_CAL_METER: c.crank_set_meter(st.crank.meter == 0 ? 1 : 0); break;
+    case vt::K_TUNE_PAGE: go(Page::Tune); break;
+    case vt::K_TUNE_METER:
+        if (seeder::meter_count(c.settings()) > 1) tune_meter_ = tune_meter_.load() == 0 ? 1 : 0;
+        else tune_meter_ = 0;
+        break;
+    case vt::K_TUNE_START: c.motor_tune_start(tune_meter_.load()); break;
+    case vt::K_TUNE_STOP: c.motor_tune_stop(); break;
+    case vt::K_TUNE_ACCEPT: c.motor_tune_accept(); break;
+    case vt::K_TUNE_DISCARD: c.motor_tune_discard(); break;
     case vt::K_SCALE_TAKE: c.crank_take_scale(); break;
     case vt::K_CRANK_SAVE: c.crank_save(); break;
     case vt::K_CRANK_COPY: c.crank_copy_to_other(); break;
@@ -467,6 +484,7 @@ void VtUi::update(const Snapshot &s) {
     if (pg == Page::Info) update_info(s);
     if (pg == Page::Calib) update_calib(s);
     if (pg == Page::Diagnose) update_diagnose(s);
+    if (pg == Page::Tune) update_tune(s);
     if (pg == Page::Settings) {
         update_inputs(s);
         update_pages(s);
@@ -477,6 +495,7 @@ void VtUi::update(const Snapshot &s) {
     update_inputs(s);
     update_pages(s);
     update_diagnose(s);
+    update_tune(s);
 }
 
 void VtUi::update_main(const Snapshot &s) {
@@ -717,6 +736,8 @@ void VtUi::update_diagnose(const Snapshot &s) {
     num(vt::OP_DG_BTN, st.crank_button ? vt::STR_CLOSED : vt::STR_OPEN);
     num(vt::OUT_DG_RPM1, std::lround(st.meter[0].rpm * 10.0f));
     num(vt::OUT_DG_RPM2, std::lround(st.meter[1].rpm * 10.0f));
+    num(vt::OUT_DG_PWM1, std::lround(s.out.motor_pwm_pct[0] * 10.0f));
+    num(vt::OUT_DG_PWM2, std::lround(s.out.motor_pwm_pct[1] * 10.0f));
     num(vt::OUT_DG_WHZ, std::lround(st.wheel_hz * 10.0f));
     num(vt::OUT_DG_FHZ, std::lround(st.fan_rpm * static_cast<float>(std::max<int>(1, set.fan_ppr)) / 6.0f));
     num(vt::OP_DG_CL1, s.out.clutch_drive[0] ? vt::STR_ON : vt::STR_OFF);
@@ -725,6 +746,41 @@ void VtUi::update_diagnose(const Snapshot &s) {
     num(vt::OP_DG_REV, (st.cooler_rev == seeder::RevState::Reverse || st.cooler_rev == seeder::RevState::StopAfter)
                            ? vt::STR_ON
                            : vt::STR_OFF);
+}
+
+void VtUi::update_tune(const Snapshot &s) {
+    const auto &st = s.st;
+    const auto &set = s.set;
+    const bool elec = seeder::electric_drive(set);
+    // az Adagolóhajtás oldalon csak elektromos hajtásnál van önhangolás gomb
+    for (const auto &p : vt::PAGES)
+        if (std::strcmp(p.id, "drive") == 0) softkeys(p.mask, elec ? vt::SK_DRIVE : vt::SK_BACK);
+    const bool active = st.tune_phase == seeder::TunePhase::StartUp || st.tune_phase == seeder::TunePhase::StopDown ||
+                        st.tune_phase == seeder::TunePhase::Points;
+    if (seeder::meter_count(set) < 2) tune_meter_ = 0;
+    const int meter = active || st.tune_phase == seeder::TunePhase::Done ? st.tune_meter : tune_meter_.load();
+    num(vt::OP_TUNE_METER, vt::STR_METER[meter == 1 ? 1 : 0]);
+    num(vt::OP_K_TUNE_METER, vt::PIC_K_TUNE_METER[meter == 1 ? 1 : 0]);
+    num(vt::OP_TUNE_STATE, vt::STR_TUNE[static_cast<int>(st.tune_phase) % 6]);
+    const char *msg = st.tune_message && *st.tune_message
+                          ? st.tune_message
+                          : (elec ? "Álló gép, vetés KI - tégy alá edényt" : "Csak elektromos hajtással");
+    text(vt::STR_TUNE_MSG, vt_latin1(msg, 32));
+    num(vt::OUT_TUNE_PROG, st.tune_progress);
+    num(vt::OUT_TUNE_PWM, std::lround(s.out.motor_pwm_pct[meter == 1 ? 1 : 0] * 10.0f));
+    num(vt::OUT_TUNE_RPM, std::lround(st.meter[meter == 1 ? 1 : 0].rpm * 10.0f));
+    const auto &r = st.tune;
+    auto d10 = [](float v) { return static_cast<std::int64_t>(std::lround(v * 10.0f)); };
+    num(vt::OUT_TUNE_START, r.valid || r.start_pwm > 0.0f ? d10(r.start_pwm) : 0);
+    num(vt::OUT_TUNE_STOP, d10(r.stop_pwm));
+    num(vt::OUT_TUNE_MAX, d10(r.max_rpm));
+    num(vt::OUT_TUNE_MAX_CUR, d10(set.motor_max_rpm));
+    num(vt::OUT_TUNE_PMIN, d10(r.valid ? r.pwm_min : 0.0f));
+    num(vt::OUT_TUNE_PMIN_CUR, d10(set.pwm_min_pct));
+    num(vt::OUT_TUNE_GAIN, r.valid ? r.gain : 0);
+    num(vt::OUT_TUNE_GAIN_CUR, set.reg_gain);
+    num(vt::OUT_TUNE_TAU, r.tau_s > 0.0f ? d10(r.tau_s) : 0);
+    num(vt::OUT_TUNE_LIN, d10(r.linearity_pct));
 }
 
 } // namespace app

@@ -198,6 +198,7 @@ table.pins td:first-child{font-variant-numeric:tabular-nums;white-space:nowrap;f
     <button data-p="scale">Mérleg</button>
     <button data-p="wheel">Kerékjeladó</button>
     <button data-p="press">Nyomás</button>
+    <button data-p="tune">Motor</button>
   </div>
 
   <div class="calpage on" id="cal-crank">
@@ -307,8 +308,37 @@ table.pins td:first-child{font-variant-numeric:tabular-nums;white-space:nowrap;f
       <p class="note" id="prOff">A nyomásmérés ki van kapcsolva (Beállítások → Kiegészítők).</p>
     </div>
   </div>
+
+  <div class="calpage" id="cal-tune">
+    <div class="card">
+      <h2>Adagolómotor – automatikus beállítás</h2>
+      <p class="note">Álló gépnél, vetés KI állapotban. A vezérlő lassan felfuttatja a motort (indulási PWM), visszaveszi
+        (megállási PWM), majd 25 / 50 / 75 / 100% PWM-en méri a fordulatot (kb. 30 s). A henger forog: <b>tégy alá edényt</b>,
+        és a tartályban legyen vetőmag (terhelés alatt pontos). Az eredményt elfogadás után a beállításokba írja,
+        utána a Beállítások → Adagolóhajtás oldalon kézzel tovább állítható.</p>
+      <div class="field" id="tuMeterF"><label>Adagoló</label><div class="inp"><select id="tuMeter"><option value="0">1. adagoló</option><option value="1">2. adagoló</option></select></div></div>
+      <div class="row" style="margin:12px 0">
+        <button class="btn go wide" onclick="cmd('motor_tune',+$('tuMeter').value)">Mérés indítása</button>
+        <button class="btn stop wide" onclick="cmd('motor_tune_stop')">Leállítás</button>
+      </div>
+      <div class="kv"><span>Állapot</span><b id="tuState">–</b></div>
+      <div class="kv"><span>Haladás</span><b id="tuProg">–</b></div>
+      <div class="kv"><span>PWM most / fordulat</span><b id="tuNow">–</b></div>
+      <div class="kv"><span>Indulási / megállási PWM</span><b id="tuStart">–</b></div>
+      <div class="kv"><span>Mért pontok (PWM → 1/min)</span><b id="tuPts">–</b></div>
+      <div class="kv"><span>Reakcióidő · linearitás</span><b id="tuTau">–</b></div>
+      <table style="width:100%;margin-top:10px;border-collapse:collapse"><thead><tr><th style="text-align:left" class="muted">Beállítás</th><th style="text-align:right">Javaslat</th><th style="text-align:right" class="muted">Mostani</th></tr></thead>
+        <tbody id="tuTab"></tbody></table>
+      <div class="row" style="margin-top:10px">
+        <button class="btn primary wide" id="tuAcc" onclick="cmd('motor_tune_accept').then(r=>r&&toast('Beállítások mentve'))">Elfogadás (mentés)</button>
+        <button class="btn wide" onclick="cmd('motor_tune_discard')">Elvetés</button>
+      </div>
+      <p class="note warn" id="tuOff">Csak elektromos (motoros) hajtásnál használható.</p>
+    </div>
+  </div>
 </section>
 
+<!-- motor önhangolás: a kalibrálás fül része -->
 <!-- ============================ SZÁMLÁLÓK ============================ -->
 <section class="tab" id="tab-count">
   <div class="card">
@@ -588,6 +618,15 @@ function render(){
   $('wcState').textContent=names[wc.state];setIfIdle('wcDist',wc.distance);setIfIdle('wcPulses',wc.pulses);
   $('wcPulses').disabled=wc.state!=='Stopped';$('wcPpm').textContent=wc.ok?fmt(wc.ppm,1)+' imp/100 m':'–';
   $('wcErr').textContent=wc.state==='Stopped'&&!wc.ok?wc.error:'';$('wcCur').textContent=fmt(CFG.wheel_ppm,1);$('wcSrc').textContent=st.speed_src;
+  {const t=st.tune,act=t.active,m=act||t.phase===4?t.meter:+$('tuMeter').value;show('tuOff',!st.electric);show('tuMeterF',st.meters>1);
+   $('tuState').textContent=t.message||t.label;$('tuProg').textContent=act||t.phase===4?t.progress+' %':'–';
+   const mm=st.meter[m]||st.meter[0];$('tuNow').textContent=fmt(m===1?st.pwm2:st.pwm1,1)+' % · '+fmt(mm.rpm,1)+' 1/min';
+   const has=t.start_pwm>0||t.valid;$('tuStart').textContent=has?fmt(t.start_pwm,1)+' % / '+fmt(t.stop_pwm,1)+' %':'–';
+   $('tuPts').textContent=t.points.length?t.points.map(p=>fmt(p[0])+'% → '+fmt(p[1],1)).join(' · '):'–';
+   $('tuTau').textContent=t.valid?(t.tau>0?fmt(t.tau,2)+' s':'–')+' · '+fmt(t.linearity,1)+' %':'–';
+   const r=(n,a,b,d,u)=>`<tr style="border-top:1px solid var(--line)"><td style="padding:6px 0">${n}</td><td style="text-align:right"><b>${t.valid?fmt(a,d)+u:'–'}</b></td><td style="text-align:right" class="muted">${fmt(b,d)}${u}</td></tr>`;
+   $('tuTab').innerHTML=r('Fordulat 100% PWM-nél',t.max_rpm,t.cur_max_rpm,1,' 1/min')+r('PWM minimum',t.pwm_min,t.cur_pwm_min,0,' %')+r('Szabályzási állandó',t.gain,t.cur_gain,0,'');
+   $('tuAcc').disabled=!t.valid;}
   $('prV').textContent=fmt(st.pressure_v,3)+' V';$('prBar').textContent=st.pressure_ok?fmt(st.pressure_bar,1)+' bar':'nincs jel';show('prOff',!CFG.pressure_enable);
   // számlálók
   const rows=[['Terület','ha',st.day.ha,st.total.ha,2],['Megtett út','km',st.day.km,st.total.km,2],['Vetési idő','óra',st.day.h,st.total.h,1],['1. adagoló','kg',st.day.kg1,st.total.kg1,0]];

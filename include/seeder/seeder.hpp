@@ -7,6 +7,7 @@
 // (kuplung) vagy szabályzása (elektromos motor + enkóder, PI + előrecsatolás, rámpák),
 // szakaszvezérlés (kézi + TC-SEC), indulási csőfeltöltés, turbina- és adagolófigyelés,
 // leürülésgátlók, lenyomatási nyomás, olajhőmérséklet + hűtőventilátor, mérleg, leforgatás.
+#include "seeder/motor_tune.hpp"
 #include "seeder/pulse.hpp"
 #include "seeder/rate_chart.hpp"
 #include "seeder/settings.hpp"
@@ -302,6 +303,14 @@ struct Status {
     const char *wheel_cal_error = "";
     CrankCalibration crank;
     chart::Result crank_result;
+    // motor önhangolás
+    TunePhase tune_phase = TunePhase::Idle;
+    int tune_meter = 0;
+    float tune_pwm = 0.0f;
+    int tune_progress = 0;
+    float tune_elapsed_s = 0.0f;
+    const char *tune_message = "";
+    TuneResult tune;
     // egyéb
     bool tc_connected = false;
     std::uint32_t alarms_active = 0;
@@ -387,6 +396,12 @@ public:
     /// a leforgatott (kiválasztott) adagoló adatai a másikra: ha van mentetlen mérés, előbb ment
     bool crank_copy_to_other();
 
+    // --- motor önhangolás (elektromos hajtás, álló gép, vetés KI) ---
+    bool motor_tune_start(int meter);
+    void motor_tune_stop();
+    bool motor_tune_accept();      ///< a javasolt értékek a beállításokba (utána kézzel állíthatók)
+    void motor_tune_discard();
+
     void scale_tare();
     bool scale_calibrate(float known_kg);
     bool pressure_calibrate(float known_bar);
@@ -411,6 +426,7 @@ private:
     Outputs outputs_;
     Status status_;
     MotorController motor_[MAX_METERS];
+    MotorTuner tuner_;
     PulseRate wheel_rate_{1.5f, 0.3f};
     PulseRate fan_rate_{1.0f, 0.4f};
     PulseRate meter_rate_[MAX_METERS] = {PulseRate{2.0f, 0.3f}, PulseRate{2.0f, 0.3f}};

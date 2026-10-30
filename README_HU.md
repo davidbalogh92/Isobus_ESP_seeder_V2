@@ -13,6 +13,7 @@ ikonok az ESC vetőgép-monitorból jönnek.
 | Gép | munkaszélesség (alap 6 m), 1–2 adagoló, 1–2 tartály(rekesz), 1–2 szakasz; két adagolónál bal/jobb félszélesség vagy első/hátsó sor (mindkettő a teljes szélességet veti) |
 | Hajtás | **talajhajtás + elektromágneses kuplung** adagolónként (áram alatt hajt / old), vagy **elektromos motor** adagolónként enkóderrel (alap 50 imp/ford), PWM min/max, rámpák, PI + előrecsatolás |
 | Adagolás | előírt mennyiség adagolónként (kg/ha), ±% léptetés; elektromos hajtásnál a kg/ha a leforgatásból kapott kg/fordulattal motorfordulatra számolva; a leforgatott adagoló adatai (kg/fordulat + előírt érték) **egy gombbal átmásolhatók a másik adagolóra** (bármelyik irányban) |
+| Motor önhangolás | elektromos hajtásnál, álló gépen: a vezérlő kiméri az indulási és megállási PWM-et, a fordulatot 25 / 50 / 75 / 100% PWM-en és a reakcióidőt, ebből javasolja a „fordulat 100% PWM-nél”, a PWM minimum és a szabályzási állandó értékét; elfogadás után a beállításokba kerül, utána kézzel állítható (VT: Beállítások → Hajtás → önhangolás gomb; web: Kalibrálás → Motor). A PWM a VT Diagnosztikán és az önhangolás oldalon is látszik |
 | Kézi adagolás | elektromos hajtásnál AUTOMATA ↔ KÉZI: kézi módban a +/− a motorfordulatot lépteti, a sebességtől függetlenül (a vetés feltételei továbbra is kellenek) |
 | Csőfeltöltés | elektromos hajtásnál induláskor (gép leengedése / vetés BE álló gépnél) a motor a beállított „feltöltési sebességgel” előre adagol, majd „START – indulhatsz” várakozás – sarkoknál nem marad ki a vetés |
 | Szakaszvezérlés | a kezelő 2 független adagoló gombja + automata szakaszolás. **Forrás választható: Nincs / ISOBUS Task Controller (TC-SEC) / AgOpenGPS.** 1 szakasznál (pl. 6 m, 2 adagoló) az automata mindkét adagolót együtt kapcsolja, a kezelő gombjai továbbra is külön működnek. A tehetetlenség BE/KI csak az ISOBUS TC-nek szól (AgOpenGPS-nél az előretekintést ott kell beállítani) |
@@ -48,6 +49,10 @@ A képek a generált object poolból készülnek (`docs/vt_preview/`), a Müller
 | Beállítás menü | Leforgatás | Diagnosztika |
 |---|---|---|
 | ![](docs/vt_preview/05_menu.png) | ![](docs/vt_preview/06_leforgatas.png) | ![](docs/vt_preview/07_diagnosztika.png) |
+
+| Motor önhangolás |
+|---|
+| ![](docs/vt_preview/08_onhangolas.png) |
 
 **Főképernyő softkey-ek, motoros hajtás** – jobb oszlop: Vetés BE/KI · 2. adagoló · + · − · Beállítások;
 bal oszlop: 1. adagoló · 100% · AUTOMATA/KÉZI · Funkciók · Csőfeltöltés.

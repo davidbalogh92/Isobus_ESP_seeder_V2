@@ -380,6 +380,13 @@ K_WEIGHT_CLEAR = KEY("K_WEIGHT_CLEAR", "softkey_cancel")     # részmérések t�
 K_CRANK_SAVE = KEY("K_CRANK_SAVE", "softkey_save")
 K_CRANK_COPY = KEY("K_CRANK_COPY", "softkey_crank_copy")
 K_PRESS_CAL = KEY("K_PRESS_CAL", "softkey_save")
+# motor önhangolás
+K_TUNE_PAGE = KEY("K_TUNE_PAGE", "softkey_tune")
+K_TUNE_METER, PIC_K_TUNE_METER = KEYPTR("K_TUNE_METER", "OP_K_TUNE_METER", ["softkey_meter1_on", "softkey_meter2_on"])
+K_TUNE_START = KEY("K_TUNE_START", "softkey_start")
+K_TUNE_STOP = KEY("K_TUNE_STOP", "softkey_stop")
+K_TUNE_ACCEPT = KEY("K_TUNE_ACCEPT", "softkey_save")
+K_TUNE_DISCARD = KEY("K_TUNE_DISCARD", "softkey_cancel")
 
 # oldalak (menü): azonosító → (menüfelirat, ikon)
 PAGE_INFO = {
@@ -451,6 +458,9 @@ SK_CALIB_GROUND = P.softkey_mask(P.new_id(4000), [K_BACK, K_CAL_METER, K_SCALE_T
                                                    K_CRANK_RESET, K_WEIGHT_CLEAR, K_CRANK_COPY],
                                  name="SK_CALIB_GROUND")
 SK_ALARM = P.softkey_mask(P.new_id(4000), [K_ACK], name="SK_ALARM")
+SK_DRIVE = P.softkey_mask(P.new_id(4000), [K_BACK, K_TUNE_PAGE], name="SK_DRIVE")
+SK_TUNE = P.softkey_mask(P.new_id(4000), [K_BACK, K_TUNE_METER, K_TUNE_START, K_TUNE_STOP, K_TUNE_ACCEPT,
+                                           K_TUNE_DISCARD], name="SK_TUNE")
 
 # ------------------------------------------------------------------ szövegek (object pointerrel váltva)
 MSG = {}
@@ -727,7 +737,7 @@ def heading(text, h):
 
 
 PAGE_MASK = {}
-PAGE_SK = {"speed": SK_WCAL, "scale": SK_SCALE, "pressure": SK_PRESSURE, "cooling": SK_COOLING}
+PAGE_SK = {"speed": SK_WCAL, "scale": SK_SCALE, "pressure": SK_PRESSURE, "cooling": SK_COOLING, "drive": SK_DRIVE}
 param_index = {p.key: i for i, p in enumerate(pd.P)}
 GEO_PICS = ["geo/geo_mounted", "geo/geo_steer_front", "geo/geo_steer_rear", "geo/geo_trailed_front",
             "geo/geo_trailed_rear"]
@@ -853,7 +863,7 @@ DM_CALIB = P.data_mask(1060, SK_CALIB_GROUND, cal, name="DM_CALIB")
 
 # ================================================================== DIAGNOSZTIKA
 dg = title_bar("DIAGNOSZTIKA")
-h = 29
+h = 27
 y = 42
 
 
@@ -876,6 +886,7 @@ dg_rows = [
     lambda: heading("BEMENETEK / KIMENETEK", h),
     lambda: output_row("Munka / gomb", pair_ptr(27174, "OP_DG_WORK", 27175, "OP_DG_BTN", STR_UP), "", h),
     lambda: output_row("Adag.1/2 [1/min]", pair("OUT_DG_RPM1", "OUT_DG_RPM2"), "", h),
+    lambda: output_row("Motor PWM 1/2 %", pair("OUT_DG_PWM1", "OUT_DG_PWM2"), "", h),
     lambda: output_row("Kerék/turb. [Hz]", pair("OUT_DG_WHZ", "OUT_DG_FHZ"), "", h),
     lambda: output_row("Kuplung 1 / 2", pair_ptr(27176, "OP_DG_CL1", 27177, "OP_DG_CL2"), "", h),
     lambda: output_row("Hûtõ / irányv.", pair_ptr(27178, "OP_DG_COOL", 27179, "OP_DG_REV"), "", h),
@@ -885,6 +896,33 @@ for fn in dg_rows:
     y += h
 assert y <= MASK + 2, y
 DM_DIAGNOSE = P.data_mask(1070, SK_BACK, dg, name="DM_DIAGNOSE")
+
+# ================================================================== MOTOR ÖNHANGOLÁS
+TUNE_TEXTS = ["Nincs mérés", "Indulás keres.", "Megállás keres.", "Ford. mérése", "Kész - mentés?",
+              "Sikertelen"]
+STR_TUNE = [S(t, 186, 22, F_LABEL, name=f"STR_TUNE_{i}") for i, t in enumerate(TUNE_TEXTS)]
+STR_TUNE_MSG = S(" " * 32, 388, 20, F_SMALL, name="STR_TUNE_MSG")
+tn = title_bar("MOTOR ÖNHANGOLÁS")
+h = 30
+y = 42
+tune_rows = [
+    lambda: output_row("Adagoló", P.obj_ptr(27180, STR_METER[0], "OP_TUNE_METER"), "", h),
+    lambda: output_row("Állapot", P.obj_ptr(27181, STR_TUNE[0], "OP_TUNE_STATE"), "", h),
+    lambda: [(STR_TUNE_MSG, 6, (h - 20) // 2)],
+    lambda: output_row("Haladás", num_out("OUT_TUNE_PROG"), "%", h),
+    lambda: output_row("PWM % / 1/min", pair("OUT_TUNE_PWM", "OUT_TUNE_RPM"), "", h),
+    lambda: output_row("Indul / megáll %", pair("OUT_TUNE_START", "OUT_TUNE_STOP"), "", h),
+    lambda: output_row("Reakció s / lin %", pair("OUT_TUNE_TAU", "OUT_TUNE_LIN"), "", h),
+    lambda: heading("JAVASLAT  /  MOSTANI", h),
+    lambda: output_row("Ford. 100% PWM", pair("OUT_TUNE_MAX", "OUT_TUNE_MAX_CUR"), "", h),
+    lambda: output_row("PWM minimum %", pair("OUT_TUNE_PMIN", "OUT_TUNE_PMIN_CUR"), "", h),
+    lambda: output_row("Szab. állandó", pair("OUT_TUNE_GAIN", "OUT_TUNE_GAIN_CUR", dec=0, scale=1.0), "", h),
+]
+for fn in tune_rows:
+    tn += [(cid, x, y + yy) for cid, x, yy in fn()]
+    y += h
+assert y <= MASK + 2, y
+DM_TUNE = P.data_mask(1075, SK_TUNE, tn, name="DM_TUNE")
 
 # ================================================================== RIASZTÁS
 alarm_kids = [(PIC("main/main_alarm", 120, bg=WHITE), (MASK - 120) // 2, 40),
@@ -938,7 +976,7 @@ ARRAYS = {
     "PIC_K_VALVE": PIC_K_VALVE, "PIC_K_COOLER": PIC_K_COOLER, "PIC_K_CAL_METER": PIC_K_CAL_METER,
     "PIC_K_COOLER_REV": PIC_K_COOLER_REV, "STR_REV": STR_REV, "STR_SRC": STR_SRC,
     "SK_FUNC": SK_FUNC, "STR_ALARM": STR_ALARM, "STR_ALARMBIG": STR_ALARM_BIG, "STR_CAL": CAL_STATE,
-    "STR_METER": STR_METER, "STR_SETUP": STR_SETUP, "STR_NOTE": STR_NOTE, "K_BLANK": K_BLANK,
+    "STR_METER": STR_METER, "STR_TUNE": STR_TUNE, "PIC_K_TUNE_METER": PIC_K_TUNE_METER, "STR_SETUP": STR_SETUP, "STR_NOTE": STR_NOTE, "K_BLANK": K_BLANK,
 }
 
 

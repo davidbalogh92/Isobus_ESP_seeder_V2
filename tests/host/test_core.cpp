@@ -73,6 +73,7 @@ struct Machine {
     float fan_rpm = 3500.0f;
     bool meter_turns[2] = {true, true};   ///< false: a tengely beragadt / lánc szakadt
     float motor_strength = 1.0f;          ///< elektromos hajtás: 1 = a motor_max_rpm-et hozza 100%-on
+    float deadband_pct = 0.0f;            ///< elektromos hajtás: ez alatt a PWM alatt nem forog
     float motor_rpm[2] = {0.0f, 0.0f};
     float ground_rpm = 30.0f;             ///< talajhajtásnál a tengely fordulata haladás közben
     std::uint32_t inject[2] = {0, 0};     ///< a következő lépésben pluszban érkező impulzusok (kézi tekerés)
@@ -84,7 +85,9 @@ struct Machine {
         for (int i = 0; i < 2; ++i) {
             float rpm = 0.0f;
             if (electric_drive(S)) {
-                const float want = s.outputs().motor_pwm_pct[i] / 100.0f * S.motor_max_rpm * motor_strength;
+                const float pwm = s.outputs().motor_pwm_pct[i];
+                const float eff = pwm <= deadband_pct ? 0.0f : (pwm - deadband_pct) / (100.0f - deadband_pct) * 100.0f;
+                const float want = eff / 100.0f * S.motor_max_rpm * motor_strength;
                 motor_rpm[i] += (want - motor_rpm[i]) * dt / (0.2f + dt);
                 rpm = motor_rpm[i];
             } else if (s.outputs().clutch_drive[i] && s.status().moving && s.status().work_down) {
@@ -395,6 +398,93 @@ TEST(electric_drive_work_switch_ignored_in_input_simulation) {
     m.in.work_contact = false;
     m.run(s, 2.0f);
     CHECK(s.status().work_down);
+}
+
+TEST(motor_tune_measures_motor) {
+    // valódi motor: 80 1/min 100%-on (a beállítás 60), 10% holtsáv
+    Seeder s = make([](Settings &st) { st.drive_type = 1; st.sim_speed = 0.0f; st.encoder_ppr = 50;
+                                       st.motor_max_rpm = 60.0f; st.pwm_min_pct = 0.0f; st.reg_gain = 2; });
+    Machine m = down_machine();
+    m.motor_strength = 80.0f / 60.0f;
+    m.deadband_pct = 10.0f;
+    m.run(s, 0.5f);
+    CHECK(s.motor_tune_start(0));
+    float peak = 0.0f;
+    for (int k = 0; k < 2400 && s.status().tune_phase != TunePhase::Done && s.status().tune_phase != TunePhase::Failed; ++k) {
+        m.run(s, 0.05f);
+        peak = std::max(peak, s.outputs().motor_pwm_pct[0]);
+        CHECK(s.outputs().motor_pwm_pct[1] < 0.01f);   // a másik adagoló áll
+    }
+    const TuneResult r = s.status().tune;
+    CHECK(s.status().tune_phase == TunePhase::Done);
+    CHECK(r.valid);
+    CHECK(peak <= s.settings().pwm_max_pct + 0.01f);
+    CHECK(r.start_pwm > 9.0f && r.start_pwm < 16.0f);
+    CHECK(r.stop_pwm > 7.0f && r.stop_pwm <= r.start_pwm);
+    CHECK(std::fabs(r.max_rpm - 80.0f) < 3.0f);
+    CHECK(r.points == 4);
+    CHECK(r.tau_s > 0.05f && r.tau_s < 1.5f);
+    std::printf("  önhangolás: indul %.1f%%, megáll %.1f%%, 100%%: %.1f 1/min, tau %.2f s, lin %.1f%%, erősítés %d\n",
+                r.start_pwm, r.stop_pwm, r.max_rpm, r.tau_s, r.linearity_pct, r.gain);
+    CHECK(r.gain >= 3 && r.gain <= 6);
+    CHECK(r.pwm_min >= r.stop_pwm);
+    CHECK(s.status().crank.counted_revs < 0.01f);   // a leforgatás számlálója nem nő
+    CHECK(s.status_json().find("\"tune\":{") != std::string::npos);
+    // elfogadás → beállítások, utána kézzel állítható
+    CHECK(s.motor_tune_accept());
+    CHECK(std::fabs(s.settings().motor_max_rpm - 80.0f) < 3.0f);
+    CHECK(s.settings().reg_gain == r.gain);
+    CHECK(s.settings().pwm_min_pct >= 8.0f && s.settings().pwm_min_pct <= 16.0f);
+    m.run(s, 0.1f);
+    CHECK(s.status().tune_phase == TunePhase::Idle);
+    CHECK(s.set_param(P_motor_max_rpm, 75.0f));
+    CHECK(!s.motor_tune_accept());   // nincs új mérés
+}
+
+TEST(motor_tune_safety) {
+    Seeder g = make([](Settings &st) { st.drive_type = 0; });   // talajhajtás
+    CHECK(!g.motor_tune_start(0));
+    Seeder p = make([](Settings &st) { st.drive_type = 1; st.sim_speed = 0.0f; st.encoder_ppr = 1; });
+    CHECK(!p.motor_tune_start(0));                                // 1 imp/ford-dal nem mérhető
+    Seeder mv = make([](Settings &st) { st.drive_type = 1; st.sim_speed = 8.0f; });
+    Machine m0 = down_machine();
+    m0.run(mv, 1.0f);
+    CHECK(!mv.motor_tune_start(0));                               // halad
+    Seeder s = make([](Settings &st) { st.drive_type = 1; st.sim_speed = 0.0f; st.prefill_auto = 0; });
+    Machine m = down_machine();
+    m.run(s, 0.5f);
+    CHECK(s.motor_tune_start(0));
+    m.run(s, 3.0f);
+    CHECK(s.outputs().motor_pwm_pct[0] > 0.5f);
+    CHECK(!s.crank_hold(true));                                   // közben nem lehet leforgatni
+    s.set_master(true);                                           // vetés BE → leáll
+    m.run(s, 0.2f);
+    CHECK(s.status().tune_phase == TunePhase::Failed);
+    s.set_master(false);
+    m.run(s, 1.0f);
+    CHECK(s.outputs().motor_pwm_pct[0] < 0.5f);
+    // megszakítás és elvetés
+    CHECK(s.motor_tune_start(0));
+    m.run(s, 1.0f);
+    s.motor_tune_stop();
+    m.run(s, 1.0f);
+    CHECK(s.outputs().motor_pwm_pct[0] < 0.5f);
+    CHECK(s.status().tune_phase == TunePhase::Failed);
+    s.motor_tune_discard();
+    m.run(s, 0.1f);
+    CHECK(s.status().tune_phase == TunePhase::Idle);
+}
+
+TEST(motor_tune_motor_does_not_start) {
+    Seeder s = make([](Settings &st) { st.drive_type = 1; st.sim_speed = 0.0f; });
+    Machine m = down_machine();
+    m.meter_turns[0] = false;   // beragadt / nincs enkóder
+    m.run(s, 0.3f);
+    CHECK(s.motor_tune_start(0));
+    m.run(s, 40.0f);
+    CHECK(s.status().tune_phase == TunePhase::Failed);
+    CHECK(!s.status().tune.valid);
+    CHECK(s.outputs().motor_pwm_pct[0] < 0.5f);
 }
 
 TEST(clutch_polarity_options) {

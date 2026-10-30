@@ -149,7 +149,7 @@ def render_all(gen, outdir: Path):
         n["OUT_CAL_KGREV"]: 2353, n["OUT_SCALE_KG"]: 100000 + 12345, n["OUT_SCALE_RAW"]: 8388608 + 104000,
         n["OUT_FAN_RPM2"]: 3450, n["OUT_CAL_TARGET"]: 850, n["OUT_CAL_NW"]: 2,
         n["OUT_DG_WKMH"]: 108, n["OUT_DG_GKMH"]: 112, n["OUT_DG_SLIP"]: 36, n["OUT_DG_RPM1"]: 312,
-        n["OUT_DG_RPM2"]: 298, n["OUT_DG_WHZ"]: 311, n["OUT_DG_FHZ"]: 583, n["OP_DG_SRC"]: G.STR_SRC[7],
+        n["OUT_DG_RPM2"]: 298, n["OUT_DG_PWM1"]: 412, n["OUT_DG_PWM2"]: 398, n["OUT_DG_WHZ"]: 311, n["OUT_DG_FHZ"]: 583, n["OP_DG_SRC"]: G.STR_SRC[7],
         n["OP_DG_VT"]: n["STR_OK"], n["OP_DG_TC"]: n["STR_OK"], n["OP_DG_AOG"]: n["STR_TC_ON"],
         n["OUT_AOG_SPEED"]: 112, n["OP_AOG_STATE"]: n["STR_TC_ON"], n["OP_K_COOLER_REV"]: G.PIC_K_COOLER_REV[0],
     }
@@ -174,6 +174,12 @@ def render_all(gen, outdir: Path):
     r.render_mask(G.DM_MENU, outdir / "05_menu.png")
     r.render_mask(G.DM_CALIB, outdir / "06_leforgatas.png", G.SK_CALIB)
     r.render_mask(G.DM_DIAGNOSE, outdir / "07_diagnosztika.png")
+    ot = dict(ov)
+    ot.update({n["OP_TUNE_STATE"]: G.STR_TUNE[4], n["OUT_TUNE_PROG"]: 100, n["OUT_TUNE_PWM"]: 0,
+               n["OUT_TUNE_START"]: 130, n["OUT_TUNE_STOP"]: 109, n["OUT_TUNE_MAX"]: 796, n["OUT_TUNE_MAX_CUR"]: 600,
+               n["OUT_TUNE_PMIN"]: 130, n["OUT_TUNE_PMIN_CUR"]: 80, n["OUT_TUNE_GAIN"]: 5, n["OUT_TUNE_GAIN_CUR"]: 5,
+               n["OUT_TUNE_TAU"]: 3, n["OUT_TUNE_LIN"]: 1, n["OUT_DG_PWM1"]: 412, n["OUT_DG_PWM2"]: 398})
+    Renderer(pool, ot).render_mask(G.DM_TUNE, outdir / "08_onhangolas.png", G.SK_TUNE)
     for k, (pid, _) in enumerate(G.pd.VT_PAGES):
         r.render_mask(G.PAGE_MASK[pid], outdir / f"{10 + k:02d}_beallitas_{pid}.png")
     r.render_mask(G.DM_ALARM, outdir / "90_riasztas.png")

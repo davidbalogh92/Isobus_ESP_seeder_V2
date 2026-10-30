@@ -45,7 +45,7 @@ public:
     void attach(isobus::VirtualTerminalClient &client);
 
 private:
-    enum class Page : std::uint8_t { Main, Func, Info, Menu, Settings, Calib, Diagnose };
+    enum class Page : std::uint8_t { Main, Func, Info, Menu, Settings, Calib, Diagnose, Tune };
 
     void go(Page page, std::uint16_t mask = 0);
 
@@ -66,6 +66,7 @@ private:
     void update_pages(const Snapshot &s);
     void update_calib(const Snapshot &s);
     void update_diagnose(const Snapshot &s);
+    void update_tune(const Snapshot &s);
 
     Shared &shared_;
     std::unique_ptr<VtSink> sink_;
@@ -81,6 +82,7 @@ private:
     std::atomic<std::uint8_t> page_{static_cast<std::uint8_t>(Page::Main)};
     std::atomic<std::uint16_t> page_mask_{0};
     std::atomic<bool> settings_from_calib_{false};
+    std::atomic<int> tune_meter_{0};    ///< önhangolásra kiválasztott adagoló
     std::atomic<std::uint8_t> page_before_alarm_{static_cast<std::uint8_t>(Page::Main)};
     std::atomic<std::uint16_t> mask_before_alarm_{0};
     std::atomic<bool> alarm_shown_{false};

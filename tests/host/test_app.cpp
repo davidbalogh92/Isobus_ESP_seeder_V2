@@ -503,6 +503,49 @@ TEST(aux_buttons_drive_functions) {
     CHECK(has(a.aux_json(), "\"functions\":13"));
 }
 
+TEST(virtual_terminal_motor_tune_page) {
+    app::Shared shared;
+    {
+        Settings st = default_settings();
+        st.drive_type = 1;
+        st.speed_src = 3;
+        st.sim_speed = 0.0f;
+        st.prefill_auto = 0;
+        normalize(st);
+        shared.core.load(st, Persistent{});
+    }
+    app::SeederApp a(shared);
+    run_app(a, 0.3f);
+    auto key = [&](std::uint16_t k) {
+        a.virtual_vt_event("key", k, 0, 0);
+        run_app(a, 0.3f);
+    };
+    key(vt::K_MENU);
+    key(vt::K_PG_DRIVE);
+    std::uint16_t drive_mask = 0;
+    for (const auto &p : vt::PAGES)
+        if (std::strcmp(p.id, "drive") == 0) drive_mask = p.mask;
+    CHECK(has(vt_json(a), "\"mask\":" + std::to_string(drive_mask)));
+    CHECK(has(vt_json(a), "\"" + std::to_string(drive_mask) + "\":" + std::to_string(vt::SK_DRIVE)));
+    key(vt::K_TUNE_PAGE);
+    CHECK(has(vt_json(a), "\"mask\":" + std::to_string(vt::DM_TUNE)));
+    key(vt::K_TUNE_START);
+    {
+        std::lock_guard<std::mutex> g(shared.lock);
+        CHECK(shared.core.status().tune_phase == TunePhase::StartUp);
+    }
+    run_app(a, 2.0f);
+    CHECK(has(vt_json(a), "\"" + std::to_string(vt::OP_TUNE_STATE) + "\":" + std::to_string(vt::STR_TUNE[1])));
+    // a lapról kilépve a mérés leáll
+    key(vt::K_BACK);
+    CHECK(has(vt_json(a), "\"mask\":" + std::to_string(drive_mask)));
+    {
+        std::lock_guard<std::mutex> g(shared.lock);
+        CHECK(shared.core.status().tune_phase == TunePhase::Failed);
+        CHECK(shared.core.outputs().motor_pwm_pct[0] < 30.0f);
+    }
+}
+
 int main() {
     for (auto &[name, fn] : registry()) {
         const int before = g_failures;

@@ -678,6 +678,10 @@ bool Seeder::crank_hold(bool pressed, float timeout_s) {
         say("Leforgatás csak álló gépnél, vetés KI állapotban");
         return false;
     }
+    if (tuner_.active()) {
+        say("Önhangolás folyamatban");
+        return false;
+    }
     if (settings_.crank_autostop && crank_.target_reached) {
         if (!crank_.hold) say("Elérted a célfordulatot – mérd le, vagy nullázd a számlálót");
         return false;
@@ -694,6 +698,61 @@ bool Seeder::crank_hold(bool pressed, float timeout_s) {
     crank_hold_timer_ = timeout_s > 0.05f ? timeout_s : 0.05f;
     return true;
 }
+// --- motor önhangolás --------------------------------------------------------------------------------
+bool Seeder::motor_tune_start(int meter) {
+    const Settings &S = settings_;
+    if (!electric_drive(S)) {
+        say("Önhangolás csak elektromos hajtással");
+        return false;
+    }
+    if (meter < 0 || meter >= meter_count(S)) {
+        say("Nincs ilyen adagoló");
+        return false;
+    }
+    if (master_ || status_.moving) {
+        say("Önhangolás csak álló gépnél, vetés KI állapotban");
+        return false;
+    }
+    if (crank_.hold || prefill_ != PrefillState::Idle) {
+        say("Előbb állítsd le a leforgatást / csőfeltöltést");
+        return false;
+    }
+    if (S.encoder_ppr < 10) {
+        say("Az önhangoláshoz legalább 10 imp/ford enkóder kell");
+        return false;
+    }
+    tuner_.start(meter, S.pwm_max_pct);
+    say(meter == 0 ? "Önhangolás indul: 1. adagoló – tégy alá edényt" : "Önhangolás indul: 2. adagoló – tégy alá edényt");
+    return true;
+}
+
+void Seeder::motor_tune_stop() {
+    if (tuner_.active()) {
+        tuner_.abort("Megszakítva");
+        say("Önhangolás megszakítva");
+    }
+}
+
+bool Seeder::motor_tune_accept() {
+    if (tuner_.phase() != TunePhase::Done || !tuner_.result().valid) {
+        say("Nincs elfogadható mérés");
+        return false;
+    }
+    const TuneResult r = tuner_.result();
+    set_param(P_motor_max_rpm, std::round(r.max_rpm * 2.0f) / 2.0f);
+    set_param(P_pwm_min_pct, std::round(r.pwm_min));
+    set_param(P_reg_gain, static_cast<float>(r.gain));
+    for (auto &m : motor_) m.reset();
+    tuner_.clear();
+    say("Önhangolás eredménye mentve (kézzel tovább állítható)");
+    return true;
+}
+
+void Seeder::motor_tune_discard() {
+    if (tuner_.active()) tuner_.abort("Megszakítva");
+    tuner_.clear();
+}
+
 void Seeder::crank_reset_count() {
     crank_.meter_pulses = 0;
     crank_.counted_revs = 0.0f;
@@ -935,6 +994,10 @@ void Seeder::tick(const TickInputs &input) {
         if (crank_hold_timer_ <= 0.0f || master_ || moving || !elec) crank_.hold = false; // biztonság
     }
     bool crank_drive = false;
+    // önhangolás: biztonsági leállítás
+    if (tuner_.active() && (!elec || master_ || moving || crank_.hold || prefill_ != PrefillState::Idle ||
+                            tuner_.meter() >= n_met))
+        tuner_.abort("Megszakítva (vetés BE / haladás / leforgatás)");
 
     // --- adagolók
     Status &st = status_;
@@ -950,7 +1013,7 @@ void Seeder::tick(const TickInputs &input) {
         m.rpm = ppr > 0.0f ? hz * 60.0f / ppr : 0.0f;
         if (mp.count > 0) since_pulse_[i] = 0.0f;
         else since_pulse_[i] += dt;
-        if (i == crank_.meter && mp.count > 0 && !(elec && run_cond)) {
+        if (i == crank_.meter && mp.count > 0 && !(elec && run_cond) && !tuner_.active()) {
             std::uint32_t c = mp.count;
             if (!crank_.armed) {   // nullpont: az első impulzus
                 crank_.armed = true;
@@ -972,7 +1035,17 @@ void Seeder::tick(const TickInputs &input) {
 
         float target_rpm = 0.0f;
         const bool crank_this = elec && crank_.hold && crank_.meter == i && exists;
-        if (elec) {
+        const bool tune_this = elec && tuner_.active() && tuner_.meter() == i && exists;
+        if (elec && (tune_this || tuner_.active())) {
+            // önhangolás: a mért adagolót a hangoló vezérli közvetlenül, a másik áll
+            const float pwm = tune_this ? tuner_.step(dt, m.rpm, since_pulse_[i], mp.count, ppr) : 0.0f;
+            motor_[i].reset();
+            outputs_.motor_pwm_pct[i] = pwm;
+            outputs_.clutch_drive[i] = false;
+            m.running = pwm > 0.5f;
+            rate_dev_timer_[i] = 0.0f;
+            alarms_.set(METER_RATE[i], false);
+        } else if (elec) {
             if (crank_this) {
                 const double left = chart::turns(crank_.turn_option) - crank_.counted_revs;
                 const float crank_rpm = S.motor_max_rpm * 0.5f < 40.0f ? S.motor_max_rpm * 0.5f : 40.0f;
@@ -1304,6 +1377,13 @@ void Seeder::tick(const TickInputs &input) {
     update_crank_result();
     st.crank = crank_;
     st.crank_result = crank_result_;
+    st.tune_phase = tuner_.phase();
+    st.tune_meter = tuner_.meter();
+    st.tune_pwm = tuner_.active() ? tuner_.pwm() : 0.0f;
+    st.tune_progress = tuner_.progress_pct();
+    st.tune_elapsed_s = tuner_.elapsed_s();
+    st.tune_message = tuner_.message();
+    st.tune = tuner_.result();
     st.tc_connected = in.tc_connected;
     st.alarms_active = alarms_.active_mask();
     st.alarms_unacked = alarms_.unacked_mask();
@@ -1428,6 +1508,41 @@ std::string Seeder::status_json() const {
     o.back() = '}';
     o += ',';
     static const char *const cal_states[] = {"Idle", "Running", "Stopped"};
+    o += "\"tune\":{";
+    {
+        const TuneResult &t = st.tune;
+        append_kv(o, "phase", static_cast<double>(st.tune_phase), 0);
+        append_kv(o, "label", tune_phase_label(st.tune_phase));
+        append_kv(o, "active", st.tune_phase == TunePhase::StartUp || st.tune_phase == TunePhase::StopDown ||
+                                   st.tune_phase == TunePhase::Points);
+        append_kv(o, "meter", static_cast<double>(st.tune_meter), 0);
+        append_kv(o, "pwm", st.tune_pwm, 1);
+        append_kv(o, "progress", static_cast<double>(st.tune_progress), 0);
+        append_kv(o, "elapsed", st.tune_elapsed_s, 0);
+        append_kv(o, "message", st.tune_message);
+        append_kv(o, "valid", t.valid);
+        append_kv(o, "start_pwm", t.start_pwm, 1);
+        append_kv(o, "stop_pwm", t.stop_pwm, 1);
+        append_kv(o, "max_rpm", t.max_rpm, 1);
+        append_kv(o, "tau", t.tau_s, 2);
+        append_kv(o, "linearity", t.linearity_pct, 1);
+        append_kv(o, "pwm_min", t.pwm_min, 1);
+        append_kv(o, "gain", static_cast<double>(t.gain), 0);
+        o += "\"points\":[";
+        for (int i = 0; i < t.points; ++i) {
+            char pb[48];
+            std::snprintf(pb, sizeof(pb), "%s[%.0f,%.1f]", i ? "," : "", static_cast<double>(t.pwm[i]),
+                          static_cast<double>(t.rpm[i]));
+            o += pb;
+        }
+        o += "],";
+        // a jelenlegi beállítások (összehasonlításhoz)
+        append_kv(o, "cur_max_rpm", settings_.motor_max_rpm, 1);
+        append_kv(o, "cur_pwm_min", settings_.pwm_min_pct, 1);
+        append_kv(o, "cur_gain", static_cast<double>(settings_.reg_gain), 0);
+        o.back() = '}';
+        o += ',';
+    }
     o += "\"wheel_cal\":{";
     append_kv(o, "state", cal_states[static_cast<int>(st.wheel_cal.state)]);
     append_kv(o, "pulses", static_cast<double>(st.wheel_cal.pulses), 0);
