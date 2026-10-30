@@ -76,4 +76,25 @@ bool factory_reset() {
     return ok;
 }
 
+std::vector<std::uint8_t> load_aux() {
+    std::vector<std::uint8_t> out;
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) return out;
+    size_t len = 0;
+    if (nvs_get_blob(h, "aux", nullptr, &len) == ESP_OK && len > 0 && len <= 2048) {
+        out.resize(len);
+        if (nvs_get_blob(h, "aux", out.data(), &len) != ESP_OK) out.clear();
+    }
+    nvs_close(h);
+    return out;
+}
+
+bool save_aux(const std::vector<std::uint8_t> &blob) {
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READWRITE, &h) != ESP_OK) return false;
+    bool ok = nvs_set_blob(h, "aux", blob.data(), blob.size()) == ESP_OK && nvs_commit(h) == ESP_OK;
+    nvs_close(h);
+    return ok;
+}
+
 } // namespace storage

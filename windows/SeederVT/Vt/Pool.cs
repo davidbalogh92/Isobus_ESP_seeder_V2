@@ -11,7 +11,7 @@ public enum VtType : byte
     WorkingSet = 0, DataMask = 1, AlarmMask = 2, Container = 3, SoftKeyMask = 4, Key = 5, Button = 6,
     InputNumber = 9, InputList = 10, OutputString = 11, OutputNumber = 12, Line = 13, Rectangle = 14,
     Meter = 17, BarGraph = 18, Picture = 20, NumberVariable = 21, StringVariable = 22, FontAttr = 23,
-    LineAttr = 24, FillAttr = 25, InputAttr = 26, ObjectPointer = 27,
+    LineAttr = 24, FillAttr = 25, InputAttr = 26, ObjectPointer = 27, AuxFunction2 = 31,
 }
 
 public readonly record struct Child(ushort Id, short X, short Y);
@@ -211,6 +211,13 @@ public sealed class Pool
                 case VtType.ObjectPointer:
                     o.Target = U16();
                     break;
+                case VtType.AuxFunction2:
+                {
+                    // AUX-N funkció (joystick-hozzárendeléshez) – a terminál-nézet nem rajzolja
+                    o.Bg = U8(); o.KeyCode = U8();
+                    o.Kids = Kids(U8());
+                    break;
+                }
                 default:
                     throw new InvalidDataException($"Ismeretlen objektumtípus {(int)o.Type} (ID {o.Id}) – frissítsd a programot");
             }

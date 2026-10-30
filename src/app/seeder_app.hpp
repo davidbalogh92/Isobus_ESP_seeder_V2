@@ -6,9 +6,11 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace isobus {
 class InternalControlFunction;
@@ -72,11 +74,20 @@ struct HwInputs {
 class VtUi;
 class TcLink;
 class VirtualScreen;
+class AuxN;
 
 class SeederApp {
 public:
     explicit SeederApp(Shared &shared);
     ~SeederApp();
+
+    /// AUX-N (joystick) hozzárendelések tárolása – a start() előtt adandó meg (ESP: NVS blob).
+    void set_aux_storage(std::function<std::vector<std::uint8_t>()> load,
+                         std::function<bool(const std::vector<std::uint8_t> &)> save);
+    /// AUX-N diagnosztika (JSON objektum).
+    std::string aux_json() const;
+    /// AUX-N bemenet közvetlenül (teszt / szimuláció): funkció objektum, value1.
+    bool aux_input(std::uint16_t function, std::uint16_t value1);
 
     /// Indítás a CAN hardver elindítása után.
     /// @param pool  a beágyazott object pool (élettartama végig érvényes kell legyen)
@@ -92,7 +103,7 @@ public:
 
     /// Virtuális terminál (Windows-program): a képernyő állapota JSON-ban (szálbiztos).
     std::string virtual_vt_json() const;
-    /// Virtuális terminál esemény: kind "key" | "button" | "num"; act: 0 elengedve, 1 lenyomva, 2 tartva, 3 megszakítva.
+    /// Virtuális terminál esemény: kind "key" | "button" | "num" | "aux" (AUX-N próba: value = value1); act: 0 elengedve, 1 lenyomva, 2 tartva, 3 megszakítva.
     bool virtual_vt_event(const std::string &kind, std::uint16_t id, std::uint8_t act, std::uint32_t value);
 
 private:
@@ -108,6 +119,7 @@ private:
     std::shared_ptr<isobus::VirtualTerminalClient> vt_;
     std::unique_ptr<VtUi> ui_;
     std::unique_ptr<VtUi> vui_;            ///< virtuális terminál (CAN nélkül is fut)
+    std::unique_ptr<AuxN> aux_;            ///< AUX-N funkciók (joystick)
     VirtualScreen *vscreen_ = nullptr;     ///< vui_ kimenete
     float vui_timer_ = 0.0f;
     std::unique_ptr<TcLink> tc_;

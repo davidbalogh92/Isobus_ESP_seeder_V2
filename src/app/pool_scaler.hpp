@@ -17,6 +17,8 @@ struct ScaleTarget {
     unsigned key_h = 80;         ///< softkey jelölő magassága (px)
     /// a VT támogatja-e az adott ISO fontméret-kódot (0..14); üres = mind támogatott
     std::function<bool(std::uint8_t)> font_supported;
+    /// a terminál ismeri-e az AUX-N funkció objektumot (VT3+); ha nem, azonos hosszú String Variable lesz belőle
+    bool aux_objects = true;
 };
 
 /// A pool méretezett másolata. Ha a méretezés nem lehetséges (sérült tábla), az eredeti másolatát adja.

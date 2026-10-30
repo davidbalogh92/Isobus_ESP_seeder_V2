@@ -32,6 +32,8 @@ ikonok az ESC vetőgép-monitorból jönnek.
 | ISOBUS indulás | késleltetett bejelentkezés (lassabban induló terminál, pl. Müller), automatikus ismételt bejelentkezés, ha nincs terminál, VT kapcsolat újrakezdése; webes **„ISOBUS újracsatlakozás”** gomb |
 | Diagnosztika | VT-n és weben: kapcsolatok (VT, TC, AgOpenGPS, Ethernet), sebességforrás, kerék / GPS, csúszás, bemenetek, kimenetek, csomagszámlálók |
 | Task Controller | DDOP a beállításokból: csatlakozó (függesztett, kormányzott vonórúd csuklóponttal, vonórúd, horog, gömbfej), A/B/C/D geometria, szakaszok, adagolónként termék (bin) kg/ha előírttal; változáskor automatikus újratöltés |
+| AUX-N (joystick) | VT3+ terminálon a joystick / gombdoboz gombjai a terminál **AUX hozzárendelés** menüjében köthetők: Vetés BE/KI · Adagoló 1 · Adagoló 2 · Automata szakaszolás · Előírt + · Előírt − · Előírt 100% · Leforgatás (nyomva tartva) · Lámpa 1 · Lámpa 2 · Szétnyitás/nyomjelző · Visszafúvás · Nyugtázás. A gomb lenyomása ugyanazt teszi, mint a VT-n az azonos softkey; a hozzárendelés eszközönként megmarad (újraindítás, OTA után is). VT2 terminálon a funkciók nem jelennek meg |
+| Windows-program | **SeederVT** (`VETOGEP_WINDOWS_vXXX.exe`, telepítés nélkül fut): a **Terminál** fül pontosan a VT képét adja (ugyanabból a poolból, egérrel / érintéssel / F1–F10), mellette Diagnosztika (teljes élő állapot, változások kiemelve, AUX-N próbagombok), Napló, Felvétel (CSV, trend, riasztáskor pillanatkép) és Rendszer (OTA, beállítás export / import, lábkiosztás). ISOBUS terminál nélkül is teljes értékű kezelés |
 | Kezelés | VT (softkey + gombos menü + beviteli mezők, ESC stílusú ikonok, szürke háttér) és Wi-Fi web (telefon / tablet), OTA frissítés |
 
 ## A terminál képernyői
@@ -120,6 +122,21 @@ fájl **0x0** címre → Program.
 **Frissítés Wi-Fi-n:** csatlakozz a `VETOGEP-xxxx` hálózathoz (jelszó alapból `12345678`),
 nyisd meg a http://192.168.4.1 címet → Rendszer → Firmware frissítés → `…_OTA.bin`. A FULL fájlt
 az OTA oldal elutasítja. Hibás új firmware esetén a bootloader visszaáll az előzőre.
+
+## Windows-program (SeederVT)
+
+A kiadásban: `VETOGEP_WINDOWS_vXXX.exe` – egyetlen fájl, telepítés és .NET nélkül fut (Windows 10/11, 64 bit).
+Kapcsolódás: Ethernet (AgIO hálózat) **192.168.5.130**, vagy a vezérlő Wi-Fi-jén (`VETOGEP-xxxx`) **192.168.4.1**.
+
+* **Terminál** – ugyanaz a felület, mint az ISOBUS terminálon: a program a vezérlőtől tölti le az object poolt,
+  és a vezérlőben futó második („virtuális”) VT-felület állapotát rajzolja ki. Saját lapállása van, így a
+  traktor terminálja és a PC egyszerre, egymástól függetlenül kezelhető. Softkey: kattintás vagy F1–F10;
+  a leforgatás gombja nyomva tartásos.
+* **Diagnosztika** – a teljes élő állapot mezőnként (szűrhető, a változó értékek kiemelve), összefoglaló
+  (ISOBUS, AgOpenGPS, sebesség, AUX-N), ISOBUS újracsatlakozás, nyugtázás, **AUX-N próbagombok**.
+* **Napló** – a vezérlő naplója + a program saját eseményei (kapcsolat, riasztások), mentés fájlba.
+* **Felvétel** – CSV felvétel választható jelekkel, trend, riasztáskor automatikus pillanatkép.
+* **Rendszer** – kapcsolat, OTA frissítés, beállítások export / import, újraindítás, lábkiosztás.
 
 ## Webes felület
 

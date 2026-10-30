@@ -48,6 +48,8 @@ VT_INPUT_BASE = 9000  # == tools/gen_params.py
 T_WS, T_DATAMASK, T_ALARMMASK, T_CONTAINER, T_SKMASK, T_KEY, T_BUTTON = 0, 1, 2, 3, 4, 5, 6
 T_INNUM, T_INLIST, T_OUTSTR, T_OUTNUM, T_LINE, T_RECT, T_BAR = 9, 10, 11, 12, 13, 14, 18
 T_PIC, T_NUMVAR, T_FONT, T_LINEATTR, T_FILLATTR, T_OBJPTR = 20, 21, 23, 24, 25, 27
+T_AUXFN2 = 31
+AUX_MOMENTARY = 2   # AuxiliaryFunctionType2: kétállású, visszaugró (nyomógomb)
 
 # VT font méretkódok (ISO 11783-6)
 FONT_PX = {0: (6, 8), 1: (8, 8), 2: (8, 12), 3: (12, 16), 4: (16, 16), 5: (16, 24), 6: (24, 32),
@@ -233,6 +235,10 @@ class Pool:
         # szélesség = tényleges szélesség: a VT nem méretez (BASIC-en 1:1)
         return self.put(ident, T_PIC, pack("<HHHBBBIB", w, w, h, 2, 0x04 if use_rle else 0x00, 0, len(data), 0) +
                         data, name, w=w, h=h, icon=icon, pix=pix)
+
+    def aux_function(self, ident, ftype, children, bg=BG, name=None):
+        return self.put(ident, T_AUXFN2, pack("<BBB", bg, ftype, len(children)) + self._children(children), name,
+                        kids=children)
 
     def obj_ptr(self, ident, target, name=None):
         return self.put(ident, T_OBJPTR, pack("<H", target), name, value=target)
@@ -886,6 +892,31 @@ alarm_kids = [(PIC("main/main_alarm", 120, bg=WHITE), (MASK - 120) // 2, 40),
               (S("Nyugtázás: pipa gomb", 380, 20, F_LABEL, bg=WHITE), 10, 300)]
 DM_ALARM = P.alarm_mask(1100, SK_ALARM, alarm_kids, name="AM_ALARM")
 
+# ================================================================== AUX-N (joystick) funkciók
+# A terminál „AUX hozzárendelés” menüjében ezek a funkciók köthetők a joystick / gombdoboz gombjaihoz.
+# A jelölő kép a softkey-k képe (a softkey mérethez igazítva). Minden funkció nyomógombos (visszaugró).
+# A firmware a lenyomásra az azonos softkey műveletét hajtja végre (src/app/aux_n.cpp).
+AUX_FUNCS = [  # (név, ikon, softkey)
+    ("AUX_MASTER", "softkey_master_on", "K_MASTER"),
+    ("AUX_METER1", "softkey_meter1_on", "K_METER1"),
+    ("AUX_METER2", "softkey_meter2_on", "K_METER2"),
+    ("AUX_SEC_AUTO", "softkey_tc_on", "K_SEC_AUTO"),
+    ("AUX_RATE_PLUS", "softkey_rate_plus", "K_RATE_PLUS"),
+    ("AUX_RATE_MINUS", "softkey_rate_minus", "K_RATE_MINUS"),
+    ("AUX_RATE_RESET", "softkey_rate_reset", "K_RATE_RESET"),
+    ("AUX_CRANK", "softkey_crank", "K_CRANK_START"),
+    ("AUX_LAMP1", "softkey_lamp1_on", "K_LAMP1"),
+    ("AUX_LAMP2", "softkey_lamp2_on", "K_LAMP2"),
+    ("AUX_VALVE", "softkey_fold", "K_VALVE"),
+    ("AUX_COOLER_REV", "softkey_cooler_rev", "K_COOLER_REV"),
+    ("AUX_ACK", "softkey_ack", "K_ACK"),
+]
+AUX_IDS = []
+for _i, (_n, _icon, _key) in enumerate(AUX_FUNCS):
+    assert _key in P.names, _key
+    AUX_IDS.append(P.aux_function(29000 + _i, AUX_MOMENTARY,
+                                  [(PIC(f"softkeys/{_icon}", KEY_PIC, key=True), KEY_X, KEY_Y)], name=_n))
+
 # ================================================================== WORKING SET
 P.working_set(0, DM_MAIN, [(PIC("main/main_esc_logo_small", 60, key=True), 0, 0)])
 P.names["WORKING_SET"] = 0
@@ -936,6 +967,13 @@ def header_text(pool_bytes: bytes) -> str:
     lines.append(f"constexpr std::uint16_t BTN_PAGE_CALIB = {BTN['calib']};")
     lines.append(f"constexpr std::uint16_t BTN_PAGE_INFO = {BTN['info']};")
     lines.append(f"constexpr std::uint16_t BTN_PAGE_DIAGNOSE = {BTN['diagnose']};")
+    lines.append("")
+    lines.append("/// AUX-N funkciók: funkció objektum → az azonos műveletű softkey")
+    lines.append("struct AuxFunction { std::uint16_t id; std::uint16_t softkey; };")
+    lines.append(f"constexpr AuxFunction AUX_FUNCTIONS[{len(AUX_FUNCS)}] = {{")
+    for (n, _icon, k) in AUX_FUNCS:
+        lines.append(f"    {{{P.names[n]}, {P.names[k]}}}, // {n}")
+    lines.append("};")
     lines.append("")
     lines.append("// Egyedi (nem paraméter) beviteli mezők: id, lépés, min, max")
     lines.append("struct CustomInput { std::uint16_t id; float step, min, max; };")
@@ -990,6 +1028,8 @@ def scale_map(pool):
             kids_at(7)
         elif t == T_KEY:
             kids_at(4, key_like=True)
+        elif t == T_AUXFN2:
+            kids_at(3, key_like=True)
         elif t == T_BUTTON:
             entries += [(base, SC_MASK_U16, 0, 0), (base + 2, SC_MASK_U16, 0, 0)]
             kids_at(10)
@@ -1013,7 +1053,7 @@ def scale_map(pool):
                 tgt = pool.objs[c]
                 if tgt.type == T_OBJPTR:
                     assert tgt.meta["value"] not in key_pics, f"softkey-kép maszkon (mutatóval): {c}"
-        if o.type == T_KEY:
+        if o.type in (T_KEY, T_AUXFN2):
             for c, _x, _y in o.meta["kids"]:
                 tgt = pool.objs[c]
                 if tgt.type == T_OBJPTR:
@@ -1022,8 +1062,21 @@ def scale_map(pool):
     return entries
 
 
+def aux_offsets(pool):
+    """Az AUX-N funkció objektumok kezdete és hossza a binárisban (VT2 terminálnak ezeket a firmware
+    azonos hosszú String Variable objektumra cseréli – a VT2 nem ismeri a 31-es típust)."""
+    out, off = [], 0
+    for ident in sorted(pool.objs):
+        o = pool.objs[ident]
+        if o.type == T_AUXFN2:
+            out.append((off, 3 + len(o.body)))
+        off += 3 + len(o.body)
+    return out
+
+
 def scale_header(pool) -> str:
     e = scale_map(pool)
+    aux = aux_offsets(pool)
     lines = ["// GENERÁLT FÁJL – ne szerkeszd kézzel! Forrás: tools/pool/generate_pool.py",
              "// A pool saját átméretezésének táblája (src/app/pool_scaler.cpp).", "#pragma once", "#include <cstdint>",
              "", "namespace vt {",
@@ -1042,7 +1095,13 @@ def scale_header(pool) -> str:
             row = []
     if row:
         lines.append("    " + ", ".join(row) + ",")
-    lines += ["};", "} // namespace vt", ""]
+    lines += ["};"]
+    lines.append("/// AUX-N funkció objektumok (kezdet, hossz) – VT2 terminálnál String Variable-re cserélve")
+    lines.append("struct AuxObjectSpan { std::uint32_t offset; std::uint16_t len; };")
+    lines.append(f"constexpr std::uint32_t AUX_OBJECT_COUNT = {len(aux)};")
+    lines.append(f"constexpr AuxObjectSpan AUX_OBJECTS[{max(1, len(aux))}] = {{" +
+                 ", ".join(f"{{{o},{n}}}" for o, n in aux) + "};")
+    lines += ["} // namespace vt", ""]
     return "\n".join(lines)
 
 

@@ -79,6 +79,17 @@ std::vector<std::uint8_t> scale_pool(const std::uint8_t *pool, std::uint32_t siz
         default: break;
         }
     }
+    if (!t.aux_objects) {
+        // VT2: az AUX-N funkció (31) helyett String Variable (22) szóközökkel – az azonosító és a hossz marad
+        for (std::uint32_t i = 0; i < vt::AUX_OBJECT_COUNT; ++i) {
+            const auto &a = vt::AUX_OBJECTS[i];
+            if (a.offset + a.len > size || a.len < 5 || out[a.offset + 2] != 31) continue;
+            std::uint8_t *p = out.data() + a.offset;
+            p[2] = 22;
+            wr16(p + 3, static_cast<std::uint16_t>(a.len - 5));
+            std::memset(p + 5, ' ', a.len - 5u);
+        }
+    }
     return out;
 }
 

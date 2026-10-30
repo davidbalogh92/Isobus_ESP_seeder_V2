@@ -43,7 +43,8 @@ ApiResult handle_api(Shared &shared, SeederApp *isobus, const std::string &metho
             st = shared.core.status_json();
         }
         const IsobusDiag d = isobus ? isobus->diag() : IsobusDiag{};
-        return ok("{\"status\":" + st + ",\"isobus\":" + isobus_diag_json(d) + ",\"hw\":" +
+        return ok("{\"status\":" + st + ",\"isobus\":" + isobus_diag_json(d) +
+                  ",\"aux\":" + (isobus ? isobus->aux_json() : std::string("{}")) + ",\"hw\":" +
                   (hw_json.empty() ? std::string("{}") : hw_json) + ",\"fw\":\"" + seeder::json_escape(fw_version) +
                   "\",\"ssid\":\"" + seeder::json_escape(ssid) + "\"}");
     }

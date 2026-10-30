@@ -3,6 +3,7 @@
 #include <cstring>
 #include <vector>
 
+#include "aux_n.hpp"
 #include "pool_scaler.hpp"
 #include "tc_link.hpp"
 #include "vt_sink.hpp"
@@ -52,6 +53,7 @@ bool pool_chunk(std::uint32_t, std::uint32_t offset, std::uint32_t n, std::uint8
             t.font_supported = [vt](std::uint8_t c) {
                 return vt->get_font_size_supported(static_cast<isobus::VirtualTerminalClient::FontSize>(c));
             };
+            t.aux_objects = vt->get_connected_vt_version() != isobus::VirtualTerminalClient::VTVersion::Version2OrOlder;
         }
         g_pool.scaled = scale_pool(g_pool.pool, g_pool.size, t);
     }
@@ -59,13 +61,44 @@ bool pool_chunk(std::uint32_t, std::uint32_t offset, std::uint32_t n, std::uint8
     std::memcpy(buf, g_pool.scaled.data() + offset, n);
     return true;
 }
+
+// AUX-N hozzárendelések betöltése / mentése (a VT kliens hívja, context = AuxN)
+using AuxFn = isobus::VirtualTerminalClient::AssignedAuxiliaryFunction;
+std::vector<AuxFn> aux_load(std::uint64_t name, std::uint16_t model, void *ctx) {
+    std::vector<AuxFn> r;
+    if (!ctx) return r;
+    for (const auto &a : static_cast<AuxN *>(ctx)->load(name, model))
+        r.emplace_back(a.function, a.input, static_cast<isobus::VirtualTerminalClient::AuxiliaryTypeTwoFunctionType>(a.type));
+    return r;
+}
+void aux_store(std::uint64_t name, std::uint16_t model, const std::vector<AuxFn> &list, void *ctx) {
+    if (!ctx) return;
+    std::vector<AuxAssignment> v;
+    for (const auto &a : list)
+        v.push_back({a.functionObjectID, a.inputObjectID, static_cast<std::uint8_t>(a.functionType)});
+    static_cast<AuxN *>(ctx)->store(name, model, v);
+}
 } // namespace
 
 SeederApp::SeederApp(Shared &shared) : shared_(shared) {
     auto screen = std::make_unique<VirtualScreen>(vt::DM_MAIN);
     vscreen_ = screen.get();
     vui_ = std::make_unique<VtUi>(shared_, std::move(screen));
+    // AUX gomb → az azonos softkey művelete a valódi VT felületen (ha még nincs, a virtuálison)
+    aux_ = std::make_unique<AuxN>([this](std::uint16_t key, std::uint8_t act) {
+        VtUi *ui = ui_ ? ui_.get() : vui_.get();
+        if (ui) ui->on_softkey(key, act);
+    });
 }
+
+void SeederApp::set_aux_storage(std::function<std::vector<std::uint8_t>()> load,
+                                std::function<bool(const std::vector<std::uint8_t> &)> save) {
+    aux_->set_storage(std::move(load), std::move(save));
+}
+
+std::string SeederApp::aux_json() const { return aux_->json(); }
+
+bool SeederApp::aux_input(std::uint16_t function, std::uint16_t value1) { return aux_->on_input(function, value1); }
 
 std::string SeederApp::virtual_vt_json() const { return vscreen_ ? vscreen_->json(vt::POOL_VERSION) : "{}"; }
 
@@ -74,10 +107,14 @@ bool SeederApp::virtual_vt_event(const std::string &kind, std::uint16_t id, std:
     if (kind == "key") vui_->on_softkey(id, act);
     else if (kind == "button") vui_->on_button(id, act);
     else if (kind == "num") vui_->on_numeric(id, value);
+    else if (kind == "aux") return aux_->on_input(id, static_cast<std::uint16_t>(value));   // AUX-N próba
     else return false;
     return true;
 }
-SeederApp::~SeederApp() = default;
+SeederApp::~SeederApp() {
+    // a VT kliens leállításkor még menthet AUX hozzárendelést (aux_ legyen még élő)
+    if (vt_) vt_->terminate();
+}
 
 bool SeederApp::start(std::uint8_t can_channel, const std::uint8_t *pool, std::uint32_t pool_size) {
     if (!pool || pool_size < 256) return false;
@@ -140,6 +177,17 @@ bool SeederApp::do_start() {
     vt_->register_object_pool_data_chunk_callback(0, pool_size, &pool_chunk, vt::POOL_VERSION);
     ui_ = std::make_unique<VtUi>(shared_, make_real_vt_sink(vt_));
     ui_->attach(*vt_);
+    // AUX-N: a terminál AUX menüjében a joystick gombjai a pool AUX funkcióihoz köthetők
+    vt_->set_auxiliary_assignment_callbacks(&aux_load, &aux_store, aux_.get());
+    vt_->set_auxiliary_functions_enabled(true);
+    vt_->get_auxiliary_function_event_dispatcher().add_listener(
+        [this](const isobus::VirtualTerminalClient::AuxiliaryFunctionEvent &e) {
+            aux_->on_input(e.function.functionObjectID, e.value1);
+        });
+    vt_->get_auxiliary_assignment_failure_event_dispatcher().add_listener(
+        [this](const isobus::VirtualTerminalClient::AuxiliaryAssignmentFailureEvent &e) {
+            aux_->failed(static_cast<unsigned>(e.reason));
+        });
     vt_->initialize(true);
 
     tc_ = std::make_unique<TcLink>(shared_, tc_partner_, ecu_);

@@ -5,8 +5,8 @@
 namespace vt {
 constexpr std::uint32_t DESIGN_MASK_PX = 400;
 constexpr std::uint32_t DESIGN_SOFTKEY_PX = 80;
-constexpr std::uint32_t POOL_SIZE = 161188;
-constexpr const char *POOL_VERSION = "SD3FD1B"; // a VT ez alapján cache-el
+constexpr std::uint32_t POOL_SIZE = 161344;
+constexpr const char *POOL_VERSION = "SD73EE1"; // a VT ez alapján cache-el
 constexpr std::uint16_t VT_INPUT_BASE = 9000;
 
 constexpr std::uint16_t WORKING_SET = 0;
@@ -374,6 +374,19 @@ constexpr std::uint16_t OP_DG_CL1 = 27176;
 constexpr std::uint16_t OP_DG_CL2 = 27177;
 constexpr std::uint16_t OP_DG_COOL = 27178;
 constexpr std::uint16_t OP_DG_REV = 27179;
+constexpr std::uint16_t AUX_MASTER = 29000;
+constexpr std::uint16_t AUX_METER1 = 29001;
+constexpr std::uint16_t AUX_METER2 = 29002;
+constexpr std::uint16_t AUX_SEC_AUTO = 29003;
+constexpr std::uint16_t AUX_RATE_PLUS = 29004;
+constexpr std::uint16_t AUX_RATE_MINUS = 29005;
+constexpr std::uint16_t AUX_RATE_RESET = 29006;
+constexpr std::uint16_t AUX_CRANK = 29007;
+constexpr std::uint16_t AUX_LAMP1 = 29008;
+constexpr std::uint16_t AUX_LAMP2 = 29009;
+constexpr std::uint16_t AUX_VALVE = 29010;
+constexpr std::uint16_t AUX_COOLER_REV = 29011;
+constexpr std::uint16_t AUX_ACK = 29012;
 constexpr std::uint16_t PIC_SK_MASTER_OFF_60_K = 30000;
 constexpr std::uint16_t PIC_SK_MASTER_ON_60_K = 30001;
 constexpr std::uint16_t PIC_SK_METER1_OFF_60_K = 30002;
@@ -533,6 +546,24 @@ constexpr PageInfo PAGES[14] = {
 constexpr std::uint16_t BTN_PAGE_CALIB = 6000;
 constexpr std::uint16_t BTN_PAGE_INFO = 6001;
 constexpr std::uint16_t BTN_PAGE_DIAGNOSE = 6002;
+
+/// AUX-N funkciók: funkció objektum → az azonos műveletű softkey
+struct AuxFunction { std::uint16_t id; std::uint16_t softkey; };
+constexpr AuxFunction AUX_FUNCTIONS[13] = {
+    {29000, 5000}, // AUX_MASTER
+    {29001, 5001}, // AUX_METER1
+    {29002, 5002}, // AUX_METER2
+    {29003, 5003}, // AUX_SEC_AUTO
+    {29004, 5019}, // AUX_RATE_PLUS
+    {29005, 5020}, // AUX_RATE_MINUS
+    {29006, 5021}, // AUX_RATE_RESET
+    {29007, 5032}, // AUX_CRANK
+    {29008, 5005}, // AUX_LAMP1
+    {29009, 5006}, // AUX_LAMP2
+    {29010, 5007}, // AUX_VALVE
+    {29011, 5011}, // AUX_COOLER_REV
+    {29012, 5022}, // AUX_ACK
+};
 
 // Egyedi (nem paraméter) beviteli mezők: id, lépés, min, max
 struct CustomInput { std::uint16_t id; float step, min, max; };

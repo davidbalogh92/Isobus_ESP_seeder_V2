@@ -97,6 +97,12 @@ extern "C" void app_main() {
     web::log("INFO", "Object pool: %lu bájt, verzió %s", static_cast<unsigned long>(hwd.pool_size), vt::POOL_VERSION);
 
     isobus_app = std::make_unique<app::SeederApp>(shared);
+    isobus_app->set_aux_storage([] { return storage::load_aux(); },
+                                [](const std::vector<std::uint8_t> &b) {
+                                    const bool ok = storage::save_aux(b);
+                                    web::log(ok ? "INFO" : "ERROR", "AUX-N hozzárendelés mentése: %s", ok ? "OK" : "hiba");
+                                    return ok;
+                                });
     if (hwd.can_started) {
         if (!isobus_app->start(0, pool_start, hwd.pool_size)) web::log("ERROR", "ISOBUS alkalmazás indítás hiba");
     }

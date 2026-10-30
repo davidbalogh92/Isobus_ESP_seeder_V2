@@ -1,5 +1,6 @@
 // Az ISOBUS alkalmazásréteg tiszta függvényeinek unit tesztjei: TC geometria, kondenzált
 // munkaállapot, DDOP felépítés minden gépváltozatra, VT szövegkódolás, geometria-vázlat választás.
+#include "aux_n.hpp"
 #include "pool_scaler.hpp"
 #include "seeder_app.hpp"
 #include "tc_link.hpp"
@@ -384,6 +385,122 @@ TEST(virtual_screen_json_escapes_latin1) {
     v.numeric(5, 7);
     v.numeric(5, 7);   // azonos érték: a verzió csak egyszer nő
     CHECK(v.version() == ver + 1);
+}
+
+TEST(pool_scaler_vt2_replaces_aux_objects) {
+    const auto pool = load_pool();
+    CHECK(vt::AUX_OBJECT_COUNT == sizeof(vt::AUX_FUNCTIONS) / sizeof(vt::AUX_FUNCTIONS[0]));
+    if (pool.size() < 1000) return;
+    app::ScaleTarget t;
+    const auto vt3 = app::scale_pool(pool.data(), static_cast<std::uint32_t>(pool.size()), t);
+    t.aux_objects = false;
+    const auto vt2 = app::scale_pool(pool.data(), static_cast<std::uint32_t>(pool.size()), t);
+    CHECK(vt2.size() == pool.size());
+    for (std::uint32_t i = 0; i < vt::AUX_OBJECT_COUNT; ++i) {
+        const auto &a = vt::AUX_OBJECTS[i];
+        CHECK(vt3[a.offset + 2] == 31);
+        CHECK(rd16(vt3, a.offset) == vt::AUX_FUNCTIONS[i].id);
+        CHECK(vt2[a.offset + 2] == 22);                       // String Variable
+        CHECK(rd16(vt2, a.offset) == vt::AUX_FUNCTIONS[i].id); // az azonosító marad
+        CHECK(rd16(vt2, a.offset + 3) == a.len - 5u);
+    }
+    // a többi bájt változatlan
+    std::size_t diff = 0;
+    for (std::size_t i = 0; i < vt2.size(); ++i) diff += vt2[i] != vt3[i];
+    CHECK(diff <= vt::AUX_OBJECT_COUNT * 12u);
+}
+
+TEST(aux_assignments_roundtrip) {
+    std::vector<app::AuxDevice> d = {{0xA00086001234ULL, 7, {{vt::AUX_MASTER, 1, 2}, {vt::AUX_CRANK, 5, 2}}},
+                                     {0x1122334455667788ULL, 0, {}}};
+    const auto b = app::aux_serialize(d);
+    std::vector<app::AuxDevice> r;
+    CHECK(app::aux_deserialize(b.data(), b.size(), r));
+    CHECK(r.size() == 2 && r[0].name == d[0].name && r[0].model == 7 && r[0].list.size() == 2 &&
+          r[0].list[1].function == vt::AUX_CRANK && r[0].list[1].input == 5 && r[1].list.empty());
+    auto bad = b;
+    bad.pop_back();
+    CHECK(!app::aux_deserialize(bad.data(), bad.size(), r));
+    CHECK(!app::aux_deserialize(nullptr, 0, r));
+
+    // tárolás: eszközönként, a legutóbbi elöl, legfeljebb 4 eszköz
+    std::vector<std::uint8_t> nvs;
+    unsigned saves = 0;
+    app::AuxN aux([](std::uint16_t, std::uint8_t) {});
+    aux.set_storage([&nvs] { return nvs; }, [&nvs, &saves](const std::vector<std::uint8_t> &v) {
+        nvs = v;
+        ++saves;
+        return true;
+    });
+    CHECK(aux.load(1, 0).empty());
+    for (std::uint64_t n = 1; n <= 6; ++n) aux.store(n, 0, {{vt::AUX_LAMP1, static_cast<std::uint16_t>(n), 2}});
+    CHECK(saves == 6);
+    app::AuxN aux2([](std::uint16_t, std::uint8_t) {});
+    aux2.set_storage([&nvs] { return nvs; }, nullptr);
+    CHECK(aux2.load(6, 0).size() == 1 && aux2.load(6, 0)[0].input == 6);
+    CHECK(aux2.load(3, 0).size() == 1);
+    CHECK(aux2.load(2, 0).empty());          // kiesett (csak 4 eszköz)
+    CHECK(aux2.load(6, 1).empty());          // más modellkód
+    // régi poolból maradt, ismeretlen funkció nem töltődik vissza
+    aux.store(9, 0, {{123, 1, 2}, {vt::AUX_ACK, 2, 2}});
+    CHECK(aux.load(9, 0).size() == 1);
+}
+
+TEST(aux_buttons_drive_functions) {
+    app::Shared shared;
+    {
+        Settings st = default_settings();
+        st.drive_type = 1;   // elektromos
+        st.speed_src = 3;
+        st.lights_enable = true;
+        st.sim_speed = 0.0f;   // leforgatás csak álló gépnél
+        normalize(st);
+        shared.core.load(st, Persistent{});
+    }
+    app::SeederApp a(shared);
+    run_app(a, 0.3f);
+    auto master = [&] {
+        run_app(a, 0.1f);
+        std::lock_guard<std::mutex> g(shared.lock);
+        return shared.core.status().master;
+    };
+    auto lamp = [&] {
+        run_app(a, 0.1f);
+        std::lock_guard<std::mutex> g(shared.lock);
+        return shared.core.status().lamp[0];
+    };
+    auto hold = [&] {
+        run_app(a, 0.1f);
+        std::lock_guard<std::mutex> g(shared.lock);
+        return shared.core.status().crank.hold;
+    };
+    CHECK(!master());
+    // lenyomás → egyszer vált; a nyomva tartás (ismétlődő 2-es) és az elengedés nem
+    CHECK(a.aux_input(vt::AUX_MASTER, 1));
+    CHECK(master());
+    a.aux_input(vt::AUX_MASTER, 2);
+    a.aux_input(vt::AUX_MASTER, 2);
+    a.aux_input(vt::AUX_MASTER, 0);
+    a.aux_input(vt::AUX_MASTER, 0);
+    CHECK(master());
+    a.aux_input(vt::AUX_MASTER, 1);
+    CHECK(!master());
+    // ismeretlen funkció
+    CHECK(!a.aux_input(1234, 1));
+    // munkalámpa a virtuális terminál „aux” eseményével (Windows-program próbája)
+    CHECK(!lamp());
+    CHECK(a.virtual_vt_event("aux", vt::AUX_LAMP1, 0, 1));
+    CHECK(lamp());
+    a.virtual_vt_event("aux", vt::AUX_LAMP1, 0, 0);
+    CHECK(lamp());
+    // leforgatás: nyomva tartásra fut, elengedésre áll
+    a.aux_input(vt::AUX_CRANK, 1);
+    CHECK(hold());
+    a.aux_input(vt::AUX_CRANK, 2);
+    CHECK(hold());
+    a.aux_input(vt::AUX_CRANK, 0);
+    CHECK(!hold());
+    CHECK(has(a.aux_json(), "\"functions\":13"));
 }
 
 int main() {

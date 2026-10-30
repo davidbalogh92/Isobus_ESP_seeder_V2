@@ -21,6 +21,16 @@ def unrle(data):
 
 
 class PoolStructure(unittest.TestCase):
+    def test_aux_functions(self):
+        # a Windows-program (DiagPage.AuxNames) a 29000-től folyamatos sorrendre épít
+        self.assertEqual(G.AUX_IDS, list(range(29000, 29000 + len(G.AUX_FUNCS))))
+        for i in G.AUX_IDS:
+            o = G.P.objs[i]
+            self.assertEqual(o.type, G.T_AUXFN2)
+            self.assertEqual(o.body[1] & 0x1F, G.AUX_MOMENTARY)
+            (c, _x, _y), = o.meta["kids"]
+            self.assertIn(c, G._key_pics)
+
     def test_every_child_reference_exists(self):
         for o in G.P.objs.values():
             for c, _x, _y in o.meta.get("kids", []):
