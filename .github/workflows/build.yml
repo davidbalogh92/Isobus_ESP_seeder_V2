@@ -104,11 +104,20 @@ jobs:
             if ($p.ExitCode -ne 0) { Write-Output "::error::Kirajzolás hiba: $($_.Name)"; exit 1 }
           }
           Start-Process -FilePath out/SeederVT.exe -ArgumentList @('--render', 'generated/object_pool.iop', 'tests/fixtures/vt/01_main.json', 'preview/01_main_kicsi.png', '820', '520') -Wait -NoNewWindow
-      - uses: actions/upload-artifact@v4
-        with:
-          name: VETOGEP-windows-preview
-          path: preview/
-          retention-days: 7
+      - name: Képek a ci-preview ágra (fejlesztői ellenőrzéshez)
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        run: |
+          git config user.name "ci"
+          git config user.email "ci@users.noreply.github.com"
+          $tmp = Join-Path $env:RUNNER_TEMP "prev"
+          Copy-Item -Recurse preview $tmp
+          git checkout --orphan ci-preview
+          git rm -rf --quiet .
+          Copy-Item "$tmp/*" .
+          git add *.png
+          git commit -q -m "Windows-program képernyő-ellenőrzés ($env:GITHUB_SHA)"
+          git push -f origin ci-preview
       - uses: actions/upload-artifact@v4
         with:
           name: VETOGEP-windows
