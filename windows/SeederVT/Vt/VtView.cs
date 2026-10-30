@@ -24,6 +24,7 @@ public sealed class VtView : Control
     private readonly Dictionary<(int, bool), Font> _fonts = new();
     private string _overlay = "";
     private readonly System.Drawing.Imaging.ImageAttributes _tile = MakeTile();
+    private readonly Dictionary<(ushort, int, int), Bitmap> _scaledPics = new();
 
     private static System.Drawing.Imaging.ImageAttributes MakeTile()
     {
@@ -53,6 +54,7 @@ public sealed class VtView : Control
     public void SetPool(Pool? pool)
     {
         _pool = pool;
+        ClearScaled();
         Invalidate();
     }
 
@@ -240,15 +242,48 @@ public sealed class VtView : Control
             case VtType.Picture:
             {
                 var bmp = _pool.Picture(o);
-                if (bmp != null)
-                {
-                    // a széleken ne keveredjen be átlátszó szegély (halvány keret) a nagyításkor
-                    var dest = new[] { new PointF(x, y), new PointF(x + o.W, y), new PointF(x, y + o.H) };
-                    g.DrawImage(bmp, dest, new RectangleF(0, 0, o.W, o.H), GraphicsUnit.Pixel, _tile);
-                }
+                if (bmp != null) DrawPicture(g, o, bmp, x, y);
                 break;
             }
         }
+    }
+
+    /// <summary>
+    /// Kép kirajzolása halvány keret nélkül: a képet egyszer, egész képpontos méretre átméretezzük
+    /// (SourceCopy, a szélek tükrözve), és egész képpontos helyre, további méretezés nélkül tesszük ki.
+    /// </summary>
+    private void DrawPicture(Graphics g, VtObject o, Bitmap bmp, float x, float y)
+    {
+        var pts = new[] { new PointF(x, y), new PointF(x + o.W, y + o.H) };
+        using (var m = g.Transform) m.TransformPoints(pts);
+        int dx = (int)Math.Round(pts[0].X), dy = (int)Math.Round(pts[0].Y);
+        int dw = (int)Math.Round(pts[1].X) - dx, dh = (int)Math.Round(pts[1].Y) - dy;
+        if (dw <= 0 || dh <= 0) return;
+        if (!_scaledPics.TryGetValue((o.Id, dw, dh), out var sb))
+        {
+            sb = new Bitmap(dw, dh, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            using (var sg = Graphics.FromImage(sb))
+            {
+                sg.CompositingMode = CompositingMode.SourceCopy;
+                sg.InterpolationMode = dw == o.W && dh == o.H ? InterpolationMode.NearestNeighbor : InterpolationMode.HighQualityBicubic;
+                sg.PixelOffsetMode = PixelOffsetMode.Half;
+                sg.DrawImage(bmp, new Rectangle(0, 0, dw, dh), 0, 0, o.W, o.H, GraphicsUnit.Pixel, _tile);
+            }
+            if (_scaledPics.Count > 600) ClearScaled();   // ablakméret-váltáskor ne nőjön a végtelenségig
+            _scaledPics[(o.Id, dw, dh)] = sb;
+        }
+        var st = g.Save();
+        g.ResetTransform();
+        g.InterpolationMode = InterpolationMode.NearestNeighbor;
+        g.PixelOffsetMode = PixelOffsetMode.Half;
+        g.DrawImage(sb, new Rectangle(dx, dy, dw, dh), 0, 0, dw, dh, GraphicsUnit.Pixel);
+        g.Restore(st);
+    }
+
+    private void ClearScaled()
+    {
+        foreach (var b in _scaledPics.Values) b.Dispose();
+        _scaledPics.Clear();
     }
 
     private void DrawRect(Graphics g, VtObject o, float x, float y)
@@ -389,6 +424,7 @@ public sealed class VtView : Control
         {
             _holdTimer.Dispose();
             _tile.Dispose();
+            ClearScaled();
             foreach (var f in _fonts.Values) f.Dispose();
         }
         base.Dispose(disposing);
