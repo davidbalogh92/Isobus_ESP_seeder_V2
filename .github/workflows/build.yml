@@ -95,6 +95,20 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           $tag = $ver -replace '\.', ''
           Copy-Item out/SeederVT.exe "dist/VETOGEP_WINDOWS_v$tag.exe"
+      - name: Képernyő-ellenőrzés (a pool kirajzolása rögzített állapotokból)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path preview | Out-Null
+          Get-ChildItem tests/fixtures/vt/*.json | ForEach-Object {
+            $p = Start-Process -FilePath out/SeederVT.exe -ArgumentList @('--render', 'generated/object_pool.iop', $_.FullName, "preview/$($_.BaseName).png") -Wait -PassThru -NoNewWindow
+            if ($p.ExitCode -ne 0) { Write-Output "::error::Kirajzolás hiba: $($_.Name)"; exit 1 }
+          }
+          Start-Process -FilePath out/SeederVT.exe -ArgumentList @('--render', 'generated/object_pool.iop', 'tests/fixtures/vt/01_main.json', 'preview/01_main_kicsi.png', '820', '520') -Wait -NoNewWindow
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VETOGEP-windows-preview
+          path: preview/
+          retention-days: 7
       - uses: actions/upload-artifact@v4
         with:
           name: VETOGEP-windows
