@@ -368,6 +368,35 @@ TEST(electric_drive_master_still_needed) {
     CHECK(s.status().state == SowState::Sowing);
 }
 
+TEST(electric_drive_work_switch_lift_and_lower) {
+    // elektromos hajtás + NO munkakapcsoló: kiemelve a motor áll, leengedve hajt (vetés BE mellett)
+    Seeder s = make([](Settings &st) { st.drive_type = 1; st.prefill_auto = 0; });
+    Machine m = down_machine();
+    s.set_master(true);
+    m.run(s, 3.0f);
+    CHECK(s.status().state == SowState::Sowing);
+    CHECK(s.outputs().motor_pwm_pct[0] > 1.0f);
+    m.in.work_contact = false;   // kiemelés
+    m.run(s, 1.0f);
+    CHECK(!s.status().work_down);
+    CHECK(s.status().state == SowState::Raised);
+    CHECK(s.outputs().motor_pwm_pct[0] < 0.5f && s.outputs().motor_pwm_pct[1] < 0.5f);
+    m.in.work_contact = true;    // leengedés
+    m.run(s, 2.0f);
+    CHECK(s.status().state == SowState::Sowing);
+    CHECK(s.outputs().motor_pwm_pct[0] > 1.0f);
+}
+
+TEST(electric_drive_work_switch_ignored_in_input_simulation) {
+    // a bemenet-szimuláció a munkakapcsolót „lent”-re kényszeríti (próbapadi teszthez)
+    Seeder s = make([](Settings &st) { st.drive_type = 1; st.prefill_auto = 0; st.sim_inputs = 1; });
+    Machine m = down_machine();
+    s.set_master(true);
+    m.in.work_contact = false;
+    m.run(s, 2.0f);
+    CHECK(s.status().work_down);
+}
+
 TEST(clutch_polarity_options) {
     Seeder s = make([](Settings &st) { st.clutch_mode = 1; }); // áram alatt old
     Machine m = down_machine();
