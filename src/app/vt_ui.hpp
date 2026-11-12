@@ -45,7 +45,7 @@ public:
     void attach(isobus::VirtualTerminalClient &client);
 
 private:
-    enum class Page : std::uint8_t { Main, Func, Info, Menu, Settings, Calib, Diagnose, Tune, Jam, Group, TuneInfo };
+    enum class Page : std::uint8_t { Main, Func, Info, Menu, Settings, Calib, Diagnose, Tune, Jam, Group, TuneInfo, Tank };
 
     void go(Page page, std::uint16_t mask = 0);
     void open_group(int g);
@@ -68,6 +68,7 @@ private:
     void update_pages(const Snapshot &s);
     void update_calib(const Snapshot &s);
     void update_diagnose(const Snapshot &s);
+    void update_tank(const Snapshot &s);
     void update_tune(const Snapshot &s);
     void update_jam(const Snapshot &s);
 

@@ -69,6 +69,15 @@ def main():
     save("07_group.json")
     ev("key", "K_BACK")
     ev("key", "K_BACK")
+    post("/api/param", {"key": "tank_fill", "value": 2})
+    post("/api/cmd", {"cmd": "tank_set1", "value": 850})
+    post("/api/cmd", {"cmd": "tank_set2", "value": 420})
+    ev("key", "K_MENU")
+    ev("button", "BTN_PAGE_TANK")
+    save("08_tank.json")
+    ev("key", "K_BACK")
+    ev("key", "K_BACK")
+    post("/api/param", {"key": "tank_fill", "value": 0})
 
 
 if __name__ == "__main__":

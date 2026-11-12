@@ -73,8 +73,8 @@ int main(int argc, char **argv) {
         ss << f.rdbuf();
         res.set_content(ss.str(), "application/octet-stream");
     });
-    for (const char *p : {"/api/state", "/api/schema", "/api/config", "/api/crops", "/api/vt"}) srv.Get(p, api);
-    for (const char *p : {"/api/config", "/api/param", "/api/cmd", "/api/vt/event"}) srv.Post(p, api);
+    for (const char *p : {"/api/state", "/api/schema", "/api/config", "/api/crops", "/api/vt", "/api/profile.csv"}) srv.Get(p, api);
+    for (const char *p : {"/api/config", "/api/param", "/api/cmd", "/api/vt/event", "/api/profile"}) srv.Post(p, api);
     std::printf("Webes demó: http://localhost:%d\n", port);
     srv.listen("0.0.0.0", port);
     run = false;

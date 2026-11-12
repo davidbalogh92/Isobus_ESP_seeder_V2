@@ -26,6 +26,8 @@ namespace app {
 struct Shared {
     std::mutex lock;
     seeder::Seeder core;
+    /// gépprofil (CSV) tartós mentése; üres: nem menthető (PC demó). Üres szöveg = beépített táblázat.
+    std::function<bool(const std::string &csv)> save_profile;
 };
 
 /// Pillanatkép a kijelzéshez (zár nélkül dolgozható fel).

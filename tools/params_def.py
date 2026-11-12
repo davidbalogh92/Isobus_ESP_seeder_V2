@@ -87,6 +87,11 @@ add("meter_count", "machine", "Adagolók száma", "Adagolók száma", "int", 2, 
     vt_page="machine")
 add("tank_count", "machine", "Tartályok (rekeszek) száma", "Tartályok száma", "int", 2, 1, 2, 1, 0, "db",
     vt_page="machine")
+add("tank_fill", "machine", "Tartálytöltet követése", "Töltet követés", "enum", 0,
+    options=("Kikapcsolva", "Közös mennyiség", "Tartályonként"), vt_page="machine",
+    help="Tájékoztató: a megadott tankolt mennyiségből levonja a kijuttatott vetőmagot, és a főképernyő "
+         "tartályán mutatja a maradékot (nem riaszt). Közös: két tartálynál is egy mennyiség; Tartályonként: "
+         "rekeszenként külön. A tankolás a Beállítások → Tartálytöltet oldalon (VT) vagy a weben adható meg.")
 add("meter_layout", "machine", "Két adagoló elrendezése", "Adagolók", "enum", 0,
     options=("Bal / jobb félszélesség", "Első / hátsó sor (teljes szélesség)"), vt_page="machine",
     help="Első/hátsó soros gépnél mindkét adagoló a teljes szélességet veti: a terület mindig a teljes "

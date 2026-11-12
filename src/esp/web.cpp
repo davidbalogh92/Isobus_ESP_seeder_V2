@@ -122,7 +122,9 @@ std::string hw_json() {
 /// Közös API-kezelő: a logika a platformfüggetlen app::handle_api()-ban van.
 esp_err_t api_generic(httpd_req_t *req) {
     std::string body;
-    if (req->method == HTTP_POST && !read_body(req, body)) return send_error(req, "Hiányzó vagy túl nagy kérés");
+    const bool profile = std::strncmp(req->uri, "/api/profile", 12) == 0;
+    if (req->method == HTTP_POST && !read_body(req, body, profile ? 24576 : 8192) && !(profile && req->content_len == 0))
+        return send_error(req, "Hiányzó vagy túl nagy kérés");
     std::string path = req->uri;
     const std::size_t q = path.find('?');
     const bool download = q != std::string::npos && path.find("download", q) != std::string::npos;
@@ -130,6 +132,13 @@ esp_err_t api_generic(httpd_req_t *req) {
     const app::ApiResult r = app::handle_api(*shared, isobus.load(), req->method == HTTP_POST ? "POST" : "GET",
                                              path, body, hw_json(), SEEDER_FW_VERSION, ssid);
     if (r.status == 404) return httpd_resp_send_404(req);
+    if (path == "/api/profile.csv") {
+        httpd_resp_set_type(req, r.content_type);
+        httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=\"gepprofil.csv\"");
+        httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+        return httpd_resp_send(req, r.body.c_str(), r.body.size());
+    }
+    if (r.status == 200 && path == "/api/profile") log("INFO", "Gépprofil betöltve");
     if (download) httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=\"vetogep-beallitasok.json\"");
     if (r.status == 400 && path == "/api/config") log("WARN", "Beállítás import elutasítva");
     return send_json(req, r.body, r.status == 200 ? nullptr : "400 Bad Request");
@@ -320,6 +329,8 @@ bool start(app::Shared *sh, app::SeederApp *ia, const char *wifi_password) {
         {"/api/state", HTTP_GET, api_generic},
         {"/api/schema", HTTP_GET, api_generic},
         {"/api/crops", HTTP_GET, api_generic},
+        {"/api/profile.csv", HTTP_GET, api_generic},
+        {"/api/profile", HTTP_POST, api_generic},
         {"/api/config", HTTP_GET, api_generic},
         {"/api/config", HTTP_POST, api_generic},
         {"/api/param", HTTP_POST, api_generic},

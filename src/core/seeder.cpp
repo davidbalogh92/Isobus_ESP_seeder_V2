@@ -342,8 +342,9 @@ Seeder::Seeder() : settings_(default_settings()) { update_crank_result(); }
 void Seeder::load(const Settings &settings, const Persistent &persistent) {
     settings_ = settings;
     normalize(settings_);
-    if (persistent.magic == Persistent::MAGIC && persistent.version == Persistent::VERSION) {
-        persistent_ = persistent;
+    if (persistent.magic == Persistent::MAGIC && (persistent.version == Persistent::VERSION || persistent.version == 2)) {
+        persistent_ = persistent;   // 2-es: a rövidebb blob végén lévő új mezők alapértéken jönnek
+        persistent_.version = Persistent::VERSION;
     } else if (persistent.magic == Persistent::MAGIC && persistent.version == 1) {
         // 1-es változat: a régi mezők megmaradnak, az újak alapértéket kapnak
         persistent_ = Persistent{};
@@ -641,8 +642,42 @@ void Seeder::crank_set_meter(int meter) {
     crank_.meter = meter >= 0 && meter < meter_count(settings_) ? meter : 0;
     crank_reset_count();
 }
+int Seeder::tank_fill_count(const Settings &S) {
+    if (S.tank_fill <= 0) return 0;
+    return (S.tank_fill == 2 && tank_count(S) >= 2 && meter_count(S) >= 2) ? 2 : 1;
+}
+bool Seeder::tank_set(int i, float kg) {
+    const int n = tank_fill_count(settings_);
+    if (i < 0 || i >= n || !(kg >= 0.0f) || kg > 100000.0f) return false;
+    persistent_.tank_kg[i] = kg;
+    persistent_.tank_ref_kg[i] = kg;
+    persistent_dirty = true;
+    return true;
+}
+bool Seeder::tank_add(int i, float kg) {
+    const int n = tank_fill_count(settings_);
+    if (i < 0 || i >= n || !(kg > 0.0f) || kg > 100000.0f) return false;
+    persistent_.tank_kg[i] += kg;
+    persistent_.tank_ref_kg[i] = persistent_.tank_kg[i];
+    persistent_dirty = true;
+    return true;
+}
+
 void Seeder::crank_set_crop(int crop) {
-    if (crop >= 0 && crop < chart::CROP_COUNT) crank_.crop = crop;
+    if (crop >= 0 && crop < chart::crop_count()) crank_.crop = crop;
+    update_crank_result();
+}
+void Seeder::profile_changed(bool apply_turns) {
+    const chart::Table &t = chart::table();
+    if (apply_turns) {   // új táblázat (feltöltés): a növényenként tanult terhelési alapszintek érvénytelenek
+        if (!t.builtin && t.turns10 > 0.0f) set_param(P_crank_turns_10, t.turns10);
+        for (auto &l : persistent_.crop_load) l = 0.0f;
+        for (auto &c : persistent_.meter_crop) c = -1;
+        persistent_dirty = true;
+    }
+    if (crank_.crop >= t.ncrop) crank_.crop = 0;
+    for (auto &c : persistent_.meter_crop)
+        if (c >= t.ncrop) c = -1;
     update_crank_result();
 }
 void Seeder::crank_set_turns(int option) {
@@ -1313,6 +1348,11 @@ void Seeder::tick(const TickInputs &input) {
             const double kg = static_cast<double>(revs) * kg_rev;
             persistent_.day.kg[i] += kg;
             persistent_.total.kg[i] += kg;
+            const int tn = tank_fill_count(S);
+            if (tn > 0) {   // tájékoztató tartálytöltet
+                float &t = persistent_.tank_kg[tn == 2 ? i : 0];
+                t = std::max(0.0f, t - static_cast<float>(kg));
+            }
         }
         const float area_rate = sp.kmh * m.width_m / 600.0f; // ha/perc
         m.actual_rate = (m.running && moving && area_rate > 0.0f) ? m.kg_per_min / area_rate : 0.0f;
@@ -1576,6 +1616,15 @@ void Seeder::tick(const TickInputs &input) {
     st.meter_count = n_met;
     st.section_count = n_sec;
     st.tank_count = n_tank;
+    st.tank_fill = S.tank_fill;
+    st.tank_fill_n = tank_fill_count(S);
+    for (int i = 0; i < 2; ++i) {
+        const bool used = i < st.tank_fill_n;
+        st.tank_kg[i] = used ? persistent_.tank_kg[i] : 0.0f;
+        st.tank_pct[i] = used && persistent_.tank_ref_kg[i] > 0.5f
+                             ? std::min(100.0f, 100.0f * persistent_.tank_kg[i] / persistent_.tank_ref_kg[i])
+                             : 0.0f;
+    }
     for (int i = 0; i < MAX_SECTIONS; ++i) {
         st.section_on[i] = section_on[i] && master && work_ok;
         st.tc_setpoint[i] = tc_setpoint_[i];
@@ -1658,6 +1707,10 @@ std::string Seeder::status_json() const {
     append_kv(o, "meters", static_cast<double>(st.meter_count), 0);
     append_kv(o, "sections", static_cast<double>(st.section_count), 0);
     append_kv(o, "tanks", static_cast<double>(st.tank_count), 0);
+    append_kv(o, "tank_fill", static_cast<double>(st.tank_fill), 0);
+    append_kv(o, "tank_fill_n", static_cast<double>(st.tank_fill_n), 0);
+    o += "\"tank_kg\":[" + std::to_string(std::lround(st.tank_kg[0])) + "," + std::to_string(std::lround(st.tank_kg[1])) +
+         "],\"tank_pct\":[" + std::to_string(std::lround(st.tank_pct[0])) + "," + std::to_string(std::lround(st.tank_pct[1])) + "],";
     append_kv(o, "electric", electric_drive(settings_));
     o += "\"meter\":[";
     for (int i = 0; i < MAX_METERS; ++i) {

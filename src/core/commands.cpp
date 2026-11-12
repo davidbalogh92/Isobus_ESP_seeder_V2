@@ -86,6 +86,14 @@ bool apply_command(Seeder &s, const std::string &c, double v, std::string &error
     } else if (c == "prefill_stop") s.prefill_stop();
     else if (c == "ack") s.ack_alarms();
     else if (c == "reset_day") s.reset_day();
+    else if (c == "tank_set1" || c == "tank_set2" || c == "tank_add1" || c == "tank_add2") {
+        const int i = c.back() == '2' ? 1 : 0;
+        const bool ok = c[5] == 's' ? s.tank_set(i, static_cast<float>(v)) : s.tank_add(i, static_cast<float>(v));
+        if (!ok) {
+            error = s.settings().tank_fill == 0 ? "A tartálytöltet követése ki van kapcsolva" : "Érvénytelen tartály vagy mennyiség";
+            return false;
+        }
+    }
     else if (c == "wheel_cal_start") s.wheel_cal_start();
     else if (c == "wheel_cal_stop") s.wheel_cal_stop();
     else if (c == "wheel_cal_cancel") s.wheel_cal_cancel();

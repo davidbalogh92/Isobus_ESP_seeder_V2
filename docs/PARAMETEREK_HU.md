@@ -10,6 +10,7 @@ _Generált fájl (tools/gen_params.py). Minden paraméter a webes felületen (Be
 | `section_count` | Szakaszok száma | 2 db | 1 – 2 db | GÉP | 2 szakasz: az 1. adagoló a bal, a 2. a jobb félszélességet veti. 1 szakasz: a Task Controller a teljes szélességet egyben kapcsolja (pl. első/hátsó soros gépnél mindkét adagolót együtt), a két adagoló gombja a kezelőnek továbbra is külön működik. |
 | `meter_count` | Adagolók száma | 2 db | 1 – 2 db | GÉP |  |
 | `tank_count` | Tartályok (rekeszek) száma | 2 db | 1 – 2 db | GÉP |  |
+| `tank_fill` | Tartálytöltet követése | Kikapcsolva | Kikapcsolva / Közös mennyiség / Tartályonként | GÉP | Tájékoztató: a megadott tankolt mennyiségből levonja a kijuttatott vetőmagot, és a főképernyő tartályán mutatja a maradékot (nem riaszt). Közös: két tartálynál is egy mennyiség; Tartályonként: rekeszenként külön. A tankolás a Beállítások → Tartálytöltet oldalon (VT) vagy a weben adható meg. |
 | `meter_layout` | Két adagoló elrendezése | Bal / jobb félszélesség | Bal / jobb félszélesség / Első / hátsó sor (teljes szélesség) | GÉP | Első/hátsó soros gépnél mindkét adagoló a teljes szélességet veti: a terület mindig a teljes szélességgel számolódik, és csak 1 szakasz lehet. |
 | `sec_w1` | 1. (bal) szakasz szélessége | 3.0 m | 0.1 – 20 m | GÉP | 2 szakasznál. A 2. szakasz = munkaszélesség − 1. szakasz. |
 

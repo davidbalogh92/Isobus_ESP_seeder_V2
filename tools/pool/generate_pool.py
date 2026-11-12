@@ -524,15 +524,15 @@ STR_AUTO = S("Automata", 180, 22, F_LABEL, name="STR_AUTO")
 STR_MANUAL = S("Kézi", 180, 22, F_LABEL, name="STR_MANUAL")
 STR_METER = [S("1. adagoló", 150, 22, F_LABEL, name="STR_METER1"),
              S("2. adagoló", 150, 22, F_LABEL, name="STR_METER2")]
-STR_SETUP = [S("A (nyitott)", 112, 14, F_SMALL, name="STR_SETUP_A"),
-             S("Z + NORMÁL", 112, 14, F_SMALL, name="STR_SETUP_ZN"),
-             S("Z + MIKRO", 112, 14, F_SMALL, name="STR_SETUP_ZM")]
+STR_SETUP_DYN = S("A (nyitott)".ljust(16), 112, 14, F_SMALL, name="STR_SETUP_DYN")   # a profil beállítási szövege
 NOTE_TEXTS = ["", "Kívánt menny. a táblázat felett!", "Kívánt menny. a táblázat alatt!",
               "Próbaskála a táblázaton kívül!", "Új skála max: nagyobb kerék kell",
               "Új skála min: aprómag-beállítás", "Állítsd be, forgasd le, mérd le"]
 STR_NOTE = [S(t, 388, 18, F_LABEL_R if 0 < i < 6 else F_LABEL, name=f"STR_NOTE_{i}") for i, t in enumerate(NOTE_TEXTS)]
-CROPS = ["Búza", "Rozs", "Árpa", "Zab", "Lóbab", "Borsó", "Csillagfürt", "Bükköny", "Kukorica", "Fû",
-         "Repce", "Vöröshere", "Fû aprómag", "Tarlórépa"]
+# a növénylista futás közben a gépprofilból íródik (16 hely, CROP_CHARS karakter); az alap a beépített Accord tábla
+CROP_SLOTS, CROP_CHARS = 16, 14
+CROPS = [t.ljust(CROP_CHARS) for t in ["Búza", "Rozs", "Árpa", "Zab", "Lóbab", "Borsó", "Csillagfürt", "Bükköny",
+                                        "Kukorica", "Fû", "Repce", "Vöröshere", "Fû (aprómag)", "Tarlórépa", "", ""]]
 TURNS = ["85      ", "42,5    ", "17      "]   # futás közben átírva (fordulat 1/10 ha-ra)
 
 # ================================================================== FŐKÉPERNYŐ
@@ -563,6 +563,14 @@ add = main_kids.append
 tank_x = (MASK - 2 * TW) // 2
 add((P.obj_ptr(27100, PIC_TANK_L[1], "OP_TANK_L"), tank_x, 2))
 add((P.obj_ptr(27101, PIC_TANK_R[1], "OP_TANK_R"), tank_x + TW, 2))
+# tartálytöltet (tájékoztató): rekeszenként vagy középen egy közös érték, a követés bekapcsolásakor látszik
+TKW = TW - 14
+for _side, _x in (("L", tank_x + 8), ("R", tank_x + TW + 6)):
+    add((C(TKW, 22, [(R(TKW, 22, FL_WHITE, L_GREY), 0, 0),
+                     (S(" " * 8, TKW - 4, 18, F_LABEL, align=1, name=f"STR_TANK_{_side}"), 2, 2)],
+           hidden=True, name=f"CONT_TANK_{_side}"), _x, 70))
+add((C(120, 22, [(R(120, 22, FL_WHITE, L_GREY), 0, 0), (S(" " * 9, 116, 18, F_LABEL, align=1, name="STR_TANK_C"), 2, 2)],
+       hidden=True, name="CONT_TANK_C"), tank_x + TW - 60, 70))
 # adagolók + munkahelyzet
 MY = 116
 add((P.obj_ptr(27102, PIC_METER[4], "OP_METER1"), 30, MY))
@@ -645,14 +653,15 @@ DM_INFO = P.data_mask(1020, SK_INFO, info, name="DM_INFO")
 menu = title_bar("BEÁLLÍTÁSOK")
 # elöl a napi használat (leforgatás, számlálók, diagnosztika), utána a beállítás-csoportok
 # (egyoldalas csoport közvetlenül az oldalt nyitja, több oldalasnál a csoport almenüje jön)
-menu_items = ["calib", "info", "diagnose"] + ["gr_" + g for g in GROUP_IDS]
-MENU_LABEL = {"calib": "Leforgatás", "info": "Számlálók", "diagnose": "Diagnosztika",
+menu_items = ["calib", "info", "tank", "diagnose"] + ["gr_" + g for g in GROUP_IDS]
+MENU_LABEL = {"calib": "Leforgatás", "info": "Számlálók", "diagnose": "Diagnosztika", "tank": "Tartálytölt.",
               **{"gr_" + g: lab for g, lab, _ic, _p in pd.VT_GROUPS}}
 # a menügombon legfeljebb 12 karakter fér el
 MENU_LABEL.update({"gr_machine": "Gép, geom.", "gr_drive": "Hajtás", "gr_fan": "Turbina, hût.",
                    "gr_tc": "Szakaszolás"})
 MENU_LABEL["gr_fan"] = "Turbina"
 MENU_ICON = {"calib": "softkeys/softkey_crank", "info": "menu/menu_counters", "diagnose": "menu/menu_diagnose",
+             "tank": "main/main_tank_left_full",
              **{"gr_" + g: ic for g, _l, ic, _p in pd.VT_GROUPS}}
 BTN = {}
 rows_n = (len(menu_items) + 1) // 2
@@ -697,6 +706,7 @@ for gi, (gid, glabel, _icon, pages) in enumerate(pd.VT_GROUPS):
 # ================================================================== BEÁLLÍTÓOLDALAK
 VT_OPTION_SHORT = {
     "motor_layout": ("Saját motor", "Egy motor"),
+    "tank_fill": ("Kikapcsolva", "Közös", "Tartályonként"),
     "motor_driver": ("Csak PWM", "PWM + DIR", "PWM + PWM", "Keya CAN"),
     "keya_unit": ("Kimenet", "Motortengely"),
     "meter_layout": ("Bal / jobb", "Elsõ / hátsó"),
@@ -883,15 +893,15 @@ for page_no, (pid, title) in enumerate(pd.VT_PAGES):
     PAGE_MASK[pid] = P.data_mask(1040 + page_no, PAGE_SK.get(pid, SK_BACK), kids, name="DM_PAGE_" + pid.upper())
 
 # ================================================================== LEFORGATÁS
-cal = title_bar("LEFORGATÁS (ACCORD)")
+cal = title_bar("LEFORGATÁS")
 h = 32
 y = 42
 cal_rows = [
     lambda: output_row("Adagoló", P.obj_ptr(27140, STR_METER[0], "OP_CAL_METER"), "", h),
-    lambda: custom_list("Növény", "VT_IN_CAL_CROP", CROPS, h),
+    lambda: custom_list("Növény", "VT_IN_CAL_CROP", CROPS, h, [f"STR_CROP_{k}" for k in range(CROP_SLOTS)]),
     lambda: custom_row("Kívánt mennyiség", "VT_IN_CAL_RATE", 0.5, 0.5, 1000, 1, "kg/ha", h, 200),
     lambda: output_row("Táblázati skála", C(186, 28, [(N("OUT_CAL_SCALE", 64, F_VALUE_N, 1, 0.1), 0, 0),
-                                                      (P.obj_ptr(27141, STR_SETUP[0], "OP_CAL_SETUP"), 70, 6)]),
+                                                      (STR_SETUP_DYN, 70, 6)]),
                        "", h),
     lambda: custom_list("Fordulat", "VT_IN_CAL_TURNS", TURNS, h, [f"STR_TURN_{k}" for k in range(3)]),
     lambda: custom_row("Próbaskála", "VT_IN_CAL_TSCALE", 0.1, 0, 200, 1, "", h),
@@ -1040,6 +1050,31 @@ for fn in jam_rows:
 assert y <= MASK + 2, y
 DM_JAM = P.data_mask(1076, SK_JAM, jm, name="DM_JAM")
 
+# ================================================================== TARTÁLYTÖLTET
+TANK_MODES = ["Kikapcsolva", "Közös", "Tartályonként"]
+STR_TANK_MODE = [S(t, 186, 22, F_LABEL, name=f"STR_TANK_MODE_{i}") for i, t in enumerate(TANK_MODES)]
+tk = title_bar("TARTÁLYTÖLTET")
+h = 34
+y = 42
+tk += [(cid, x, y + yy) for cid, x, yy in output_row("Követés", P.obj_ptr(27195, STR_TANK_MODE[0], "OP_TANK_MODE"), "", h)]
+y += h
+for _i in range(2):
+    _rows = [heading(f"{_i + 1}. TARTÁLY" if _i else "1. TARTÁLY / KÖZÖS", h),
+             custom_row("Bent lévõ", f"VT_IN_TANK{_i + 1}", 1, 0, 50000, 0, "kg", h),
+             custom_row("Tankolás  +", f"VT_IN_TANK{_i + 1}_ADD", 1, 0, 50000, 0, "kg", h),
+             output_row("Maradék", num_out(f"OUT_TANK{_i + 1}_PCT"), "%", h)]
+    _kids = []
+    _yy = 0
+    for _r in _rows:
+        _kids += [(cid, x, _yy + yy2) for cid, x, yy2 in _r]
+        _yy += h
+    tk.append((C(MASK, _yy, _kids, hidden=_i == 1, name=f"CONT_TANKPG{_i + 1}"), 0, y))
+    y += _yy
+tk += [(S("A + mezõ hozzáad, a Bent lévõ felülír.", font=F_SMALL), 6, y + 4),
+       (S("Csak tájékoztató, nem riaszt.", font=F_SMALL), 6, y + 20)]
+assert y + 36 <= MASK + 2, y
+DM_TANK = P.data_mask(1078, SK_BACK, tk, name="DM_TANK")
+
 # ================================================================== RIASZTÁS
 alarm_kids = [(PIC("main/main_alarm", 120, bg=WHITE), (MASK - 120) // 2, 40),
               (P.obj_ptr(27150, STR_ALARM_BIG[0], "OP_ALARM_TEXT"), 10, 190),
@@ -1093,7 +1128,7 @@ ARRAYS = {
     "PIC_K_COOLER_REV": PIC_K_COOLER_REV, "STR_REV": STR_REV, "STR_SRC": STR_SRC,
     "SK_FUNC": SK_FUNC, "STR_ALARM": STR_ALARM, "STR_ALARMBIG": STR_ALARM_BIG, "STR_CAL": CAL_STATE,
     "STR_METER": STR_METER, "STR_TUNE": STR_TUNE, "PIC_K_TUNE_METER": PIC_K_TUNE_METER,
-          "STR_DRV": STR_DRV, "PIC_K_JAM_METER": PIC_K_JAM_METER, "STR_SETUP": STR_SETUP, "STR_NOTE": STR_NOTE, "K_BLANK": K_BLANK,
+          "STR_DRV": STR_DRV, "STR_TANK_MODE": STR_TANK_MODE, "PIC_K_JAM_METER": PIC_K_JAM_METER, "STR_NOTE": STR_NOTE, "K_BLANK": K_BLANK,
 }
 
 
@@ -1134,6 +1169,7 @@ def header_text(pool_bytes: bytes) -> str:
     lines.append(f"constexpr std::uint16_t BTN_PAGE_CALIB = {BTN['calib']};")
     lines.append(f"constexpr std::uint16_t BTN_PAGE_INFO = {BTN['info']};")
     lines.append(f"constexpr std::uint16_t BTN_PAGE_DIAGNOSE = {BTN['diagnose']};")
+    lines.append(f"constexpr std::uint16_t BTN_PAGE_TANK = {BTN['tank']};")
     lines.append("")
     lines.append("/// AUX-N funkciók: funkció objektum → az azonos műveletű softkey")
     lines.append("struct AuxFunction { std::uint16_t id; std::uint16_t softkey; };")

@@ -278,19 +278,62 @@ TEST(wheel_speed_from_pulses_and_timeout) {
 TEST(chart_wheat_and_fine_seeds) {
     using namespace chart;
     Result r = calculate(WHEAT, 200.0, 0, 0.0, 10.0);
-    CHECK(r.flap == 'A' && r.range == 0);
+    CHECK(std::string(r.setup) == "A (nyitott)" && r.range == 0);
     CHECK_NEAR(r.scale, 55.0 + 5.0 * 8.0 / 18.0, 1e-3); // 192 → 210 között
     CHECK_NEAR(r.expected_kg, 20.0, 0.05);               // 85 fordulat = 1/10 ha
     CHECK_NEAR(r.seed_kg, 2000.0, 1e-6);
     CHECK(note(r, false) == Note::CrankAndWeigh);
 
     Result fine = calculate(RAPE, 5.0, 0, 0.0, 0.0);
-    CHECK(fine.flap == 'Z' && fine.drive == DRIVE_MIKRO);
+    CHECK(std::string(fine.setup) == "Z + MIKRO" && fine.variant == 1);
     Result fine2 = calculate(RAPE, 15.0, 0, 0.0, 0.0);
-    CHECK(fine2.drive == DRIVE_NORMAL);
+    CHECK(fine2.variant == 0 && std::string(fine2.setup) == "Z + NORMÁL");
 
     Result above = calculate(WHEAT, 500.0, 0, 0.0, 0.0);
     CHECK(above.range == 1 && note(above, false) == Note::AboveChart);
+}
+
+TEST(chart_profile_csv_roundtrip_and_upload) {
+    using namespace chart;
+    reset_table();
+    // a beépített tábla CSV-be és vissza: azonos eredmény
+    Table t;
+    std::string err;
+    CHECK(parse_csv(to_csv(builtin_table()), t, err));
+    CHECK(t.ncrop == BUILTIN_CROPS && t.crop[RAPE].nvar == 2 && t.crop[WHEAT].var[0].n == 21);
+    CHECK(std::fabs(t.turns10 - 85.0f) < 1e-4f);
+    // saját gép: 2 növény, cserebetétes változatokkal, tizedesvessző, Excel BOM, fejléc
+    const std::string csv = "\xEF\xBB\xBF# gép;Saját gép 4 m\r\n# fordulat_10;120\r\n"
+                            "növény;változat;beállítás;skála;kg/ha\r\n"
+                            "Napraforgó;kicsi;Betét kicsi;10;2,5\nNapraforgó;kicsi;Betét kicsi;50;12,5\n"
+                            "Napraforgó;nagy;Betét nagy;10;8\nNapraforgó;nagy;Betét nagy;50;40\n"
+                            "Búza;;A;10;30\nBúza;;A;100;300\n";
+    CHECK(parse_csv(csv, t, err));
+    CHECK(t.ncrop == 2 && std::string(t.machine) == "Saját gép 4 m" && std::fabs(t.turns10 - 120.0f) < 1e-4f);
+    set_table(t);
+    CHECK(crop_count() == 2 && std::string(crop_name(0)) == "Napraforgó");
+    Result r = calculate(0, 10.0, 0, 0.0, 0.0);
+    CHECK(r.variant == 0 && std::string(r.setup) == "Betét kicsi");   // belefér a kicsibe: finomabb
+    CHECK_NEAR(r.scale, 40.0, 1e-3);
+    r = calculate(0, 20.0, 0, 0.0, 0.0);
+    CHECK(r.variant == 1 && std::string(r.setup) == "Betét nagy");
+    CHECK_NEAR(r.scale, 10.0 + 40.0 * 12.0 / 32.0, 1e-3);
+    // hibák
+    CHECK(!parse_csv("Búza;;A;10;30\nBúza;;A;5;40\n", t, err) && err.find("növekedjen") != std::string::npos);
+    CHECK(!parse_csv("Búza;;A;10;30\n", t, err));                  // 1 pont kevés
+    CHECK(!parse_csv("Búza;A;10;30\n", t, err));                   // 4 oszlop
+    CHECK(!parse_csv("", t, err));
+    // a mag a profilcserét kezeli: a fordulat átvétele, növényválasztás határon belül
+    Seeder s;
+    s.load(default_settings(), Persistent{});
+    set_table(builtin_table());
+    s.crank_set_crop(RAPE);
+    CHECK(parse_csv(csv, t, err));
+    set_table(t);
+    s.profile_changed(true);
+    CHECK(s.status().crank.crop == 0);
+    CHECK(std::fabs(s.settings().crank_turns_10 - 120.0f) < 1e-4f);
+    reset_table();
 }
 
 TEST(chart_crank_correction) {
@@ -1891,4 +1934,49 @@ int main() {
     }
     std::printf("\n%d ellenőrzés, %d hiba\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
+}
+
+TEST(tank_fill_tracking) {
+    Seeder s = make([](Settings &st) { st.meter_ppr = 1; st.cal1_kg_rev = 0.5f; st.cal2_kg_rev = 0.5f; st.tank_fill = 0; });
+    std::string err;
+    CHECK(!apply_command(s, "tank_set1", 500, err));            // kikapcsolva
+    CHECK(err.find("ki van kapcsolva") != std::string::npos);
+    Settings st = s.settings();
+    st.tank_fill = 1;                                           // közös
+    s.replace_settings(st);
+    CHECK(apply_command(s, "tank_set1", 500, err));
+    CHECK(!apply_command(s, "tank_set2", 100, err));            // közösben nincs 2.
+    CHECK(apply_command(s, "tank_add1", 250, err));
+    CHECK(!apply_command(s, "tank_set1", -5, err));
+    Machine m = down_machine();
+    m.ground_rpm = 60.0f;   // 1 ford/s, 0,5 kg/ford, két adagoló → ~1 kg/s
+    s.set_master(true);
+    m.run(s, 10.0f);
+    const double used = s.persistent().day.kg[0] + s.persistent().day.kg[1];
+    CHECK(used > 5.0);
+    CHECK(s.status().tank_fill_n == 1);
+    CHECK_NEAR(s.status().tank_kg[0], 750.0 - used, 0.6);
+    CHECK(s.status().tank_pct[0] < 100.0f && s.status().tank_pct[0] > 97.0f);
+    CHECK(s.status_json().find("\"tank_fill_n\":1") != std::string::npos);
+    st.tank_fill = 2;                                           // tartályonként
+    s.replace_settings(st);
+    CHECK(apply_command(s, "tank_set1", 100, err));
+    CHECK(apply_command(s, "tank_set2", 300, err));
+    s.reset_day();
+    m.run(s, 4.0f);
+    CHECK(s.status().tank_fill_n == 2);
+    CHECK_NEAR(s.status().tank_kg[0], 100.0 - s.persistent().day.kg[0], 0.6);
+    CHECK_NEAR(s.status().tank_kg[1], 300.0 - s.persistent().day.kg[1], 0.6);
+}
+
+TEST(persistent_v2_blob_loads_into_v3) {
+    Persistent old;
+    old.version = 2;
+    old.total.area_m2 = 12345.0;
+    old.crop_load[3] = 1.1f;
+    Seeder s;
+    s.load(default_settings(), old);
+    CHECK_NEAR(s.persistent().total.area_m2, 12345.0, 1e-6);
+    CHECK(s.persistent().version == Persistent::VERSION);
+    CHECK(std::fabs(s.persistent().crop_load[3] - 1.1f) < 1e-6f);
 }

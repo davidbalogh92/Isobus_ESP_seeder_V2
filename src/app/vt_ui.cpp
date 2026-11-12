@@ -152,6 +152,7 @@ const char *VtUi::page_name() const {
     case Page::Jam: return "Visszafordítás próba";
     case Page::Group: return "Beállítás-csoport";
     case Page::TuneInfo: return "Önhangolás – tudnivalók";
+    case Page::Tank: return "Tartálytöltet";
     default: return "?";
     }
 }
@@ -168,6 +169,7 @@ void VtUi::go(Page page, std::uint16_t mask) {
     case Page::Tune: page_mask_ = vt::DM_TUNE; break;
     case Page::Jam: page_mask_ = vt::DM_JAM; break;
     case Page::TuneInfo: page_mask_ = vt::DM_TUNE_INFO; break;
+    case Page::Tank: page_mask_ = vt::DM_TANK; break;
     default: page_mask_ = mask; break;
     }
     if (page != Page::Settings) settings_from_calib_ = false;
@@ -253,7 +255,7 @@ void VtUi::on_softkey(std::uint16_t id, std::uint8_t activation) {
         } else if (pg == Page::Calib) {
             c.crank_hold(false);
             go(Page::Main);
-        } else if (pg == Page::Diagnose) {
+        } else if (pg == Page::Diagnose || pg == Page::Tank) {
             go(Page::Menu);
         } else if (pg == Page::Jam || pg == Page::Tune || pg == Page::TuneInfo) {
             if (pg == Page::Jam) c.jam_test_stop();
@@ -370,6 +372,10 @@ void VtUi::on_button(std::uint16_t id, std::uint8_t activation) {
         go(Page::Diagnose);
         return;
     }
+    if (id == vt::BTN_PAGE_TANK) {
+        go(Page::Tank);
+        return;
+    }
     if (id == vt::BTN_PAGE_CALIB) {
         std::lock_guard<std::mutex> g(shared_.lock);
         if (!shared_.core.status().crank.session) shared_.core.crank_reset_count();
@@ -408,6 +414,10 @@ void VtUi::on_numeric(std::uint16_t id, std::uint32_t value) {
                     value * vt::VT_IN_CAL_RATE_DEF.step);
     else if (id == vt::VT_IN_CAL_TSCALE_DEF.id) c.crank_set_test_scale(value * vt::VT_IN_CAL_TSCALE_DEF.step);
     else if (id == vt::VT_IN_CAL_MEAS_DEF.id) c.crank_set_measured(value * vt::VT_IN_CAL_MEAS_DEF.step);
+    else if (id == vt::VT_IN_TANK1_DEF.id) c.tank_set(0, value * vt::VT_IN_TANK1_DEF.step);
+    else if (id == vt::VT_IN_TANK2_DEF.id) c.tank_set(1, value * vt::VT_IN_TANK2_DEF.step);
+    else if (id == vt::VT_IN_TANK1_ADD_DEF.id) c.tank_add(0, value * vt::VT_IN_TANK1_ADD_DEF.step);
+    else if (id == vt::VT_IN_TANK2_ADD_DEF.id) c.tank_add(1, value * vt::VT_IN_TANK2_ADD_DEF.step);
     // VT_IN_SCALE_REF / VT_IN_PRESS_REF: csak megjegyezzük, a mentés gomb használja
 }
 
@@ -546,6 +556,7 @@ void VtUi::update(const Snapshot &s) {
     if (pg == Page::Diagnose) update_diagnose(s);
     if (pg == Page::Tune) update_tune(s);
     if (pg == Page::Jam) update_jam(s);
+    if (pg == Page::Tank) update_tank(s);
     if (pg == Page::Settings) {
         update_inputs(s);
         update_pages(s);
@@ -558,6 +569,20 @@ void VtUi::update(const Snapshot &s) {
     update_diagnose(s);
     update_tune(s);
     update_jam(s);
+    update_tank(s);
+}
+
+void VtUi::update_tank(const Snapshot &s) {
+    const auto &st = s.st;
+    num(vt::OP_TANK_MODE, vt::STR_TANK_MODE[st.tank_fill_n == 0 ? 0 : (st.tank_fill_n == 1 ? 1 : 2)]);
+    shown(vt::CONT_TANKPG1, st.tank_fill_n >= 1);
+    shown(vt::CONT_TANKPG2, st.tank_fill_n >= 2);
+    num(vt::VT_IN_TANK1_DEF.id, custom_raw(vt::VT_IN_TANK1_DEF, st.tank_kg[0]));
+    num(vt::VT_IN_TANK2_DEF.id, custom_raw(vt::VT_IN_TANK2_DEF, st.tank_kg[1]));
+    num(vt::VT_IN_TANK1_ADD_DEF.id, 0);
+    num(vt::VT_IN_TANK2_ADD_DEF.id, 0);
+    num(vt::OUT_TANK1_PCT, std::lround(st.tank_pct[0]));
+    num(vt::OUT_TANK2_PCT, std::lround(st.tank_pct[1]));
 }
 
 void VtUi::update_main(const Snapshot &s) {
@@ -592,6 +617,22 @@ void VtUi::update_main(const Snapshot &s) {
     const bool empty_r = st.tank_count >= 2 ? st.hopper_empty[1] : st.hopper_empty[0];
     num(vt::OP_TANK_L, vt::PIC_TANK_L[empty_l ? 0 : 1]);
     num(vt::OP_TANK_R, vt::PIC_TANK_R[empty_r ? 0 : 1]);
+    {   // tartálytöltet (tájékoztató): két rekesznél külön, különben középen egy érték
+        auto kg = [](float v) {
+            char b[16];
+            std::snprintf(b, sizeof b, "%ld kg", std::lround(v));
+            return std::string(b);
+        };
+        const int n = st.tank_fill_n;
+        shown(vt::CONT_TANK_C, n == 1);
+        shown(vt::CONT_TANK_L, n == 2);
+        shown(vt::CONT_TANK_R, n == 2);
+        if (n == 1) text(vt::STR_TANK_C, kg(st.tank_kg[0]));
+        if (n == 2) {
+            text(vt::STR_TANK_L, kg(st.tank_kg[0]));
+            text(vt::STR_TANK_R, kg(st.tank_kg[1]));
+        }
+    }
 
     // adagolók, munkahelyzet
     num(vt::OP_METER1, vt::PIC_METER[static_cast<int>(st.meter[0].view)]);
@@ -766,6 +807,13 @@ void VtUi::update_calib(const Snapshot &s) {
     softkeys(vt::DM_CALIB, elec ? vt::SK_CALIB : vt::SK_CALIB_GROUND);
     num(vt::OP_K_CAL_METER, vt::PIC_K_CAL_METER[cr.meter == 1 ? 1 : 0]);
     num(vt::OP_CAL_METER, vt::STR_METER[cr.meter == 1 ? 1 : 0]);
+    {   // gépprofil: a növénylista nevei (a nem használt helyek üresek)
+        static const std::uint16_t CROP_STR[16] = {vt::STR_CROP_0,  vt::STR_CROP_1,  vt::STR_CROP_2,  vt::STR_CROP_3,
+                                                   vt::STR_CROP_4,  vt::STR_CROP_5,  vt::STR_CROP_6,  vt::STR_CROP_7,
+                                                   vt::STR_CROP_8,  vt::STR_CROP_9,  vt::STR_CROP_10, vt::STR_CROP_11,
+                                                   vt::STR_CROP_12, vt::STR_CROP_13, vt::STR_CROP_14, vt::STR_CROP_15};
+        for (int k = 0; k < 16; ++k) text(CROP_STR[k], vt_latin1(seeder::chart::crop_name(k), 14));
+    }
     num(vt::VT_IN_CAL_CROP_DEF.id, cr.crop);
     num(vt::VT_IN_CAL_TURNS_DEF.id, cr.turn_option);
     {
@@ -784,8 +832,7 @@ void VtUi::update_calib(const Snapshot &s) {
     num(vt::VT_IN_CAL_TSCALE_DEF.id, custom_raw(vt::VT_IN_CAL_TSCALE_DEF, cr.test_scale));
     num(vt::VT_IN_CAL_MEAS_DEF.id, custom_raw(vt::VT_IN_CAL_MEAS_DEF, cr.measured_kg));
     num(vt::OUT_CAL_SCALE, std::lround(r.scale * 10.0));
-    const int setup = r.flap == 'A' ? 0 : (r.drive == seeder::chart::DRIVE_MIKRO ? 2 : 1);
-    num(vt::OP_CAL_SETUP, vt::STR_SETUP[setup]);
+    text(vt::STR_SETUP_DYN, vt_latin1(r.setup, 16));
     num(vt::OUT_CAL_EXPECT, std::lround(r.expected_kg * 1000.0));
     num(vt::OUT_CAL_NEW, r.corrected_valid ? std::lround(r.corrected_scale * 10.0) : 0);
     num(vt::OUT_CAL_REVS, std::lround(cr.counted_revs * 10.0f));

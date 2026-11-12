@@ -631,6 +631,50 @@ TEST(virtual_terminal_settings_groups) {
     for (const auto &p : vt::PAGES) CHECK(p.group < sizeof(vt::GROUPS) / sizeof(vt::GROUPS[0]));
 }
 
+TEST(virtual_terminal_tank_page_and_profile_names) {
+    app::Shared shared;
+    app::SeederApp a(shared);
+    {
+        std::lock_guard<std::mutex> g(shared.lock);
+        shared.core.set_param(seeder::P_tank_fill, 1);   // közös
+        shared.core.tank_set(0, 500.0f);
+    }
+    run_app(a, 0.3f);
+    const auto str_is = [&](std::uint16_t id, const std::string &v) {
+        return has(vt_json(a), "\"" + std::to_string(id) + "\":\"" + v + "\"");
+    };
+    CHECK(str_is(vt::STR_TANK_C, "500 kg"));
+    a.virtual_vt_event("key", vt::K_MENU, 0, 0);
+    run_app(a, 0.3f);
+    a.virtual_vt_event("button", vt::BTN_PAGE_TANK, 0, 0);
+    run_app(a, 0.3f);
+    CHECK(has(vt_json(a), "\"mask\":" + std::to_string(vt::DM_TANK)));
+    a.virtual_vt_event("num", vt::VT_IN_TANK1_ADD_DEF.id, 0, 250);   // tankolás +250 kg
+    run_app(a, 0.3f);
+    {
+        std::lock_guard<std::mutex> g(shared.lock);
+        CHECK(std::fabs(shared.core.status().tank_kg[0] - 750.0f) < 0.01f);
+    }
+    CHECK(str_is(vt::STR_TANK_C, "750 kg"));
+    a.virtual_vt_event("key", vt::K_BACK, 0, 0);
+    run_app(a, 0.3f);
+    CHECK(has(vt_json(a), "\"mask\":" + std::to_string(vt::DM_MENU)));
+    // gépprofil: a VT növénylista a táblázatból íródik
+    seeder::chart::Table t;
+    std::string err;
+    CHECK(seeder::chart::parse_csv("Napraforgó;;Betét;10;2\nNapraforgó;;Betét;50;10\n", t, err));
+    {
+        std::lock_guard<std::mutex> g(shared.lock);
+        seeder::chart::set_table(t);
+        shared.core.profile_changed(true);
+    }
+    run_app(a, 0.5f);
+    CHECK(str_is(vt::STR_CROP_0, "Napraforg\u00f3"));
+    CHECK(str_is(vt::STR_CROP_1, ""));
+    CHECK(str_is(vt::STR_SETUP_DYN, "Betét") || str_is(vt::STR_SETUP_DYN, "Bet\u00e9t"));
+    seeder::chart::reset_table();
+}
+
 namespace {
 /// Keya motor modell: a célfordulatot (ford/s, motor egységben) 0,15 s időállandóval követi, válaszol.
 struct FakeKeya {

@@ -55,7 +55,7 @@ bool load_persistent(seeder::Persistent &out) {
     size_t len = 0;
     bool ok = nvs_get_blob(h, KEY_PERSIST, nullptr, &len) == ESP_OK && len >= 8 && len <= sizeof(p) &&
               nvs_get_blob(h, KEY_PERSIST, &p, &len) == ESP_OK && p.magic == seeder::Persistent::MAGIC &&
-              (p.version == seeder::Persistent::VERSION || p.version == 1);
+              (p.version == seeder::Persistent::VERSION || p.version == 1 || p.version == 2);
     nvs_close(h);
     if (ok) out = p;
     return ok;
@@ -95,6 +95,30 @@ bool save_aux(const std::vector<std::uint8_t> &blob) {
     nvs_handle_t h;
     if (nvs_open(NS, NVS_READWRITE, &h) != ESP_OK) return false;
     bool ok = nvs_set_blob(h, "aux", blob.data(), blob.size()) == ESP_OK && nvs_commit(h) == ESP_OK;
+    nvs_close(h);
+    return ok;
+}
+
+std::string load_profile() {
+    std::string out;
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) return out;
+    size_t len = 0;
+    if (nvs_get_blob(h, "profile", nullptr, &len) == ESP_OK && len > 0 && len <= 24576) {
+        out.resize(len);
+        if (nvs_get_blob(h, "profile", &out[0], &len) != ESP_OK) out.clear();
+    }
+    nvs_close(h);
+    return out;
+}
+
+bool save_profile(const std::string &csv) {
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READWRITE, &h) != ESP_OK) return false;
+    bool ok;
+    if (csv.empty()) ok = nvs_erase_key(h, "profile") != ESP_FAIL;
+    else ok = nvs_set_blob(h, "profile", csv.data(), csv.size()) == ESP_OK;
+    ok = nvs_commit(h) == ESP_OK && ok;
     nvs_close(h);
     return ok;
 }

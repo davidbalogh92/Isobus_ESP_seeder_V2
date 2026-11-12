@@ -169,6 +169,17 @@ table.pins td:first-child{font-variant-numeric:tabular-nums;white-space:nowrap;f
     </div>
   </div>
   <div class="grid g2" style="margin-top:var(--gap)" id="meters"></div>
+  <div class="card hide" style="margin-top:var(--gap)" id="tankCard">
+    <h2>Tartálytöltet <small class="muted">(tájékoztató, a kijuttatott mennyiségből)</small></h2>
+    <div class="grid g2">
+      <div id="tankRow0"><div class="kv"><span id="tankName0">Tartály</span><b id="tankKg0">–</b></div>
+        <div class="row" style="margin-top:6px"><div class="inp" style="flex:1"><input type="number" id="tankIn0" min="0" step="1" placeholder="kg"></div>
+          <button class="btn" onclick="tankCmd(0,'add')">+ Tankolás</button><button class="btn" onclick="tankCmd(0,'set')">Beállít</button></div></div>
+      <div id="tankRow1"><div class="kv"><span>2. tartály</span><b id="tankKg1">–</b></div>
+        <div class="row" style="margin-top:6px"><div class="inp" style="flex:1"><input type="number" id="tankIn1" min="0" step="1" placeholder="kg"></div>
+          <button class="btn" onclick="tankCmd(1,'add')">+ Tankolás</button><button class="btn" onclick="tankCmd(1,'set')">Beállít</button></div></div>
+    </div>
+  </div>
   <div class="card" style="margin-top:var(--gap)" id="extrasCard">
     <h2>Kiegészítők</h2>
     <div class="grid g2">
@@ -255,8 +266,22 @@ table.pins td:first-child{font-variant-numeric:tabular-nums;white-space:nowrap;f
     <div class="card">
       <div class="row" style="justify-content:space-between"><h2 style="margin:0">Beállítási táblázat</h2>
         <div class="inp" style="min-width:200px"><select id="chCrop" onchange="renderChart()"></select></div></div>
-      <p class="note">Accord térfogat-állítós adagoló, skála → kg/ha. Kiindulási érték: a leforgatás korrigál az adott vetőmagtételre. A kiemelt sor a kívánt mennyiséghez legközelebbi.</p>
+      <p class="note"><b id="chMachine">–</b> · skála → kg/ha. Kiindulási érték: a leforgatás korrigál az adott vetőmagtételre. A kiemelt sor a kívánt mennyiséghez legközelebbi.</p>
       <div id="chartBox" style="overflow:auto;margin-top:8px"></div>
+    </div>
+    <div class="card" style="margin-top:var(--gap)">
+      <h2>Gépprofil (saját beállítási táblázat)</h2>
+      <p class="note">Ha a géped más táblázat szerint megy, töltsd le a jelenlegit, írd át Excelben, és töltsd vissza.
+        Formátum (CSV, pontosvessző): <code>növény;változat;beállítás;skála;kg/ha</code> – soronként egy táblázatpont,
+        a skála és a kg/ha változatonként növekedjen. Egy növénynek legfeljebb 3 változata lehet (pl. normál / mikro hajtás,
+        cserebetét, adagolókerék); a segéd a legfinomabbat választja, amelyikbe a kívánt mennyiség belefér.
+        Legfeljebb 16 növény, változatonként 2–24 pont. A <code># gép;név</code> és <code># fordulat_10;85</code> sorok
+        a profil nevét és a leforgatási fordulatot (1/10 ha) adják meg – feltöltéskor ez a fordulat beállításra kerül.</p>
+      <div class="row" style="margin:12px 0;flex-wrap:wrap">
+        <a class="btn wide" href="/api/profile.csv" download="gepprofil.csv">Letöltés (CSV)</a>
+        <label class="btn wide go" style="text-align:center">Feltöltés…<input type="file" id="pfFile" accept=".csv,.txt,text/csv" style="display:none" onchange="profileUpload(this)"></label>
+        <button class="btn wide" onclick="profileReset()">Beépített Accord táblázat</button>
+      </div>
     </div>
   </div>
 
@@ -477,6 +502,8 @@ async function post(u,body){
   try{const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const j=await r.json().catch(()=>({ok:r.ok}));if(!r.ok||j.ok===false){toast(j.error||('Hiba: HTTP '+r.status));return null}return j}
   catch(e){toast('Kapcsolati hiba');return null}}
+async function tankCmd(i,op){const v=parseFloat($('tankIn'+i).value);if(!(v>=0)){toast('Adj meg egy mennyiséget (kg)');return}
+  const r=await cmd('tank_'+op+(i+1),v);if(r)$('tankIn'+i).value=''}
 async function keyaSetup(){
   if(!confirm('Csak a vezérlő és egy motor van a CAN-vezetéken? A beállítás idejére a terminál elveszíti a kapcsolatot.'))return;
   await post('/api/cmd',{cmd:'keya_setup',from_node:+$('kyFrom').value,from_kbps:+$('kyKbps').value,new_node:+$('kyNew').value});refresh()}
@@ -596,13 +623,24 @@ function fillInputs(except){
 
 // ---------------------------------------------------------------- kalibrálási táblázat
 function renderChart(){
-  if(!CROPS||!S)return;const ci=+$('chCrop').value,c=CROPS.crops[ci];if(!c)return;
+  if(!CROPS||!S)return;const ci=+$('chCrop').value,c=CROPS.crops[ci];$('chMachine').textContent=CROPS.machine||'–';if(!c)return;
   const wanted=S.status.crank.wanted;
-  let html='<table class="chart"><thead><tr><th>Skála</th>'+c.curves.map(k=>`<th>${c.fine?'Z + '+esc(k.drive):'A (nyitott)'} kg/ha</th>`).join('')+'</tr></thead><tbody>';
-  const n=c.curves[0].scale.length;let best=-1,bd=1e9;
-  if(ci===S.status.crank.crop)for(let k=0;k<c.curves.length;k++)for(let i=0;i<n;i++){const d=Math.abs(c.curves[k].rate[i]-wanted);if(d<bd){bd=d;best=i}}
-  for(let i=0;i<n;i++)html+=`<tr class="${i===best?'hit':''}"><td>${fmt(c.curves[0].scale[i],1)}</td>`+c.curves.map(k=>`<td>${fmt(k.rate[i],k.rate[i]<20?2:0)}</td>`).join('')+'</tr>';
+  let html='<table class="chart"><thead><tr><th>Skála</th>'+c.curves.map(k=>`<th>${esc(k.setup||k.drive||'')} kg/ha</th>`).join('')+'</tr></thead><tbody>';
+  // a változatok skálapontjai eltérhetnek: közös, rendezett skálalista
+  const sc=[...new Set(c.curves.flatMap(k=>k.scale))].sort((a,b)=>a-b);let best=-1,bd=1e9;
+  const at=(k,s)=>{const i=k.scale.indexOf(s);return i<0?null:k.rate[i]};
+  if(ci===S.status.crank.crop)sc.forEach((s,i)=>c.curves.forEach(k=>{const r=at(k,s);if(r!=null&&Math.abs(r-wanted)<bd){bd=Math.abs(r-wanted);best=i}}));
+  sc.forEach((s,i)=>{html+=`<tr class="${i===best?'hit':''}"><td>${fmt(s,1)}</td>`+c.curves.map(k=>{const r=at(k,s);return `<td>${r==null?'–':fmt(r,r<20?2:0)}</td>`}).join('')+'</tr>'});
   $('chartBox').innerHTML=html+'</tbody></table>'}
+async function profileSend(body){
+  try{const r=await fetch('/api/profile',{method:'POST',headers:{'Content-Type':'text/csv'},body});const j=await r.json().catch(()=>({}));
+    if(!r.ok||j.ok===false){toast(j.error||('Hiba: HTTP '+r.status));return}
+    toast('Gépprofil betöltve: '+j.machine+' ('+j.crops+' növény)');await loadConfig();await loadCrops();refresh()}catch(e){toast('Kapcsolati hiba')}}
+function profileUpload(inp){const f=inp.files[0];inp.value='';if(!f)return;const rd=new FileReader();
+  // a magyar Excel "CSV (pontosvesszővel tagolt)" mentése Windows-1250 kódolású: ha UTF-8-ként hibás, újraolvassuk
+  let enc='utf-8';rd.onload=()=>{if(enc==='utf-8'&&rd.result.includes('\uFFFD')){enc='windows-1250';rd.readAsText(f,enc);return}
+    if(confirm('Lecseréled a beállítási táblázatot erre: '+f.name+'?'))profileSend(rd.result)};rd.readAsText(f,enc)}
+function profileReset(){if(confirm('Visszaállítod a beépített Accord táblázatot?'))profileSend('reset')}
 
 // ---------------------------------------------------------------- élő állapot
 const VIEW=[['ready','▶','kész'],['work','⟳','hajt'],['shut','⏸','lekapcsolva'],['alarm','!','hiba'],['','–','áll']];
@@ -644,6 +682,8 @@ function render(){
   $('speed').textContent=fmt(st.speed,1);$('speedSrc').textContent=(st.speed_valid?st.speed_src:'Nincs sebességjel')+(st.speed_fallback?' (tartalék)':'');
   $('fan').textContent=fmt(st.fan_rpm);$('fanLim').textContent=`min ${fmt(CFG.fan_min_rpm)}${CFG.fan_max_rpm>0?' · max '+fmt(CFG.fan_max_rpm):''} 1/min`;
   $('fan').style.color=(st.alarm_list||[]).some(a=>a.code.startsWith('FAN'))?'var(--bad)':'';
+  {const n=st.tank_fill_n||0;show('tankCard',n>0);show('tankRow1',n>1);$('tankName0').textContent=n>1?'1. tartály':'Közös tartály';
+   for(let i=0;i<2;i++)$('tankKg'+i).textContent=fmt(st.tank_kg[i],0)+' kg'+(st.tank_pct[i]>0?' ('+fmt(st.tank_pct[i],0)+' %)':'');}
   const ms=$('meters');ms.innerHTML=[...Array(st.meters).keys()].map(i=>meterCard(st,i)).join('');
   // kiegészítők
   show('exLights',CFG.lights_enable);show('exValve',CFG.valve_enable);show('exPressure',CFG.pressure_enable);show('exTemp',CFG.temp_enable);

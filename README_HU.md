@@ -11,7 +11,9 @@ ikonok az ESC vetőgép-monitorból jönnek.
 | Terület | Funkció |
 |---|---|
 | Gép | munkaszélesség (alap 6 m), 1–2 adagoló, 1–2 tartály(rekesz), 1–2 szakasz; két adagolónál bal/jobb félszélesség vagy első/hátsó sor (mindkettő a teljes szélességet veti) |
-| Hajtás | **talajhajtás + elektromágneses kuplung** adagolónként (áram alatt hajt / old), vagy **elektromos motor** adagolónként enkóderrel (alap 50 imp/ford), PWM min/max, rámpák, PI + előrecsatolás |
+| Hajtás | **talajhajtás + elektromágneses kuplung** adagolónként (áram alatt hajt / old), vagy **elektromos motor** enkóderrel (alap 50 imp/ford), PWM min/max, rámpák, PI + előrecsatolás. Motorok: **adagolónként saját motor**, vagy **egy motor hajtja mindkét adagolót** (a kuplungok maradnak, azokkal kapcsol). Motorvezérlő bekötése: **csak PWM** (egy irány) · **PWM + DIR** (Cytron MD13S / MDD10A / SmartDriveDuo, Pololu G2) · **PWM + PWM** (IBT-2 / BTS7960) · **Keya CAN-motor** (saját fordulatszabályzású „All-in-One” vetőmotor az ISOBUS-szal közös CAN-en). Irányváltásnál 100 ms holtidő, PWM-frekvencia állítható |
+| Beszorulás | elektromos hajtásnál a vezérlő figyeli, hogy a motor forog-e (enkóder / Keya pozíció). **Visszafordítás bekapcsolva** (csak irányváltós bekötésnél): megáll → a beállított szöggel visszafordít → újra előre, legfeljebb a beállított számú próbával; ha nem szabadul, megáll és riaszt. **Kikapcsolva:** azonnal megáll és riaszt. **Próba felület** álló gépen (VT: Beállítások → Hajtás → Motorvezérlő → próba gomb; web: Kalibrálás → Visszafordítás) – kiírja a ténylegesen mért visszafordulást. **Terhelési mutató**: a PWM és a fordulat viszonyából, növényenként tanult alapszinthez képest (100 % = szokásos) |
+| Keya CAN-motor | 11 bites keretek a közös 250 kbit/s-os buszon, motoronként saját cím (1. / 2. adagoló: node 1 / 2); a vezérlő fordulatot küld, a pozícióból „virtuális enkódert” képez (a leforgatás, beszorulás, mennyiség-elszámolás változatlanul működik), figyeli a hibabiteket (jeladó, túl-/alacsony feszültség, túláram) és a kapcsolatot (riasztás), szívverést küld. **Beállító mód** a weben (Kalibrálás → Keya): a gyári 500 kbit/s-os motorra beírja az új címet és a 250 kbit/s-ot – csak asztalon, egyedül a buszon |
 | Adagolás | előírt mennyiség adagolónként (kg/ha), ±% léptetés; elektromos hajtásnál a kg/ha a leforgatásból kapott kg/fordulattal motorfordulatra számolva; a leforgatott adagoló adatai (kg/fordulat + előírt érték) **egy gombbal átmásolhatók a másik adagolóra** (bármelyik irányban) |
 | Motor önhangolás | elektromos hajtásnál, álló gépen: a vezérlő kiméri az indulási és megállási PWM-et, a fordulatot 25 / 50 / 75 / 100% PWM-en és a reakcióidőt, ebből javasolja a „fordulat 100% PWM-nél”, a PWM minimum és a szabályzási állandó értékét; elfogadás után a beállításokba kerül, utána kézzel állítható (VT: Beállítások → Hajtás → önhangolás gomb; web: Kalibrálás → Motor). A PWM a VT Diagnosztikán és az önhangolás oldalon is látszik |
 | Kézi adagolás | elektromos hajtásnál AUTOMATA ↔ KÉZI: kézi módban a +/− a motorfordulatot lépteti, a sebességtől függetlenül (a vetés feltételei továbbra is kellenek) |
@@ -23,8 +25,9 @@ ikonok az ESC vetőgép-monitorból jönnek.
 | Kuplung | talajhajtásnál alapból **nem old kiemeléskor / megálláskor** (kiemelt gépnél úgysem forog), csak a szakaszolás és az adagológombok kapcsolják; a régi működés („old”) beállítható |
 | Turbina | imp/fordulat, min. és max. fordulat riasztás késleltetéssel; csak munka közben riaszt (munkakapcsolóval: lent + halad; nélküle: halad + vetés BE) |
 | Adagolófigyelés | talajhajtásnál: ha a hajtott adagolóról a beállított időn belül nem jön impulzus → riasztás; motornál: enkóder hiány és „mennyiség nem tartható” riasztás |
-| Tartályok | 2 normál kapcsoló, NO/NC menüből vagy webről, szűrési idővel |
-| Leforgatás | Accord beállítási táblázat (14 növény, normál és aprómag N/M hajtás), 85 / 42,5 / 17 fordulat, várható tömeg, új skála és kg/fordulat mentése. **Motoros hajtásnál nyomva tartásos** (VT gomb, telefon, gépre szerelt gomb az IN8-on): amíg nyomod, forog; elengedve megáll, a számláló megmarad – **megszakítható, folytatható**; a célfordulatnál magától megáll (kikapcsolható). **Részmérések** (vödrönként, max. 10, törölhetők) összeadódnak, a kg/fordulat a **ténylegesen megszámolt fordulatból** számolódik. 1 imp/ford jeladónál az első jel a nullpont, 42,5-nél a fél fordulatot a kezelő teszi rá. Visszajelzés: munkalámpa röviden villan fordulatonként, célnál gyorsan villog, majd folyamatosan világít; a panel hangjelzője; a telefonon nagy számláló, célnál piros + hang |
+| Tartályok | 2 normál kapcsoló, NO/NC menüből vagy webről, szűrési idővel. **Tartálytöltet (tájékoztató):** megadható, mennyit tankoltál (hozzáadás vagy felülírás), a vezérlő levonja a kijuttatott mennyiséget és a főképernyő tartályán mutatja a maradékot; két tartálynál közös vagy tartályonkénti mennyiség. Nem riaszt (VT: Beállítások → Tartálytöltet; web: Munka fül) |
+| Gépprofil | a beállítási táblázat **cserélhető**: a weben (Kalibrálás → Táblázat) letölthető CSV-ként, Excelben átírható és visszatölthető (legfeljebb 16 növény, növényenként 1–3 változat – hajtás, cserebetét, adagolókerék –, változatonként 2–24 pont); a segéd a legfinomabb változatot választja, amelybe a kívánt mennyiség belefér. A profil a leforgatási fordulatot is megadhatja. A VT növénylistája a profilból íródik. Egy gombbal vissza a beépített Accord táblázatra |
+| Leforgatás | beépített Accord beállítási táblázat (14 növény, normál és aprómag N/M hajtás), **a fordulat 1/10 ha-ra gépenként állítható** (alap 85 → 85 / 42,5 / 17 fordulat), várható tömeg, új skála és kg/fordulat mentése. **Motoros hajtásnál nyomva tartásos** (VT gomb, telefon, gépre szerelt gomb az IN8-on): amíg nyomod, forog; elengedve megáll, a számláló megmarad – **megszakítható, folytatható**; a célfordulatnál magától megáll (kikapcsolható). **Részmérések** (vödrönként, max. 10, törölhetők) összeadódnak, a kg/fordulat a **ténylegesen megszámolt fordulatból** számolódik. 1 imp/ford jeladónál az első jel a nullpont, 42,5-nél a fél fordulatot a kezelő teszi rá. Visszajelzés: munkalámpa röviden villan fordulatonként, célnál gyorsan villog, majd folyamatosan világít; a panel hangjelzője; a telefonon nagy számláló, célnál piros + hang |
 | Mérleg | HX711 + 50 kg-os cella („vödör”): méréshatár, tárázás, kalibrálás ismert súllyal; a leforgatásnál a tömeg egy gombbal átvehető (alapból kikapcsolva) |
 | Nyomás | ADS1115 + lenyomatási nyomásszenzor: méréshatár (pl. 250 bar), jel 0–5 / 0,5–4,5 / 0,5–5 / 0–4,5 V, **egypontos kalibrálás** ismert nyomáson; bekapcsolva piktogram + bar a főképernyőn (alapból ki) |
 | Lámpák | 2 munkalámpa külön kapcsolva (alapból ki) |
@@ -50,9 +53,9 @@ A képek a generált object poolból készülnek (`docs/vt_preview/`), a Müller
 |---|---|---|
 | ![](docs/vt_preview/05_menu.png) | ![](docs/vt_preview/06_leforgatas.png) | ![](docs/vt_preview/07_diagnosztika.png) |
 
-| Motor önhangolás |
-|---|
-| ![](docs/vt_preview/08_onhangolas.png) |
+| Motor önhangolás | Tartálytöltet | Beállítás-csoport (Hajtás) |
+|---|---|---|
+| ![](docs/vt_preview/08_onhangolas.png) | ![](docs/vt_preview/09_tartalytoltet.png) | ![](docs/vt_preview/05_menu_drive.png) |
 
 **Főképernyő softkey-ek, motoros hajtás** – jobb oszlop: Vetés BE/KI · 2. adagoló · + · − · Beállítások;
 bal oszlop: 1. adagoló · 100% · AUTOMATA/KÉZI · Funkciók · Csőfeltöltés.
@@ -63,7 +66,10 @@ Az automata szakaszolást a navigáció (TC vagy AgOpenGPS) kapcsolja: a gép ke
 és kijelzi; a saját gombbal a kezelő kézire válthat.
 **Funkciók:** vissza · automata szakaszolás · leforgatás · nyugtázás · visszafúvás · lámpa 1/2 ·
 szétnyitás/nyomjelző · hűtő (automata → kézi BE → kézi KI). A gombok csak a bekapcsolt kiegészítőknél
-jelennek meg. **Menü:** Leforgatás · Számlálók · Diagnosztika elöl, utána a beállítóoldalak.
+jelennek meg. **Menü:** Leforgatás · Számlálók · Tartálytöltet · Diagnosztika elöl, utána a beállítás-csoportok
+(Adagolás · Gép, geom. · Hajtás · Turbina · Mérés · Kapcsolók · Szakaszolás · Szerviz); a több oldalas csoport
+almenüt nyit (oldalanként ikon, cím és a fő beállítások), az egyoldalas közvetlenül az oldalt. A web ugyanezt a
+csoportosítást követi.
 
 **Adagoló ikon:** kész · hajt · lekapcsolva (szakasz/gomb) · hiba · áll. Az állapotsor: VETÉS KI /
 GÉP KIEMELVE / ÁLL / VETÉS / CSŐFELTÖLTÉS / START, figyelmeztetésnél a hiba szövege; a parancsok
@@ -99,7 +105,8 @@ A firmware a **Waveshare ESP32-S3-ETH-8DI-8RO-C** panelre készül (a korábbi A
 | Relé 6 | Hűtőventilátor | P5 |
 | Relé 7 | **Hűtőventilátor irányváltó (visszafúvás)** | P6 – motor polaritásváltó vagy hidraulika irányváltó |
 | Relé 8 | Tartalék | P7 |
-| GPIO47 / GPIO48 | 1. / 2. adagolómotor PWM | Cytron MD13S / IBT-2, egy irány |
+| GPIO47 / GPIO48 | 1. / 2. adagolómotor PWM (IBT-2: RPWM) | Cytron / Pololu PWM bemenet |
+| GPIO21 / GPIO45 | 1. / 2. motor DIR (PWM+DIR) vagy LPWM (IBT-2) | csak irányváltós bekötésnél; GPIO45 indításkor strapping láb – a vezérlő bemenete ne húzza fel |
 | GPIO1 / GPIO2 | HX711 adat / órajel (leforgatási mérleg) | |
 | GPIO3 | DS18B20 × 2 (1-Wire) | 4,7 kΩ felhúzó a 3,3 V-ra |
 | ADS1115 (külső, 5 V, szintillesztővel) | A0 nyomás · A1–A2 motoráram · A3 tartalék | |

@@ -2,6 +2,8 @@
 #include "keya.hpp"
 
 #include <cstdio>
+#include <memory>
+#include <new>
 
 namespace app {
 namespace {
@@ -54,46 +56,34 @@ ApiResult handle_api(Shared &shared, SeederApp *isobus, const std::string &metho
     if (method == "GET" && path == "/api/schema") return ok(seeder::schema_json());
     if (method == "GET" && path == "/api/crops") {
         // a leforgatási segéd növénylistája, fordulatszám-opciói és beállítási táblázata (skála → kg/ha)
-        std::string o = "{\"crops\":[";
-        char b[32];
-        float turns10;
-        {
-            std::lock_guard<std::mutex> g(shared.lock);
-            turns10 = shared.core.settings().crank_turns_10;
-        }
-        auto arr = [&o, &b](const float *v, int n) {
-            o += '[';
-            for (int i = 0; i < n; ++i) {
-                std::snprintf(b, sizeof(b), "%s%g", i ? "," : "", static_cast<double>(v[i]));
-                o += b;
-            }
-            o += ']';
-        };
-        for (int c = 0; c < seeder::chart::CROP_COUNT; ++c) {
-            if (c) o += ',';
-            o += "{\"name\":\"" + seeder::json_escape(seeder::chart::crop_name(c)) + "\",\"fine\":" +
-                 (seeder::chart::is_fine(c) ? "true" : "false") + ",\"curves\":[";
-            const int drives[2] = {seeder::chart::is_fine(c) ? seeder::chart::DRIVE_NORMAL : seeder::chart::DRIVE_NONE,
-                                   seeder::chart::DRIVE_MIKRO};
-            for (int k = 0; k < (seeder::chart::is_fine(c) ? 2 : 1); ++k) {
-                const auto cv = seeder::chart::curve(c, drives[k]);
-                if (k) o += ',';
-                o += "{\"drive\":\"";
-                o += drives[k] == seeder::chart::DRIVE_MIKRO ? "MIKRO" : (drives[k] == seeder::chart::DRIVE_NORMAL ? "NORMÁL" : "");
-                o += "\",\"scale\":";
-                arr(cv.scale, cv.n);
-                o += ",\"rate\":";
-                arr(cv.rate, cv.n);
-                o += '}';
-            }
-            o += "]}";
-        }
-        o += "],\"turns\":[";
-        for (int i = 0; i < seeder::chart::TURN_OPTIONS; ++i) {
-            std::snprintf(b, sizeof(b), "%s%.1f", i ? "," : "", seeder::chart::turns(i, turns10));
-            o += b;
-        }
-        return ok(o + "]}");
+        std::lock_guard<std::mutex> g(shared.lock);
+        return ok(seeder::chart::to_json(seeder::chart::table(), shared.core.settings().crank_turns_10));
+    }
+    if (method == "GET" && path == "/api/profile.csv") {   // gépprofil letöltése (Excelben szerkeszthető)
+        ApiResult r;
+        r.status = 200;
+        r.content_type = "text/csv; charset=utf-8";
+        std::lock_guard<std::mutex> g(shared.lock);
+        r.body = "\xEF\xBB\xBF" + seeder::chart::to_csv(seeder::chart::table());
+        return r;
+    }
+    if (method == "POST" && path == "/api/profile") {
+        // gépprofil feltöltése: CSV szöveg; üres törzs vagy "reset" = a beépített Accord táblázat
+        const bool reset = body.empty() || body == "reset" || body == "{\"reset\":true}";
+        std::unique_ptr<seeder::chart::Table> t(new (std::nothrow) seeder::chart::Table());   // ~10 kB: nem a vermen
+        std::string err;
+        if (!t) return error("Nincs elég memória");
+        if (!reset && !seeder::chart::parse_csv(body, *t, err)) return error(err);
+        if (shared.save_profile && !shared.save_profile(reset ? std::string() : body))
+            return error("A gépprofil mentése nem sikerült (túl nagy?)");
+        std::lock_guard<std::mutex> g(shared.lock);
+        if (reset) seeder::chart::reset_table();
+        else seeder::chart::set_table(*t);
+        shared.core.profile_changed(true);
+        const auto &tb = seeder::chart::table();
+        char b[64];
+        std::snprintf(b, sizeof b, ",\"crops\":%d,\"turns10\":%g}", tb.ncrop, static_cast<double>(tb.turns10));
+        return ok("{\"ok\":true,\"machine\":\"" + seeder::json_escape(tb.machine) + "\"" + b);
     }
     if (method == "GET" && path == "/api/config") {
         std::lock_guard<std::mutex> g(shared.lock);

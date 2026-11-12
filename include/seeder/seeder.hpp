@@ -171,7 +171,7 @@ struct Totals {
 /// Tartósan mentendő állapot (NVS). Verzióváltáskor a magic/version alapján eldobható.
 struct Persistent {
     static constexpr std::uint32_t MAGIC = 0x53454544u; // "SEED"
-    static constexpr std::uint32_t VERSION = 2;   ///< 2: terhelési alapszint növényenként (1-es blob is betölthető)
+    static constexpr std::uint32_t VERSION = 3;   ///< 3: tartálytöltet; 2: terhelési alapszint (1, 2 is betölthető)
     static constexpr int LOAD_CROPS = 24;
     std::uint32_t magic = MAGIC;
     std::uint32_t version = VERSION;
@@ -185,6 +185,10 @@ struct Persistent {
     float crop_load[LOAD_CROPS] = {};   ///< tanult terhelési alapszint (mért / várt fordulat), 0 = nincs
     std::int8_t meter_crop[MAX_METERS] = {-1, -1};   ///< az adagoló utolsó leforgatásának növénye
     std::uint8_t reserved_v2[6] = {};
+    // --- 3. változat
+    float tank_kg[2] = {0.0f, 0.0f};       ///< tartályban lévő (becsült) mennyiség; közös módban a [0]
+    float tank_ref_kg[2] = {0.0f, 0.0f};   ///< a legutóbbi beállítás / tankolás utáni mennyiség (a % alapja)
+    std::uint32_t reserved_v3[4] = {};
 };
 
 // ------------------------------------------------------------------------- vezérlő
@@ -272,6 +276,10 @@ struct Status {
     int meter_count = 2;
     int section_count = 2;
     int tank_count = 2;
+    int tank_fill = 0;             ///< tartálytöltet követés: 0 ki, 1 közös, 2 tartályonként
+    int tank_fill_n = 0;           ///< követett mennyiségek száma (0, 1, 2)
+    float tank_kg[2] = {0.0f, 0.0f};
+    float tank_pct[2] = {0.0f, 0.0f};   ///< a legutóbbi tankoláshoz képest
     bool section_on[MAX_SECTIONS] = {false, false};
     bool tc_setpoint[MAX_SECTIONS] = {false, false};
     bool tc_section_auto = false;  ///< a TC vezérli a szakaszokat
@@ -354,6 +362,9 @@ public:
     const Settings &settings() const { return settings_; }
     bool set_param(std::uint16_t id, float value);
     bool set_param_str(std::uint16_t id, const char *value);
+    /// a gépprofil (beállítási táblázat) cseréje után: növényválasztás ellenőrzése, a profil fordulatszáma
+    void profile_changed(bool apply_turns = false);
+    static int tank_fill_count(const Settings &s);   ///< követett tartálymennyiségek száma
     void replace_settings(const Settings &s);
 
     void tick(const TickInputs &in);
@@ -385,6 +396,9 @@ public:
         for (auto &j : jam_) j.release();   // a beszorult motor a nyugtázással újraindítható
     }
     void reset_day();
+    // --- tartálytöltet (tájékoztató): i = követett mennyiség sorszáma (közös módban csak 0)
+    bool tank_set(int i, float kg);
+    bool tank_add(int i, float kg);
 
     // --- Task Controller felől ---
     void tc_set_section_setpoint(int index, bool on);

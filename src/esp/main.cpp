@@ -9,6 +9,7 @@
 #include "storage.hpp"
 #include "web.hpp"
 
+#include "keya.hpp"
 #include "seeder_app.hpp"
 #include "seeder/vt_ids.hpp"
 
@@ -168,6 +169,20 @@ extern "C" void app_main() {
     const bool had_persistent = storage::load_persistent(persistent);
     web::log("INFO", "Beállítások: %s, számlálók: %s", had_settings ? "betöltve" : "alapértékek",
              had_persistent ? "betöltve" : "új");
+    {   // gépprofil (feltöltött beállítási táblázat)
+        const std::string csv = storage::load_profile();
+        std::unique_ptr<seeder::chart::Table> t(new seeder::chart::Table());   // ~10 kB: nem a vermen
+        std::string err;
+        if (!csv.empty()) {
+            if (seeder::chart::parse_csv(csv, *t, err)) {
+                seeder::chart::set_table(*t);
+                web::log("INFO", "Gépprofil: %s (%d növény)", t->machine, t->ncrop);
+            } else {
+                web::log("ERROR", "Gépprofil hibás, beépített táblázat: %s", err.c_str());
+            }
+        }
+    }
+    shared.save_profile = [](const std::string &csv) { return storage::save_profile(csv); };
     shared.core.load(settings, persistent);
 
     // --- gép I/O (a kimenetek az első vezérlési ciklusig nincsenek meghajtva)

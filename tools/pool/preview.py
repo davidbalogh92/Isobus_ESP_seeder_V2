@@ -73,7 +73,7 @@ class Renderer:
         elif t == G.T_OUTSTR:
             if not m["transparent"]:
                 d.rectangle([x, y, x + m["w"] - 1, y + m["h"] - 1], fill=colour(m["bg"]))
-            self.text(d, x, y, m["w"], m["h"], m["text"], m["font"], m["align"] & 3)
+            self.text(d, x, y, m["w"], m["h"], self.val(("str", ident), m["text"]), m["font"], m["align"] & 3)
         elif t == G.T_OUTNUM:
             v = (self.val(ident, m["value"]) + m["offset"]) * m["scale"]
             self.text(d, x, y, m["w"], m["h"], f"{v:.{m['decimals']}f}", m["font"], m["align"] & 3)
@@ -142,6 +142,8 @@ def render_all(gen, outdir: Path):
         n["OP_SEC"]: G.PIC_SEC_S[1], n["OUT_PREFILL"]: 25,
         ("hidden", n["CONT_PRESSURE"]): False, ("hidden", n["CONT_TEMP"]): False,
         ("hidden", n["CONT_COOLER"]): False, ("hidden", n["CONT_LAMPS"]): False, ("hidden", n["CONT_VALVE"]): False,
+        ("hidden", n["CONT_TANK_L"]): False, ("hidden", n["CONT_TANK_R"]): False,
+        ("str", n["STR_TANK_L"]): "850 kg", ("str", n["STR_TANK_R"]): "420 kg",
         n["OUT_DAY_AREA"]: 1234, n["OUT_TOT_AREA"]: 45678, n["OUT_DAY_DIST"]: 3856, n["OUT_TOT_DIST"]: 142730,
         n["OUT_DAY_TIME"]: 31, n["OUT_TOT_TIME"]: 1102, n["OUT_DAY_KG1"]: 2470, n["OUT_TOT_KG1"]: 91350,
         n["OUT_DAY_KG2"]: 1800, n["OUT_TOT_KG2"]: 60200,
@@ -176,6 +178,10 @@ def render_all(gen, outdir: Path):
         r.render_mask(_m, outdir / f"05_menu_{_g}.png", G.SK_GROUP[_g])
     r.render_mask(G.DM_CALIB, outdir / "06_leforgatas.png", G.SK_CALIB)
     r.render_mask(G.DM_DIAGNOSE, outdir / "07_diagnosztika.png")
+    otk = dict(ov)
+    otk.update({("hidden", n["CONT_TANKPG2"]): False, n["OP_TANK_MODE"]: G.STR_TANK_MODE[2],
+                n["OUT_TANK1_PCT"]: 64, n["OUT_TANK2_PCT"]: 81})
+    Renderer(pool, otk).render_mask(G.DM_TANK, outdir / "09_tartalytoltet.png")
     ot = dict(ov)
     ot.update({n["OP_TUNE_STATE"]: G.STR_TUNE[4], n["OUT_TUNE_PROG"]: 100, n["OUT_TUNE_PWM"]: 0,
                n["OUT_TUNE_START"]: 130, n["OUT_TUNE_STOP"]: 109, n["OUT_TUNE_MAX"]: 796, n["OUT_TUNE_MAX_CUR"]: 600,

@@ -4,6 +4,7 @@
 #include "seeder/seeder.hpp"
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace storage {
@@ -16,6 +17,9 @@ bool save_persistent(const seeder::Persistent &p);
 bool factory_reset();
 /// AUX-N (joystick) hozzárendelések (a gyári visszaállítás nem törli)
 std::vector<std::uint8_t> load_aux();
+/// gépprofil (CSV szöveg); üres = beépített táblázat
+std::string load_profile();
+bool save_profile(const std::string &csv);
 bool save_aux(const std::vector<std::uint8_t> &blob);
 
 } // namespace storage
