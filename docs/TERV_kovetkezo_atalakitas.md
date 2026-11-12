@@ -47,6 +47,9 @@ Hajtás típusa
   - Cytron (PWM+DIR): PWM → PWM, DIR ← bővítő.
   - IBT-2: R_EN + L_EN összekötve ← PWM (GPIO), RPWM / LPWM ← bővítő (egyik magas, másik alacsony).
   Így 2 motorhoz sem kell újabb GPIO, és a vissza irány is megvan.
+- **PWM közvetlenül a Waveshare GPIO-ról** (3,3 V-os logika). Cytron: 3,3 V-ot elfogad. IBT-2: a modul 74HC244
+  puffere 5 V-ról megy, a 3,3 V a határon van (sokaknál működik) → biztonságosabb egy szintillesztő
+  (pl. 74HCT245 vagy kétirányú szintillesztő modul) a PWM és az irányjelek elé.
 - Beállítás: PWM-frekvencia (pl. 1–20 kHz), irány megfordítása.
 
 ### 1.4 Terhelés becslése (első körben PWM-alapú, árammérés nélkül)
@@ -63,6 +66,8 @@ Hajtás típusa
 - Teendő: motor áll → **visszafordítás néhány fokkal** (pl. 1/16 fordulat, a jeladó impulzusaiból számolva –
   a vezérlő tudja az irányt, mert ő adja) → újra előre. Legfeljebb 3 próbálkozás; ha nem old, riasztás
   „Adagoló beszorult”. Minden próbálkozás naplózva.
+- **Visszafordítás kikapcsolva:** beszorulásnál a motor **azonnal megáll** és **riaszt** („Adagoló beszorult”),
+  újraindítás a kezelő nyugtázása / vetés BE után.
 - Beállítás (Hajtás csoport): **Visszafordítás be/ki** (választható tulajdonság), **mértéke** (fok vagy
   fordulat-tört, pl. 10–90°), próbálkozások száma, felismerési idő.
 - **Tesztfelület** (VT + web, álló gép, vetés KI): adagoló kiválasztása, „Visszafordítás próba” gomb –
