@@ -45,9 +45,11 @@ public:
     void attach(isobus::VirtualTerminalClient &client);
 
 private:
-    enum class Page : std::uint8_t { Main, Func, Info, Menu, Settings, Calib, Diagnose, Tune, Jam };
+    enum class Page : std::uint8_t { Main, Func, Info, Menu, Settings, Calib, Diagnose, Tune, Jam, Group, TuneInfo };
 
     void go(Page page, std::uint16_t mask = 0);
+    void open_group(int g);
+    void back_from_settings();
 
     // gyorsítótárazott küldés: csak változáskor, sikertelen küldésnél a következő ciklus újrapróbálja
     bool budget_ok() const { return budget_ > 0; }
@@ -84,7 +86,9 @@ private:
     std::atomic<std::uint16_t> page_mask_{0};
     std::atomic<bool> settings_from_calib_{false};
     std::atomic<int> tune_meter_{0};
-    std::atomic<int> jam_meter_{0};       ///< visszafordítás próbára kiválasztott adagoló    ///< önhangolásra kiválasztott adagoló
+    std::atomic<int> jam_meter_{0};
+    std::atomic<int> group_{-1};
+    std::atomic<std::uint16_t> return_mask_{0};   ///< önhangolás / próba után ide tér vissza          ///< az aktuális beállítás-csoport       ///< visszafordítás próbára kiválasztott adagoló    ///< önhangolásra kiválasztott adagoló
     std::atomic<std::uint8_t> page_before_alarm_{static_cast<std::uint8_t>(Page::Main)};
     std::atomic<std::uint16_t> mask_before_alarm_{0};
     std::atomic<bool> alarm_shown_{false};

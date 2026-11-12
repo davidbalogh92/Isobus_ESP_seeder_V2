@@ -82,6 +82,13 @@ def render() -> str:
     w(f"constexpr std::uint16_t VT_INPUT_BASE = {VT_INPUT_BASE};")
     w("extern const ParamDef PARAMS[PARAM_COUNT];")
     w("extern const GroupDef GROUPS[GROUP_COUNT];")
+    # a beállítások menüje (csoport → oldalak) a web / Windows számára, JSON-ként
+    import json as _json
+    titles = dict(pd.VT_PAGES)
+    fix = lambda t: t.replace("õ", "ő").replace("û", "ű").replace("Õ", "Ő").replace("Û", "Ű")
+    vg = [{"id": g, "label": fix(lab), "pages": [{"id": pg, "title": fix(titles[pg])} for pg in pages]}
+          for g, lab, _ic, pages in pd.VT_GROUPS]
+    w(f"constexpr const char *VT_GROUPS_JSON = {c_str(_json.dumps(vg, ensure_ascii=False, separators=(',', ':')))};")
     w("")
     w("#ifdef SEEDER_PARAMS_IMPLEMENTATION")
     for i, p in enumerate(pd.P):

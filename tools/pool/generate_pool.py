@@ -387,6 +387,7 @@ K_TUNE_START = KEY("K_TUNE_START", "softkey_start")
 K_TUNE_STOP = KEY("K_TUNE_STOP", "softkey_stop")
 K_TUNE_ACCEPT = KEY("K_TUNE_ACCEPT", "softkey_save")
 K_TUNE_DISCARD = KEY("K_TUNE_DISCARD", "softkey_cancel")
+K_TUNE_GO = KEY("K_TUNE_GO", "softkey_tune")   # tájékoztató → mérőlap
 # beszorulás / visszafordítás próba
 K_JAM_PAGE = KEY("K_JAM_PAGE", "softkey_unjam")
 K_JAM_METER, PIC_K_JAM_METER = KEYPTR("K_JAM_METER", "OP_K_JAM_METER", ["softkey_meter1_on", "softkey_meter2_on"])
@@ -414,6 +415,9 @@ PAGE_INFO = {
 K_PAGE = {pid: KEY("K_PG_" + pid.upper(), child=PIC(PAGE_INFO[pid][1], KEY_PIC, key=True)) for pid, _ in pd.VT_PAGES}
 K_PG_CALIB = KEY("K_PG_CALIB", "softkey_crank")
 K_PG_INFO = KEY("K_PG_INFO", child=PIC("menu/menu_counters", KEY_PIC, key=True))
+# beállítás-csoportok (params_def.VT_GROUPS): menü softkey + csoport almenü
+GROUP_IDS = [g[0] for g in pd.VT_GROUPS]
+K_GROUP = {gid: KEY("K_GR_" + gid.upper(), child=PIC(icon, KEY_PIC, key=True)) for gid, _l, icon, _p in pd.VT_GROUPS}
 
 # --- főképernyő softkey maszkok: (adagolók 1/2) × (elektromos hajtás 0/1).
 # BASIC terminál: az első 5 gomb a jobb oszlop felülről, a következő 5 a bal oszlop.
@@ -452,7 +456,10 @@ for bits in range(16):
                                                             bool(bits & 8)), name=f"SK_FUNC_{bits}"))
 SK_BACK = P.softkey_mask(P.new_id(4000), [K_BACK], name="SK_BACK")
 SK_INFO = P.softkey_mask(P.new_id(4000), [K_BACK, K_RESET_DAY], name="SK_INFO")
-SK_MENU = P.softkey_mask(P.new_id(4000), [K_BACK, K_PG_CALIB, K_PG_INFO], name="SK_MENU")
+assert len(pd.VT_GROUPS) <= 8
+SK_MENU = P.softkey_mask(P.new_id(4000), [K_BACK, K_PG_CALIB] + [K_GROUP[g] for g in GROUP_IDS], name="SK_MENU")
+SK_GROUP = {gid: P.softkey_mask(P.new_id(4000), [K_BACK] + [K_PAGE[pg] for pg in pages], name="SK_GR_" + gid.upper())
+            for gid, _l, _ic, pages in pd.VT_GROUPS if len(pages) > 1}
 SK_WCAL = P.softkey_mask(P.new_id(4000), [K_BACK, K_START, K_STOP, K_SAVE, K_CANCEL], name="SK_WCAL")
 SK_SCALE = P.softkey_mask(P.new_id(4000), [K_BACK, K_TARE, K_SCALE_CAL], name="SK_SCALE")
 SK_PRESSURE = P.softkey_mask(P.new_id(4000), [K_BACK, K_PRESS_CAL], name="SK_PRESSURE")
@@ -466,6 +473,7 @@ SK_CALIB_GROUND = P.softkey_mask(P.new_id(4000), [K_BACK, K_CAL_METER, K_SCALE_T
 SK_ALARM = P.softkey_mask(P.new_id(4000), [K_ACK], name="SK_ALARM")
 SK_DRIVE = P.softkey_mask(P.new_id(4000), [K_BACK, K_TUNE_PAGE], name="SK_DRIVE")
 SK_MOTOR = P.softkey_mask(P.new_id(4000), [K_BACK, K_JAM_PAGE, K_TUNE_PAGE], name="SK_MOTOR")
+SK_TUNE_INFO = P.softkey_mask(P.new_id(4000), [K_BACK, K_TUNE_GO], name="SK_TUNE_INFO")
 SK_JAM = P.softkey_mask(P.new_id(4000), [K_BACK, K_JAM_METER, K_JAM_START, K_JAM_STOP], name="SK_JAM")
 SK_TUNE = P.softkey_mask(P.new_id(4000), [K_BACK, K_TUNE_METER, K_TUNE_START, K_TUNE_STOP, K_TUNE_ACCEPT,
                                            K_TUNE_DISCARD], name="SK_TUNE")
@@ -633,12 +641,17 @@ DM_INFO = P.data_mask(1020, SK_INFO, info, name="DM_INFO")
 
 # ================================================================== MENÜ
 menu = title_bar("BEÁLLÍTÁSOK")
-# elöl a napi használat (leforgatás, számlálók, diagnosztika), utána a beállítóoldalak
-menu_items = ["calib", "info", "diagnose"] + [p for p, _ in pd.VT_PAGES]
-MENU_LABEL = {**{k: v[0] for k, v in PAGE_INFO.items()}, "calib": "Leforgatás", "info": "Számlálók",
-              "diagnose": "Diagnosztika"}
-MENU_ICON = {**{k: v[1] for k, v in PAGE_INFO.items()}, "calib": "softkeys/softkey_crank", "info": "menu/menu_counters",
-             "diagnose": "menu/menu_diagnose"}
+# elöl a napi használat (leforgatás, számlálók, diagnosztika), utána a beállítás-csoportok
+# (egyoldalas csoport közvetlenül az oldalt nyitja, több oldalasnál a csoport almenüje jön)
+menu_items = ["calib", "info", "diagnose"] + ["gr_" + g for g in GROUP_IDS]
+MENU_LABEL = {"calib": "Leforgatás", "info": "Számlálók", "diagnose": "Diagnosztika",
+              **{"gr_" + g: lab for g, lab, _ic, _p in pd.VT_GROUPS}}
+# a menügombon legfeljebb 12 karakter fér el
+MENU_LABEL.update({"gr_machine": "Gép, geom.", "gr_drive": "Hajtás", "gr_fan": "Turbina, hût.",
+                   "gr_tc": "Szakaszolás"})
+MENU_LABEL["gr_fan"] = "Turbina"
+MENU_ICON = {"calib": "softkeys/softkey_crank", "info": "menu/menu_counters", "diagnose": "menu/menu_diagnose",
+             **{"gr_" + g: ic for g, _l, ic, _p in pd.VT_GROUPS}}
 BTN = {}
 rows_n = (len(menu_items) + 1) // 2
 bh = (MASK - 44) // rows_n
@@ -652,6 +665,31 @@ for i, pid in enumerate(menu_items):
     BTN[pid] = b
     menu.append((b, 4 + col * 198, 42 + row * bh))
 DM_MENU = P.data_mask(1030, SK_MENU, menu, name="DM_MENU")
+
+# csoport almenük: oldalgombok ikonnal, címmel és a fő beállítások felsorolásával
+PAGE_DESC = {}
+for _pid, _ in pd.VT_PAGES:
+    _labels = [p.vt_label for p in pd.P if p.vt_page == _pid]
+    _d = ", ".join(_labels[:3])
+    PAGE_DESC[_pid] = _d if len(_d) <= 40 else _d[:37].rstrip(", ") + "..."
+PAGE_DESC["motor"] = "Bekötés, visszafordítás, önhangolás"
+PAGE_DESC["drive"] = "Hajtás, kuplung, jeladók, szabályzás"
+PBTN = {}
+GROUP_MASK = {}
+for gi, (gid, glabel, _icon, pages) in enumerate(pd.VT_GROUPS):
+    if len(pages) < 2:
+        continue
+    kids = title_bar(glabel.upper())
+    gbh = min(96, (MASK - 52) // len(pages) - 8)
+    for k, pid in enumerate(pages):
+        b = P.button(6200 + gi * 4 + k, MASK - 12, gbh, 140 + gi * 4 + k,
+                     [(PIC(PAGE_INFO[pid][1], 36), 10, (gbh - 36) // 2),
+                      (S(PAGE_INFO[pid][0], 300, 22, F_VALUE_N), 58, gbh // 2 - 24),
+                      (S(PAGE_DESC[pid].replace("ő", "õ").replace("ű", "û"), 320, 16, F_SMALL), 58, gbh // 2 + 4)],
+                     name="BTN_PG_" + pid.upper())
+        PBTN[pid] = b
+        kids.append((b, 6, 48 + k * (gbh + 8)))
+    GROUP_MASK[gid] = P.data_mask(1080 + gi, SK_GROUP[gid], kids, name="DM_GR_" + gid.upper())
 
 # ================================================================== BEÁLLÍTÓOLDALAK
 VT_OPTION_SHORT = {
@@ -937,6 +975,40 @@ for fn in tune_rows:
 assert y <= MASK + 2, y
 DM_TUNE = P.data_mask(1075, SK_TUNE, tn, name="DM_TUNE")
 
+# ================================================================== ÖNHANGOLÁS – TUDNIVALÓK
+TUNE_INFO_LINES = [
+    ("h", "MI FOG TÖRTÉNNI?"),
+    ("t", "Kb. 30 s-ig forgatja a kiválasztott adagolót:"),
+    ("t", "1. lassan felfuttat, amíg elindul (indulási PWM)"),
+    ("t", "2. visszaveszi, amíg megáll (-> PWM minimum)"),
+    ("t", "3. 25 / 50 / 75 / 100 % PWM-en méri a fordulatot"),
+    ("t", "4. a reakcióidõbõl szabályzási állandót javasol"),
+    ("h", "MIT KELL TENNI?"),
+    ("t", "- álló gép, vetés KI"),
+    ("t", "- vetõmag a tartályban (terhelés alatt pontos)"),
+    ("e", ""),
+    ("t", "- ne nyúlj a hajtáshoz forgás közben!"),
+    ("t", "Megszakítás: Stop, vetés BE vagy kilépés."),
+    ("h", "UTÁNA"),
+    ("t", "Javaslat és mostani érték egymás mellett;"),
+    ("t", "Mentés után kézzel tovább állítható."),
+]
+STR_TUNE_EST = S(" " * 48, 388, 16, F_SMALL, name="STR_TUNE_EST")
+ti = title_bar("ÖNHANGOLÁS - TUDNIVALÓK")
+y = 44
+for kind, txt in TUNE_INFO_LINES:
+    if kind == "h":
+        ti.append((S(txt, 380, 18, F_LABEL), 6, y + 2))
+        y += 24
+    elif kind == "e":
+        ti.append((STR_TUNE_EST, 6, y))
+        y += 22
+    else:
+        ti.append((S(txt, 388, 16, F_SMALL), 6, y))
+        y += 22
+assert y <= MASK + 2, y
+DM_TUNE_INFO = P.data_mask(1077, SK_TUNE_INFO, ti, name="DM_TUNE_INFO")
+
 # ================================================================== VISSZAFORDÍTÁS PRÓBA
 DRV_TEXTS = ["Csak PWM", "PWM + DIR", "PWM + PWM"]
 STR_DRV = [S(t, 186, 22, F_LABEL, name=f"STR_DRV_{i}") for i, t in enumerate(DRV_TEXTS)]
@@ -1038,10 +1110,22 @@ def header_text(pool_bytes: bytes) -> str:
     lines.append(f"constexpr std::uint16_t SK_MAIN[2][2] = {{{{{SK_MAIN[(1, 0)]}, {SK_MAIN[(1, 1)]}}}, "
                  f"{{{SK_MAIN[(2, 0)]}, {SK_MAIN[(2, 1)]}}}}};")
     lines.append("")
-    lines.append("struct PageInfo { const char *id; std::uint16_t mask; std::uint16_t button; std::uint16_t key; };")
+    group_of = {pg: gi for gi, g in enumerate(pd.VT_GROUPS) for pg in g[3]}
+    lines.append("/// Beállítóoldalak: maszk, érintőgomb a csoport almenüjében (0 = egyoldalas csoport), softkey, csoport")
+    lines.append("struct PageInfo { const char *id; std::uint16_t mask; std::uint16_t button; std::uint16_t key; "
+                 "std::uint8_t group; };")
     lines.append(f"constexpr PageInfo PAGES[{len(pd.VT_PAGES)}] = {{")
-    for pid, _ in pd.VT_PAGES:
-        lines.append(f'    {{"{pid}", {PAGE_MASK[pid]}, {BTN[pid]}, {K_PAGE[pid]}}},')
+    page_list = [pid for pid, _ in pd.VT_PAGES]
+    for pid in page_list:
+        lines.append(f'    {{"{pid}", {PAGE_MASK[pid]}, {PBTN.get(pid, 0)}, {K_PAGE[pid]}, {group_of[pid]}}},')
+    lines.append("};")
+    lines.append("/// Beállítás-csoportok: almenü maszk (0 = egyoldalas: az első oldal nyílik), menügomb, softkey, első oldal")
+    lines.append("struct GroupInfo { const char *id; std::uint16_t mask; std::uint16_t button; std::uint16_t key; "
+                 "std::uint8_t first_page; };")
+    lines.append(f"constexpr GroupInfo GROUPS[{len(pd.VT_GROUPS)}] = {{")
+    for gid, _l, _ic, pages in pd.VT_GROUPS:
+        lines.append(f'    {{"{gid}", {GROUP_MASK.get(gid, 0)}, {BTN["gr_" + gid]}, {K_GROUP[gid]}, '
+                     f'{page_list.index(pages[0])}}},')
     lines.append("};")
     lines.append(f"constexpr std::uint16_t BTN_PAGE_CALIB = {BTN['calib']};")
     lines.append(f"constexpr std::uint16_t BTN_PAGE_INFO = {BTN['info']};")

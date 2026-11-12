@@ -254,6 +254,7 @@ constexpr std::size_t GROUP_COUNT = 14;
 constexpr std::uint16_t VT_INPUT_BASE = 9000;
 extern const ParamDef PARAMS[PARAM_COUNT];
 extern const GroupDef GROUPS[GROUP_COUNT];
+constexpr const char *VT_GROUPS_JSON = "[{\"id\":\"rate\",\"label\":\"Adagolás\",\"pages\":[{\"id\":\"rate\",\"title\":\"ADAGOLÁS, FELTÖLTÉS\"}]},{\"id\":\"machine\",\"label\":\"Gép, geometria\",\"pages\":[{\"id\":\"machine\",\"title\":\"GÉP\"},{\"id\":\"geometry\",\"title\":\"GEOMETRIA\"}]},{\"id\":\"drive\",\"label\":\"Hajtás, motor\",\"pages\":[{\"id\":\"drive\",\"title\":\"ADAGOLÓHAJTÁS\"},{\"id\":\"motor\",\"title\":\"MOTORVEZÉRLŐ\"}]},{\"id\":\"fan\",\"label\":\"Turbina, hűtés\",\"pages\":[{\"id\":\"fan\",\"title\":\"TURBINA\"},{\"id\":\"cooling\",\"title\":\"OLAJHŐMÉRSÉKLET\"}]},{\"id\":\"measure\",\"label\":\"Mérés\",\"pages\":[{\"id\":\"speed\",\"title\":\"SEBESSÉG\"},{\"id\":\"scale\",\"title\":\"MÉRLEG\"},{\"id\":\"pressure\",\"title\":\"NYOMÁSMÉRÉS\"}]},{\"id\":\"switches\",\"label\":\"Kapcsolók\",\"pages\":[{\"id\":\"switches\",\"title\":\"KAPCSOLÓK\"},{\"id\":\"extras\",\"title\":\"KIEGÉSZÍTŐK\"}]},{\"id\":\"tc\",\"label\":\"Szakaszolás, TC\",\"pages\":[{\"id\":\"tc\",\"title\":\"SZAKASZOLÁS, TC\"},{\"id\":\"aog\",\"title\":\"AGOPENGPS\"}]},{\"id\":\"service\",\"label\":\"Szerviz\",\"pages\":[{\"id\":\"diag\",\"title\":\"SZIMULÁCIÓ / TESZT\"}]}]";
 
 #ifdef SEEDER_PARAMS_IMPLEMENTATION
 static const char *const OPT_meter_layout[] = {"Bal / jobb félszélesség", "Első / hátsó sor (teljes szélesség)"};

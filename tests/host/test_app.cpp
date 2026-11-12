@@ -527,7 +527,10 @@ TEST(virtual_terminal_motor_tune_page) {
         if (std::strcmp(p.id, "drive") == 0) drive_mask = p.mask;
     CHECK(has(vt_json(a), "\"mask\":" + std::to_string(drive_mask)));
     CHECK(has(vt_json(a), "\"" + std::to_string(drive_mask) + "\":" + std::to_string(vt::SK_DRIVE)));
-    key(vt::K_TUNE_PAGE);
+    key(vt::K_TUNE_PAGE);   // előbb a tudnivalók
+    CHECK(has(vt_json(a), "\"mask\":" + std::to_string(vt::DM_TUNE_INFO)));
+    CHECK(has(vt_json(a), "kb. "));
+    key(vt::K_TUNE_GO);
     CHECK(has(vt_json(a), "\"mask\":" + std::to_string(vt::DM_TUNE)));
     key(vt::K_TUNE_START);
     {
@@ -565,6 +568,8 @@ TEST(virtual_terminal_jam_test_page) {
         run_app(a, 0.3f);
     };
     key(vt::K_MENU);
+    key(vt::K_GR_DRIVE);   // csoport almenü: Hajtás, motor
+    CHECK(has(vt_json(a), "\"mask\":" + std::to_string(vt::DM_GR_DRIVE)));
     key(vt::K_PG_MOTOR);
     std::uint16_t motor_mask = 0;
     for (const auto &p : vt::PAGES)
@@ -584,6 +589,45 @@ TEST(virtual_terminal_jam_test_page) {
         std::lock_guard<std::mutex> g(shared.lock);
         CHECK(shared.core.status().jam[0].phase == JamPhase::Normal);
     }
+}
+
+TEST(virtual_terminal_settings_groups) {
+    app::Shared shared;
+    app::SeederApp a(shared);
+    run_app(a, 0.3f);
+    auto key = [&](std::uint16_t k) {
+        a.virtual_vt_event("key", k, 0, 0);
+        run_app(a, 0.3f);
+    };
+    auto btn = [&](std::uint16_t b) {
+        a.virtual_vt_event("button", b, 0, 0);
+        run_app(a, 0.3f);
+    };
+    auto mask_is = [&](std::uint16_t m) { return has(vt_json(a), "\"mask\":" + std::to_string(m)); };
+    key(vt::K_MENU);
+    CHECK(mask_is(vt::DM_MENU));
+    // egyoldalas csoport: közvetlenül az oldal, vissza a menübe
+    key(vt::K_GR_RATE);
+    CHECK(mask_is(vt::PAGES[vt::GROUPS[0].first_page].mask));
+    key(vt::K_BACK);
+    CHECK(mask_is(vt::DM_MENU));
+    // több oldalas csoport érintőgombbal: almenü → oldal → vissza az almenübe → vissza a menübe
+    std::uint16_t speed_mask = 0, speed_btn = 0;
+    for (const auto &p : vt::PAGES)
+        if (std::strcmp(p.id, "speed") == 0) {
+            speed_mask = p.mask;
+            speed_btn = p.button;
+        }
+    btn(vt::BTN_GR_MEASURE);
+    CHECK(mask_is(vt::DM_GR_MEASURE));
+    btn(speed_btn);
+    CHECK(mask_is(speed_mask));
+    key(vt::K_BACK);
+    CHECK(mask_is(vt::DM_GR_MEASURE));
+    key(vt::K_BACK);
+    CHECK(mask_is(vt::DM_MENU));
+    // minden oldal pontosan egy csoportban
+    for (const auto &p : vt::PAGES) CHECK(p.group < sizeof(vt::GROUPS) / sizeof(vt::GROUPS[0]));
 }
 
 int main() {

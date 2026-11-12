@@ -172,6 +172,8 @@ def render_all(gen, outdir: Path):
     Renderer(pool, ov2).render_mask(G.DM_MAIN, outdir / "03_feltoltes_1adagolo.png", G.SK_MAIN[(1, 1)])
     r.render_mask(G.DM_INFO, outdir / "04_szamlalok.png")
     r.render_mask(G.DM_MENU, outdir / "05_menu.png")
+    for _g, _m in G.GROUP_MASK.items():
+        r.render_mask(_m, outdir / f"05_menu_{_g}.png", G.SK_GROUP[_g])
     r.render_mask(G.DM_CALIB, outdir / "06_leforgatas.png", G.SK_CALIB)
     r.render_mask(G.DM_DIAGNOSE, outdir / "07_diagnosztika.png")
     ot = dict(ov)

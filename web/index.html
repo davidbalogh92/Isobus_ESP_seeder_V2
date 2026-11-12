@@ -71,6 +71,8 @@ details.group summary{list-style:none;cursor:pointer;padding:14px 16px;display:f
 details.group summary::-webkit-details-marker{display:none}
 details.group summary .chev{margin-left:auto;transition:transform .2s;color:var(--muted)}
 details.group[open] summary .chev{transform:rotate(90deg)}
+details.group .sub{margin:14px 0 4px;font-size:12px;letter-spacing:.08em;color:var(--muted);font-weight:700;text-transform:uppercase}
+details.group .sub:first-child{margin-top:0}
 details.group .body{padding:0 16px 14px}
 .field{display:grid;grid-template-columns:1fr 160px;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}
 .field label{font-size:14px}
@@ -485,8 +487,27 @@ async function loadConfig(){try{CFG=await getJSON('/api/config');fillInputs()}ca
 async function loadCrops(){try{CROPS=await getJSON('/api/crops');
   const opts=CROPS.crops.map((c,i)=>`<option value="${i}">${esc(c.name)}</option>`).join('');$('crCrop').innerHTML=opts;$('chCrop').innerHTML=opts}catch(e){}}
 const GROUP_ICON={aog:'📡',machine:'🚜',rate:'🌾',drive:'⚙️',fan:'🌀',speed:'⏱️',switches:'🔘',extras:'🧩',pressure:'🧭',cooling:'🌡️',scale:'⚖️',tc:'🛰️',sim:'🧪',system:'🖥️'};
+const PARAM_TO_VT={machine:'machine',rate:'rate',drive:'drive',fan:'fan',cooling:'fan',speed:'measure',scale:'measure',pressure:'measure',switches:'switches',extras:'switches',tc:'tc',aog:'tc',sim:'service',system:'service'};
+const VT_GROUP_ICON={rate:'🌾',machine:'🚜',drive:'⚙️',fan:'🌀',measure:'⏱️',switches:'🔘',tc:'🛰️',service:'🧪'};
 function buildGroups(){
   const box=$('groups');box.innerHTML='';
+  // a VT-vel azonos menü: csoport → oldalak; ami nincs VT oldalon, az utána a saját csoportjában
+  if(SCHEMA.vt_groups){
+    for(const g of SCHEMA.vt_groups){
+      const d=document.createElement('details');d.className='group';d.dataset.group=g.id;
+      if(g.id==='rate')d.open=true;
+      d.innerHTML=`<summary><span>${VT_GROUP_ICON[g.id]||'•'}</span><span>${esc(g.label)}</span><span class="chev">›</span></summary><div class="body"></div>`;
+      const body=d.querySelector('.body');
+      for(const pg of g.pages){
+        const ps=SCHEMA.params.filter(p=>p.page===pg.id);if(!ps.length)continue;
+        if(g.pages.length>1){const h=document.createElement('div');h.className='sub';h.textContent=pg.title;body.appendChild(h)}
+        for(const p of ps)body.appendChild(fieldFor(p))}
+      // ami nincs VT oldalon (csak weben állítható), a csoport végén
+      const extra=SCHEMA.params.filter(p=>!p.page&&(PARAM_TO_VT[p.group]||'service')===g.id);
+      if(extra.length){const h=document.createElement('div');h.className='sub';h.textContent='További (csak weben)';body.appendChild(h);
+        for(const p of extra)body.appendChild(fieldFor(p))}
+      box.appendChild(d)}
+    fillInputs();return}
   for(const g of SCHEMA.groups){
     const d=document.createElement('details');d.className='group';d.dataset.group=g.id;
     if(g.id==='machine')d.open=true;

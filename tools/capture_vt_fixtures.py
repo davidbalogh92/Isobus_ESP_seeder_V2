@@ -64,6 +64,11 @@ def main():
     ev("key", "K_BACK")
     ev("key", "K_BACK")
     ev("key", "K_BACK")
+    ev("key", "K_MENU")
+    ev("key", "K_GR_DRIVE")
+    save("07_group.json")
+    ev("key", "K_BACK")
+    ev("key", "K_BACK")
 
 
 if __name__ == "__main__":

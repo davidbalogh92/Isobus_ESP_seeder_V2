@@ -400,7 +400,9 @@ std::string schema_json() {
         out += GROUPS[g].icon;
         out += "\"}";
     }
-    out += "],\"params\":[";
+    out += "],\"vt_groups\":";
+    out += VT_GROUPS_JSON;
+    out += ",\"params\":[";
     for (std::uint16_t i = 0; i < PARAM_COUNT; ++i) {
         const ParamDef &d = PARAMS[i];
         if (i) out += ',';
@@ -418,6 +420,8 @@ std::string schema_json() {
         out += d.feature;
         out += "\",\"scope\":\"";
         out += d.scope;
+        out += "\",\"page\":\"";
+        out += d.vt_page ? d.vt_page : "";
         out += "\",\"kind\":\"";
         static const char *const kinds[] = {"float", "int", "enum", "bool", "str"};
         out += kinds[static_cast<int>(d.kind)];

@@ -408,6 +408,20 @@ VT_PAGES = [
 ]
 
 
+# A beállítások menüje (VT, web, Windows): csoportok → oldalak, a permetező mintájára.
+# (azonosító, felirat, ikon, oldalak) – minden VT oldal pontosan egy csoportban van.
+VT_GROUPS = [
+    ("rate", "Adagolás", "softkeys/softkey_dosing", ["rate"]),
+    ("machine", "Gép, geometria", "menu/menu_machine", ["machine", "geometry"]),
+    ("drive", "Hajtás, motor", "menu/menu_drive", ["drive", "motor"]),
+    ("fan", "Turbina, hûtés", "softkeys/softkey_fan", ["fan", "cooling"]),
+    ("measure", "Mérés", "main/main_speed", ["speed", "scale", "pressure"]),
+    ("switches", "Kapcsolók", "softkeys/softkey_switch", ["switches", "extras"]),
+    ("tc", "Szakaszolás, TC", "softkeys/softkey_tc", ["tc", "aog"]),
+    ("service", "Szerviz", "menu/menu_diag", ["diag"]),
+]
+
+
 def by_key():
     return {p.key: p for p in P}
 
@@ -429,6 +443,8 @@ def validate():
         if p.feature:
             assert p.feature in bools, p
         assert p.scope in ("", "isobus", "aog"), p
+    _grouped = [pg for g in VT_GROUPS for pg in g[3]]
+    assert sorted(_grouped) == sorted(x[0] for x in VT_PAGES), "minden VT oldal pontosan egy csoportban"
     return True
 
 

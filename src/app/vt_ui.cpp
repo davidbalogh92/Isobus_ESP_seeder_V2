@@ -150,6 +150,8 @@ const char *VtUi::page_name() const {
     case Page::Diagnose: return "Diagnosztika";
     case Page::Tune: return "Önhangolás";
     case Page::Jam: return "Visszafordítás próba";
+    case Page::Group: return "Beállítás-csoport";
+    case Page::TuneInfo: return "Önhangolás – tudnivalók";
     default: return "?";
     }
 }
@@ -165,9 +167,32 @@ void VtUi::go(Page page, std::uint16_t mask) {
     case Page::Diagnose: page_mask_ = vt::DM_DIAGNOSE; break;
     case Page::Tune: page_mask_ = vt::DM_TUNE; break;
     case Page::Jam: page_mask_ = vt::DM_JAM; break;
+    case Page::TuneInfo: page_mask_ = vt::DM_TUNE_INFO; break;
     default: page_mask_ = mask; break;
     }
     if (page != Page::Settings) settings_from_calib_ = false;
+    if (page == Page::Settings)
+        for (const auto &p : vt::PAGES)
+            if (p.mask == mask) group_ = p.group;
+}
+
+void VtUi::open_group(int g) {
+    if (g < 0 || g >= static_cast<int>(sizeof(vt::GROUPS) / sizeof(vt::GROUPS[0]))) return;
+    group_ = g;
+    if (vt::GROUPS[g].mask == 0) go(Page::Settings, vt::PAGES[vt::GROUPS[g].first_page].mask);   // egyoldalas
+    else go(Page::Group, vt::GROUPS[g].mask);
+}
+
+void VtUi::back_from_settings() {
+    if (settings_from_calib_) {
+        go(Page::Calib);
+        return;
+    }
+    const int g = group_.load();
+    if (g >= 0 && g < static_cast<int>(sizeof(vt::GROUPS) / sizeof(vt::GROUPS[0])) && vt::GROUPS[g].mask)
+        go(Page::Group, vt::GROUPS[g].mask);
+    else
+        go(Page::Menu);
 }
 
 // ----------------------------------------------------------------------------- események
@@ -195,6 +220,12 @@ void VtUi::on_softkey(std::uint16_t id, std::uint8_t activation) {
             return;
         }
     }
+    for (int gi = 0; gi < static_cast<int>(sizeof(vt::GROUPS) / sizeof(vt::GROUPS[0])); ++gi) {
+        if (id == vt::GROUPS[gi].key) {
+            open_group(gi);
+            return;
+        }
+    }
     switch (id) {
     case vt::K_MASTER: c.toggle_master(); break;
     case vt::K_METER1: c.toggle_meter(0); break;
@@ -216,23 +247,25 @@ void VtUi::on_softkey(std::uint16_t id, std::uint8_t activation) {
     case vt::K_BACK: {
         const auto pg = static_cast<Page>(page_.load());
         if (pg == Page::Settings) {
-            if (settings_from_calib_) go(Page::Calib);
-            else go(Page::Menu);
+            back_from_settings();
+        } else if (pg == Page::Group) {
+            go(Page::Menu);
         } else if (pg == Page::Calib) {
             c.crank_hold(false);
             go(Page::Main);
         } else if (pg == Page::Diagnose) {
             go(Page::Menu);
-        } else if (pg == Page::Jam) {
-            c.jam_test_stop();
-            for (const auto &p : vt::PAGES)
-                if (std::strcmp(p.id, "motor") == 0) go(Page::Settings, p.mask);
-        } else if (pg == Page::Tune) {
-            if (c.status().tune_phase == seeder::TunePhase::StartUp || c.status().tune_phase == seeder::TunePhase::StopDown ||
-                c.status().tune_phase == seeder::TunePhase::Points)
+        } else if (pg == Page::Jam || pg == Page::Tune || pg == Page::TuneInfo) {
+            if (pg == Page::Jam) c.jam_test_stop();
+            if (pg == Page::Tune && (c.status().tune_phase == seeder::TunePhase::StartUp ||
+                                     c.status().tune_phase == seeder::TunePhase::StopDown ||
+                                     c.status().tune_phase == seeder::TunePhase::Points))
                 c.motor_tune_stop();   // a lapot elhagyva a mérés leáll
-            for (const auto &p : vt::PAGES)
-                if (std::strcmp(p.id, "drive") == 0) go(Page::Settings, p.mask);
+            std::uint16_t back = return_mask_.load();
+            if (!back)
+                for (const auto &p : vt::PAGES)
+                    if (std::strcmp(p.id, pg == Page::Jam ? "motor" : "drive") == 0) back = p.mask;
+            go(Page::Settings, back);
         } else {
             go(Page::Main);
         }
@@ -275,8 +308,18 @@ void VtUi::on_softkey(std::uint16_t id, std::uint8_t activation) {
         break;
     }
     case vt::K_CAL_METER: c.crank_set_meter(st.crank.meter == 0 ? 1 : 0); break;
-    case vt::K_TUNE_PAGE: go(Page::Tune); break;
-    case vt::K_JAM_PAGE: go(Page::Jam); break;
+    case vt::K_TUNE_PAGE: {
+        if (static_cast<Page>(page_.load()) == Page::Settings) return_mask_ = page_mask_.load();
+        const auto ph = st.tune_phase;
+        // folyamatban lévő vagy elfogadásra váró mérésnél rögtön a mérőlap, különben előbb a tudnivalók
+        go(ph == seeder::TunePhase::Idle || ph == seeder::TunePhase::Failed ? Page::TuneInfo : Page::Tune);
+        break;
+    }
+    case vt::K_TUNE_GO: go(Page::Tune); break;
+    case vt::K_JAM_PAGE:
+        if (static_cast<Page>(page_.load()) == Page::Settings) return_mask_ = page_mask_.load();
+        go(Page::Jam);
+        break;
     case vt::K_JAM_METER:
         jam_meter_ = seeder::meter_count(c.settings()) > 1 && jam_meter_.load() == 0 ? 1 : 0;
         break;
@@ -333,8 +376,13 @@ void VtUi::on_button(std::uint16_t id, std::uint8_t activation) {
         go(Page::Calib);
         return;
     }
+    for (int gi = 0; gi < static_cast<int>(sizeof(vt::GROUPS) / sizeof(vt::GROUPS[0])); ++gi)
+        if (id == vt::GROUPS[gi].button) {
+            open_group(gi);
+            return;
+        }
     for (const auto &pg : vt::PAGES)
-        if (id == pg.button) go(Page::Settings, pg.mask);
+        if (pg.button && id == pg.button) go(Page::Settings, pg.mask);
 }
 
 void VtUi::on_numeric(std::uint16_t id, std::uint32_t value) {
@@ -785,6 +833,17 @@ void VtUi::update_tune(const Snapshot &s) {
     const bool active = st.tune_phase == seeder::TunePhase::StartUp || st.tune_phase == seeder::TunePhase::StopDown ||
                         st.tune_phase == seeder::TunePhase::Points;
     if (seeder::meter_count(set) < 2) tune_meter_ = 0;
+    {
+        // tudnivalók lap: a várhatóan kiömlő mennyiség (≈ 0,2 × fordulat 100 %-on, a kg/fordulatból)
+        const int tm = tune_meter_.load() == 1 ? 1 : 0;
+        const float kg = 0.2f * set.motor_max_rpm * seeder::cal_kg_rev(set, tm);
+        char nb[16], eb[64];
+        std::snprintf(nb, sizeof nb, "%.1f", static_cast<double>(kg));
+        for (char *q = nb; *q; ++q)
+            if (*q == '.') *q = ',';
+        std::snprintf(eb, sizeof eb, "- a kiömlő alá edényt (kb. %s kg jöhet ki)", nb);
+        text(vt::STR_TUNE_EST, vt_latin1(eb, 48));
+    }
     const int meter = active || st.tune_phase == seeder::TunePhase::Done ? st.tune_meter : tune_meter_.load();
     num(vt::OP_TUNE_METER, vt::STR_METER[meter == 1 ? 1 : 0]);
     num(vt::OP_K_TUNE_METER, vt::PIC_K_TUNE_METER[meter == 1 ? 1 : 0]);
