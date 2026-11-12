@@ -171,6 +171,17 @@ add("motor_driver", "drive", "Motorvezérlő bekötése", "Motorvezérlő", "enu
          "Az 1. motor 47 + 21, a 2. motor 48 + 45. A visszafordításhoz (beszorulás) irányváltós bekötés kell.")
 add("motor_invert", "drive", "Forgásirány megfordítása", "Irány fordítva", "bool", 0, options=YES_NO,
     vt_page="motor", help="Ha a motor 'előre' parancsra visszafelé forog (irányváltós bekötésnél).")
+add("unjam_enable", "drive", "Beszorulásnál visszafordítás", "Visszafordítás", "bool", 1, options=YES_NO,
+    vt_page="motor", help="Ha az adagoló beszorul (hajtott motor, de nem jön enkóderjel), a motor megáll, a "
+                          "beállított szöggel visszafordul, majd újra előre indul. Csak irányváltós bekötésnél "
+                          "(PWM + DIR vagy IBT-2). 'Nem' (vagy egyirányú bekötés): beszorulásnál megáll és riaszt.")
+add("unjam_deg", "drive", "Visszafordítás mértéke", "Vissza mérték", "float", 30.0, 5.0, 180.0, 5.0, 0, "°",
+    vt_page="motor", help="Adagolótengely-fok, az enkóder impulzusaiból számolva.")
+add("unjam_tries", "drive", "Visszafordítási próbák száma", "Vissza próbák", "int", 3, 1, 5, 1, 0, "db",
+    vt_page="motor", help="Ennyi sikertelen próba után a motor áll és riaszt. 5 s rendben forgás után nullázódik.")
+add("jam_detect_s", "drive", "Beszorulás felismerési ideje", "Felismerés", "float", 0.6, 0.2, 5.0, 0.1, 1, "s",
+    vt_page="motor", help="Ennyi ideig nem jön enkóderjel elég nagy PWM mellett (vagy a PWM a maximumon, és a "
+                          "fordulat a cél negyede alatt) → beszorulás.")
 add("motor_deadband_pct", "drive", "Indulási PWM (holtsáv)", "Indulási PWM", "float", 0.0, 0, 60, 0.5, 1, "%",
     vt_page="motor", help="Ennél kisebb PWM-nél a motor nem forog. Az önhangolás méri és menti; a terhelési mutató "
                           "és az előrecsatolás pontosításához.")

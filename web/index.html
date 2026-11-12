@@ -199,6 +199,7 @@ table.pins td:first-child{font-variant-numeric:tabular-nums;white-space:nowrap;f
     <button data-p="wheel">Kerékjeladó</button>
     <button data-p="press">Nyomás</button>
     <button data-p="tune">Motor</button>
+    <button data-p="jam">Visszafordítás</button>
   </div>
 
   <div class="calpage on" id="cal-crank">
@@ -334,6 +335,29 @@ table.pins td:first-child{font-variant-numeric:tabular-nums;white-space:nowrap;f
         <button class="btn wide" onclick="cmd('motor_tune_discard')">Elvetés</button>
       </div>
       <p class="note warn" id="tuOff">Csak elektromos (motoros) hajtásnál használható.</p>
+    </div>
+  </div>
+
+  <div class="calpage" id="cal-jam">
+    <div class="card">
+      <h2>Beszorulás – visszafordítás próba</h2>
+      <p class="note">Álló gépnél, vetés KI. A vezérlő egy teljes ciklust futtat: előre forgat (1 s) → megáll →
+        <b>visszafordít a beállított szöggel</b> → megáll → újra előre. Kiírja a ténylegesen mért visszafordulást.
+        A mérték, a próbák száma és a felismerés a Beállítások → Motorvezérlő oldalon állítható.
+        Munka közben beszorulásnál ugyanez történik magától (ha a visszafordítás be van kapcsolva); különben a motor megáll és riaszt.</p>
+      <div class="field" id="jmMeterF"><label>Adagoló</label><div class="inp"><select id="jmMeter"><option value="0">1. adagoló</option><option value="1">2. adagoló</option></select></div></div>
+      <div class="row" style="margin:12px 0">
+        <button class="btn go wide" onclick="cmd('jam_test',+$('jmMeter').value)">Próba indítása</button>
+        <button class="btn stop wide" onclick="cmd('jam_test_stop')">Leállítás</button>
+      </div>
+      <div class="kv"><span>Bekötés</span><b id="jmDrv">–</b></div>
+      <div class="kv"><span>Állapot</span><b id="jmState">–</b></div>
+      <div class="kv"><span>Beállított mérték</span><b id="jmSet">–</b></div>
+      <div class="kv"><span>Utolsó: mért visszafordulás</span><b id="jmLast">–</b></div>
+      <div class="kv"><span>Utolsó: időtartam · PWM</span><b id="jmTime">–</b></div>
+      <div class="kv"><span>Munka közben: beszorult / sikeres</span><b id="jmCount">–</b></div>
+      <div class="kv"><span>Terhelési mutató (100 = szokásos)</span><b id="jmLoad">–</b></div>
+      <p class="note warn" id="jmOff">Visszafordításhoz irányváltós bekötés kell (PWM + DIR vagy IBT-2), elektromos hajtással.</p>
     </div>
   </div>
 </section>
@@ -627,6 +651,15 @@ function render(){
    const r=(n,a,b,d,u)=>`<tr style="border-top:1px solid var(--line)"><td style="padding:6px 0">${n}</td><td style="text-align:right"><b>${t.valid?fmt(a,d)+u:'–'}</b></td><td style="text-align:right" class="muted">${fmt(b,d)}${u}</td></tr>`;
    $('tuTab').innerHTML=r('Fordulat 100% PWM-nél',t.max_rpm,t.cur_max_rpm,1,' 1/min')+r('PWM minimum',t.pwm_min,t.cur_pwm_min,0,' %')+r('Szabályzási állandó',t.gain,t.cur_gain,0,'');
    $('tuAcc').disabled=!t.valid;}
+  if(st.jam){const m=+$('jmMeter').value,k=(CFG.motor_layout==1&&st.meters>1)?0:m,j=st.jam[k]||st.jam[0];
+   show('jmMeterF',st.meters>1);show('jmOff',!(st.electric&&CFG.motor_driver>0));
+   $('jmDrv').textContent=['Csak PWM (egy irány)','PWM + DIR','PWM + PWM (IBT-2)'][CFG.motor_driver||0];
+   $('jmState').textContent=j.label+(j.message?' – '+j.message:'');
+   $('jmSet').textContent=fmt(CFG.unjam_deg||0)+' ° · '+(CFG.unjam_enable?'bekapcsolva':'kikapcsolva');
+   $('jmLast').textContent=j.last_valid?fmt(j.last_deg,1)+' ° ('+j.last_pulses+' imp.)':'–';
+   $('jmTime').textContent=j.last_valid?fmt(j.last_ms)+' ms · '+fmt(j.last_pwm)+' %':'–';
+   $('jmCount').textContent=j.jams+' / '+j.recoveries;
+   $('jmLoad').textContent=st.meter.slice(0,st.meters).map(x=>x.load>=0?fmt(x.load)+' %':'–').join(' · ');}
   $('prV').textContent=fmt(st.pressure_v,3)+' V';$('prBar').textContent=st.pressure_ok?fmt(st.pressure_bar,1)+' bar':'nincs jel';show('prOff',!CFG.pressure_enable);
   // számlálók
   const rows=[['Terület','ha',st.day.ha,st.total.ha,2],['Megtett út','km',st.day.km,st.total.km,2],['Vetési idő','óra',st.day.h,st.total.h,1],['1. adagoló','kg',st.day.kg1,st.total.kg1,0]];

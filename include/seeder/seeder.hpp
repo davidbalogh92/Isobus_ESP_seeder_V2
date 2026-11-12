@@ -7,6 +7,7 @@
 // (kuplung) vagy szabályzása (elektromos motor + enkóder, PI + előrecsatolás, rámpák),
 // szakaszvezérlés (kézi + TC-SEC), indulási csőfeltöltés, turbina- és adagolófigyelés,
 // leürülésgátlók, lenyomatási nyomás, olajhőmérséklet + hűtőventilátor, mérleg, leforgatás.
+#include "seeder/jam.hpp"
 #include "seeder/motor_tune.hpp"
 #include "seeder/pulse.hpp"
 #include "seeder/rate_chart.hpp"
@@ -59,6 +60,8 @@ enum class AlarmId : std::uint8_t {
     TcLost,
     SpeedMismatch,
     AogLost,
+    Meter1Jam,
+    Meter2Jam,
     COUNT
 };
 enum class Severity : std::uint8_t { Info = 0, Warning = 1, Alarm = 2 };
@@ -97,6 +100,8 @@ struct MotorOutput {
 class MotorController {
 public:
     void reset() { integral_ = 0.0f; out_ = 0.0f; run_time_ = 0.0f; }
+    /// megállás a tanult korrekció megtartásával (beszorulás-kezelés után újra felfut)
+    void pause() { out_ = 0.0f; run_time_ = 0.0f; }
     MotorOutput step(const Settings &s, float dt, float target_rpm, float actual_rpm);
     float integral() const { return integral_; }
     void restore(float integral) { integral_ = integral; }
@@ -164,7 +169,8 @@ struct Totals {
 /// Tartósan mentendő állapot (NVS). Verzióváltáskor a magic/version alapján eldobható.
 struct Persistent {
     static constexpr std::uint32_t MAGIC = 0x53454544u; // "SEED"
-    static constexpr std::uint32_t VERSION = 1;
+    static constexpr std::uint32_t VERSION = 2;   ///< 2: terhelési alapszint növényenként (1-es blob is betölthető)
+    static constexpr int LOAD_CROPS = 24;
     std::uint32_t magic = MAGIC;
     std::uint32_t version = VERSION;
     Totals day;
@@ -173,6 +179,10 @@ struct Persistent {
     std::uint8_t cooler_manual = 0; ///< hűtőventilátor kézi mód
     std::uint8_t reserved8[3] = {};
     std::uint32_t reserved[8] = {};
+    // --- 2. változat
+    float crop_load[LOAD_CROPS] = {};   ///< tanult terhelési alapszint (mért / várt fordulat), 0 = nincs
+    std::int8_t meter_crop[MAX_METERS] = {-1, -1};   ///< az adagoló utolsó leforgatásának növénye
+    std::uint8_t reserved_v2[6] = {};
 };
 
 // ------------------------------------------------------------------------- vezérlő
@@ -236,6 +246,8 @@ struct MeterStatus {
     float kg_per_min = 0.0f;
     float width_m = 0.0f;
     float since_pulse_s = 0.0f;
+    float load_pct = -1.0f;        ///< terhelési mutató (100 = a növénynél szokásos), < 0 = nincs adat
+    int crop = -1;                 ///< a terheléshez használt növény (utolsó leforgatás)
     MeterView view = MeterView::Idle;
 };
 
@@ -304,6 +316,14 @@ struct Status {
     const char *wheel_cal_error = "";
     CrankCalibration crank;
     chart::Result crank_result;
+    // beszorulás-kezelés (motoronként)
+    struct JamView {
+        JamPhase phase = JamPhase::Normal;
+        int tries = 0;
+        unsigned jams = 0, recoveries = 0;
+        JamResult last;
+        const char *message = "";
+    } jam[MAX_METERS];
     // motor önhangolás
     TunePhase tune_phase = TunePhase::Idle;
     int tune_meter = 0;
@@ -356,7 +376,10 @@ public:
     bool cooler_reverse();
     bool prefill_start();          ///< kézi csőfeltöltés (elektromos hajtás)
     void prefill_stop();
-    void ack_alarms() { alarms_.ack_all(); }
+    void ack_alarms() {
+        alarms_.ack_all();
+        for (auto &j : jam_) j.release();   // a beszorult motor a nyugtázással újraindítható
+    }
     void reset_day();
 
     // --- Task Controller felől ---
@@ -402,6 +425,9 @@ public:
     void motor_tune_stop();
     bool motor_tune_accept();      ///< a javasolt értékek a beállításokba (utána kézzel állíthatók)
     void motor_tune_discard();
+    // --- beszorulás: próba (álló gép, vetés KI) ---
+    bool jam_test_start(int meter);
+    void jam_test_stop();
 
     void scale_tare();
     bool scale_calibrate(float known_kg);
@@ -428,6 +454,13 @@ private:
     Status status_;
     MotorController motor_[MAX_METERS];
     MotorTuner tuner_;
+    JamGuard jam_[MAX_METERS];
+    bool rev_req_[MAX_METERS] = {false, false};
+    float load_steady_s_[MAX_METERS] = {0.0f, 0.0f};
+    JamConfig jam_config() const;
+    int jam_test_meter_ = 0;
+    float jam_quiet_s_[MAX_METERS] = {0.0f, 0.0f};
+    void update_load(int i, int k, const MotorOutput &mo, float target_rpm, float dt, bool override);
     PulseRate wheel_rate_{1.5f, 0.3f};
     PulseRate fan_rate_{1.0f, 0.4f};
     // sűrű enkóderjelnél rövidebb ablak (≥ 30 impulzus, ≥ 0,3 s) → gyorsabb motorszabályzás, kisebb túllövés

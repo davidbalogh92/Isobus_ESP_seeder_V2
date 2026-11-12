@@ -54,7 +54,8 @@ bool json_get_number(const char *json, const char *key, double &out) {
 //   crank_clear_weights, crank_save, crank_hold (1: nyomva – 0,6 s-onként ismételni, 0: elengedve),
 //   crank_motor_start, crank_motor_stop, crank_reset, cooler_reverse,
 //   scale_tare, scale_calibrate (kg), pressure_calibrate (bar),
-//   motor_tune (adagoló 0/1), motor_tune_stop, motor_tune_accept, motor_tune_discard
+//   motor_tune (adagoló 0/1), motor_tune_stop, motor_tune_accept, motor_tune_discard,
+//   jam_test (adagoló 0/1), jam_test_stop
 bool apply_command(Seeder &s, const std::string &c, double v, std::string &error) {
     const int iv = static_cast<int>(v);
     const float fv = static_cast<float>(v);
@@ -121,6 +122,9 @@ bool apply_command(Seeder &s, const std::string &c, double v, std::string &error
     else if (c == "motor_tune_accept") {
         if (!s.motor_tune_accept()) return fail("Nincs elfogadható mérés");
     } else if (c == "motor_tune_discard") s.motor_tune_discard();
+    else if (c == "jam_test") {
+        if (!s.jam_test_start(iv)) return fail("A visszafordítás próba nem indítható");
+    } else if (c == "jam_test_stop") s.jam_test_stop();
     else if (c == "scale_tare") s.scale_tare();
     else if (c == "scale_calibrate") {
         if (!s.scale_calibrate(fv)) return fail("A kalibrálás nem sikerült");

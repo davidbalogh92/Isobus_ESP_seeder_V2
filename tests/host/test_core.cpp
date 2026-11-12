@@ -715,8 +715,150 @@ TEST(electric_encoder_missing_alarm) {
     m.meter_turns[0] = false; // enkóder nem ad jelet
     s.set_master(true);
     m.run(s, 8.0f);
-    CHECK(has_alarm(s, AlarmId::Meter1Stopped));
-    CHECK(!has_alarm(s, AlarmId::Meter2Stopped));
+    // elektromos hajtásnál a beszorulás-figyelés gyorsabb: a motor megáll és riaszt
+    CHECK(has_alarm(s, AlarmId::Meter1Jam));
+    CHECK(s.outputs().motor_pwm_pct[0] < 0.01f);
+    CHECK(!has_alarm(s, AlarmId::Meter2Stopped) && !has_alarm(s, AlarmId::Meter2Jam));
+}
+
+TEST(jam_without_reverse_stops_and_alarms_until_ack) {
+    Seeder s = make([](Settings &st) { st.drive_type = 1; st.prefill_auto = 0; st.motor_driver = 1; st.unjam_enable = 0; });
+    Machine m = down_machine();
+    s.set_master(true);
+    m.run(s, 3.0f);
+    CHECK(!has_alarm(s, AlarmId::Meter1Jam));
+    m.meter_turns[0] = false;   // beszorul
+    m.run(s, 2.0f);
+    CHECK(has_alarm(s, AlarmId::Meter1Jam));
+    CHECK(s.outputs().motor_pwm_pct[0] < 0.01f);
+    CHECK(!s.outputs().motor_rev[0]);                 // nem fordít vissza
+    CHECK(s.status().jam[0].phase == JamPhase::Latched);
+    m.meter_turns[0] = true;                          // a kezelő kiszabadította
+    m.run(s, 1.0f);
+    CHECK(s.outputs().motor_pwm_pct[0] < 0.01f);      // nyugtázásig áll
+    s.ack_alarms();
+    m.run(s, 3.0f);
+    CHECK(s.outputs().motor_pwm_pct[0] > 1.0f);
+    CHECK(!has_alarm(s, AlarmId::Meter1Jam));
+}
+
+namespace {
+/// Beszoruló adagoló: előre nem forog, amíg vissza nem fordították (utána kiszabadul).
+struct JamMachine : Machine {
+    bool jammed = true;
+    float back_deg = 0.0f;
+    float need_deg = 20.0f;
+    bool hard = false;    ///< soha nem szabadul ki
+    void step_jam(Seeder &s) {
+        const bool rev = s.outputs().motor_rev[0];
+        const float pwm = s.outputs().motor_pwm_pct[0];
+        if (jammed && !hard) {
+            if (rev && pwm > 1.0f) {
+                // hátrafelé szabadon forog: impulzusok jönnek
+                meter_turns[0] = true;
+                back_deg += 60.0f * 6.0f * in.dt_s;   // ~60 1/min
+                if (back_deg >= need_deg) jammed = false;
+            } else {
+                meter_turns[0] = false;
+            }
+        } else {
+            meter_turns[0] = !hard || (rev && pwm > 1.0f);
+        }
+        step(s);
+    }
+    void run_jam(Seeder &s, float seconds) {
+        in.dt_s = 0.05f;
+        for (int i = 0; i < static_cast<int>(seconds / in.dt_s + 0.5f); ++i) step_jam(s);
+    }
+};
+} // namespace
+
+TEST(jam_reverse_frees_meter) {
+    Seeder s = make([](Settings &st) {
+        st.drive_type = 1; st.prefill_auto = 0; st.motor_driver = 2; st.unjam_enable = 1; st.unjam_deg = 30.0f;
+        st.unjam_tries = 3; st.jam_detect_s = 0.6f;
+    });
+    JamMachine m;
+    m.in.work_contact = true;
+    m.jammed = false;
+    s.set_master(true);
+    m.run_jam(s, 3.0f);
+    m.jammed = true;
+    bool saw_rev = false;
+    for (int k = 0; k < 120; ++k) {
+        m.run_jam(s, 0.05f);
+        saw_rev = saw_rev || (s.outputs().motor_rev[0] && s.outputs().motor_pwm_pct[0] > 1.0f);
+    }
+    CHECK(saw_rev);
+    CHECK(!m.jammed);
+    CHECK(s.status().jam[0].last.valid);
+    CHECK(s.status().jam[0].last.degrees >= 25.0f);
+    m.run_jam(s, 6.0f);
+    CHECK(!has_alarm(s, AlarmId::Meter1Jam));
+    CHECK(s.outputs().motor_pwm_pct[0] > 1.0f && !s.outputs().motor_rev[0]);
+    CHECK(s.status().jam[0].tries == 0);              // 5 s rendben forgás után nullázódott
+    CHECK(s.status().jam[0].recoveries == 1);
+}
+
+TEST(jam_reverse_gives_up_after_tries) {
+    Seeder s = make([](Settings &st) {
+        st.drive_type = 1; st.prefill_auto = 0; st.motor_driver = 1; st.unjam_enable = 1; st.unjam_tries = 2;
+    });
+    JamMachine m;
+    m.in.work_contact = true;
+    m.jammed = false;
+    s.set_master(true);
+    m.run_jam(s, 3.0f);
+    m.jammed = true;
+    m.hard = true;
+    m.run_jam(s, 15.0f);
+    CHECK(has_alarm(s, AlarmId::Meter1Jam));
+    CHECK(s.status().jam[0].phase == JamPhase::Latched);
+    CHECK(s.status().jam[0].jams == 3);               // 2 próba + a végleges
+    CHECK(s.outputs().motor_pwm_pct[0] < 0.01f);
+    // vetés KI / BE oldja
+    s.set_master(false);
+    s.set_master(true);
+    m.run_jam(s, 0.2f);
+    CHECK(s.status().jam[0].phase == JamPhase::Normal);
+}
+
+TEST(jam_test_runs_full_cycle_standing) {
+    Seeder s = make([](Settings &st) {
+        st.drive_type = 1; st.sim_speed = 0.0f; st.prefill_auto = 0; st.motor_driver = 2; st.unjam_deg = 45.0f;
+    });
+    Machine m = down_machine();
+    m.run(s, 0.3f);
+    CHECK(s.jam_test_start(0));
+    bool fwd = false, rev = false;
+    for (int k = 0; k < 80; ++k) {
+        m.run(s, 0.05f);
+        if (s.outputs().motor_pwm_pct[0] > 1.0f) (s.outputs().motor_rev[0] ? rev : fwd) = true;
+    }
+    CHECK(fwd && rev);
+    CHECK(s.status().jam[0].phase == JamPhase::Normal);
+    CHECK(s.status().jam[0].last.valid);
+    CHECK(std::fabs(s.status().jam[0].last.degrees - 45.0f) < 12.0f);
+    CHECK(s.outputs().motor_pwm_pct[0] < 0.01f);
+    CHECK(s.status().crank.counted_revs < 0.01f);     // a próba nem számít leforgatásnak
+    // egyirányú bekötésnél nem indítható
+    Seeder p = make([](Settings &st) { st.drive_type = 1; st.sim_speed = 0.0f; st.motor_driver = 0; });
+    CHECK(!p.jam_test_start(0));
+    CHECK(s.status_json().find("\"jam\":[{") != std::string::npos);
+}
+
+TEST(load_index_learns_baseline) {
+    Seeder s = make([](Settings &st) { st.drive_type = 1; st.prefill_auto = 0; st.motor_max_rpm = 100.0f; });
+    Machine m = down_machine();
+    s.set_master(true);
+    m.run(s, 3.0f);
+    CHECK(s.status().meter[0].load_pct < 0.0f);       // még nincs alapszint
+    m.run(s, 20.0f);
+    CHECK(std::fabs(s.status().meter[0].load_pct - 100.0f) < 5.0f);
+    // nehezebben forog (a motor 80%-ot hoz): a mutató nő
+    m.motor_strength = 0.8f;
+    m.run(s, 6.0f);
+    CHECK(s.status().meter[0].load_pct > 110.0f);
 }
 
 // =====================================================================================================

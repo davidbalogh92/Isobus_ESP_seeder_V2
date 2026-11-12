@@ -546,6 +546,46 @@ TEST(virtual_terminal_motor_tune_page) {
     }
 }
 
+TEST(virtual_terminal_jam_test_page) {
+    app::Shared shared;
+    {
+        Settings st = default_settings();
+        st.drive_type = 1;
+        st.motor_driver = 2;
+        st.speed_src = 3;
+        st.sim_speed = 0.0f;
+        st.prefill_auto = 0;
+        normalize(st);
+        shared.core.load(st, Persistent{});
+    }
+    app::SeederApp a(shared);
+    run_app(a, 0.3f);
+    auto key = [&](std::uint16_t k) {
+        a.virtual_vt_event("key", k, 0, 0);
+        run_app(a, 0.3f);
+    };
+    key(vt::K_MENU);
+    key(vt::K_PG_MOTOR);
+    std::uint16_t motor_mask = 0;
+    for (const auto &p : vt::PAGES)
+        if (std::strcmp(p.id, "motor") == 0) motor_mask = p.mask;
+    CHECK(has(vt_json(a), "\"" + std::to_string(motor_mask) + "\":" + std::to_string(vt::SK_MOTOR)));
+    key(vt::K_JAM_PAGE);
+    CHECK(has(vt_json(a), "\"mask\":" + std::to_string(vt::DM_JAM)));
+    CHECK(has(vt_json(a), "\"" + std::to_string(vt::OP_JAM_DRV) + "\":" + std::to_string(vt::STR_DRV[2])));
+    key(vt::K_JAM_START);
+    {
+        std::lock_guard<std::mutex> g(shared.lock);
+        CHECK(shared.core.status().jam[0].phase >= JamPhase::TestFwd);
+    }
+    key(vt::K_BACK);
+    CHECK(has(vt_json(a), "\"mask\":" + std::to_string(motor_mask)));
+    {
+        std::lock_guard<std::mutex> g(shared.lock);
+        CHECK(shared.core.status().jam[0].phase == JamPhase::Normal);
+    }
+}
+
 int main() {
     for (auto &[name, fn] : registry()) {
         const int before = g_failures;

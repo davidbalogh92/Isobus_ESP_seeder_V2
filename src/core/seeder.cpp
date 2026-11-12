@@ -29,6 +29,8 @@ const AlarmInfo ALARMS[] = {
     {"TC_LOST", "Task Controller kapcsolat megszakadt", Severity::Warning},
     {"SPEED_MISMATCH", "Kerék és GPS sebesség eltér (csúszás)", Severity::Warning},
     {"AOG_LOST", "AgOpenGPS kapcsolat megszakadt", Severity::Warning},
+    {"METER1_JAM", "1. adagoló beszorult", Severity::Alarm},
+    {"METER2_JAM", "2. adagoló beszorult", Severity::Alarm},
 };
 static_assert(sizeof(ALARMS) / sizeof(ALARMS[0]) == static_cast<std::size_t>(AlarmId::COUNT), "alarm table");
 
@@ -77,6 +79,7 @@ PulseSample make_pulses(float hz, float dt, double &acc, double &since_us) {
 
 constexpr AlarmId METER_STOPPED[MAX_METERS] = {AlarmId::Meter1Stopped, AlarmId::Meter2Stopped};
 constexpr AlarmId METER_RATE[MAX_METERS] = {AlarmId::Meter1Rate, AlarmId::Meter2Rate};
+constexpr AlarmId METER_JAM[MAX_METERS] = {AlarmId::Meter1Jam, AlarmId::Meter2Jam};
 constexpr AlarmId HOPPER_EMPTY[2] = {AlarmId::Hopper1Empty, AlarmId::Hopper2Empty};
 } // namespace
 
@@ -321,8 +324,18 @@ Seeder::Seeder() : settings_(default_settings()) { update_crank_result(); }
 void Seeder::load(const Settings &settings, const Persistent &persistent) {
     settings_ = settings;
     normalize(settings_);
-    if (persistent.magic == Persistent::MAGIC && persistent.version == Persistent::VERSION) persistent_ = persistent;
-    else persistent_ = Persistent{};
+    if (persistent.magic == Persistent::MAGIC && persistent.version == Persistent::VERSION) {
+        persistent_ = persistent;
+    } else if (persistent.magic == Persistent::MAGIC && persistent.version == 1) {
+        // 1-es változat: a régi mezők megmaradnak, az újak alapértéket kapnak
+        persistent_ = Persistent{};
+        persistent_.day = persistent.day;
+        persistent_.total = persistent.total;
+        for (int i = 0; i < MAX_METERS; ++i) persistent_.motor_integral[i] = persistent.motor_integral[i];
+        persistent_.cooler_manual = persistent.cooler_manual;
+    } else {
+        persistent_ = Persistent{};
+    }
     for (int i = 0; i < MAX_METERS; ++i) {
         motor_[i].reset();
         motor_[i].restore(persistent_.motor_integral[i]);
@@ -383,6 +396,8 @@ void Seeder::set_master(bool on) {
         crank_.motor_running = false;
         crank_.session = false;
     }
+    if (on && !master_)
+        for (auto &j : jam_) j.release();   // a vetés újraindítása oldja a beszorulás miatti leállást
     master_ = on;
     if (!on && prefill_ == PrefillState::AfterRun) prefill_ = PrefillState::Idle;
 }
@@ -678,6 +693,8 @@ bool Seeder::crank_save() {
     }
     const int m = crank_.meter < meter_count(settings_) ? crank_.meter : 0;
     set_param(m == 1 ? P_cal2_kg_rev : P_cal1_kg_rev, static_cast<float>(crank_result_.kg_per_rev));
+    persistent_.meter_crop[m] = static_cast<std::int8_t>(crank_.crop);   // terhelési alapszint ehhez a növényhez
+    persistent_dirty = true;
     crank_.session = false;
     say("Kg/fordulat elmentve");
     return true;
@@ -769,6 +786,80 @@ bool Seeder::motor_tune_accept() {
 void Seeder::motor_tune_discard() {
     if (tuner_.active()) tuner_.abort("Megszakítva");
     tuner_.clear();
+}
+
+// --- beszorulás-kezelés -------------------------------------------------------------------------------
+JamConfig Seeder::jam_config() const {
+    const Settings &S = settings_;
+    JamConfig c;
+    c.reverse_enabled = S.unjam_enable != 0 && motor_reversible(S);
+    c.reverse_deg = S.unjam_deg;
+    c.tries = S.unjam_tries;
+    c.detect_s = S.jam_detect_s;
+    c.ppr = static_cast<float>(S.encoder_ppr);
+    c.pwm_min = S.pwm_min_pct;
+    c.pwm_max = S.pwm_max_pct;
+    c.deadband = S.motor_deadband_pct;
+    return c;
+}
+
+void Seeder::update_load(int i, int k, const MotorOutput &mo, float target_rpm, float dt, bool override) {
+    // terhelési mutató: a mért fordulat a PWM-hez várt fordulathoz képest (önhangolási egyenes), a növénynél
+    // tanult alapszinthez viszonyítva (100 = szokásos, nagyobb = nehezebben forog)
+    const Settings &S = settings_;
+    MeterStatus &m = status_.meter[i];
+    const int crop = persistent_.meter_crop[i];
+    m.crop = crop;
+    const int slot = crop >= 0 && crop < Persistent::LOAD_CROPS - 1 ? crop : Persistent::LOAD_CROPS - 1;
+    float &base = persistent_.crop_load[slot];
+    const float db = S.motor_deadband_pct < 90.0f ? S.motor_deadband_pct : 90.0f;
+    const float pwm = mo.pwm_pct;
+    const float exp_rpm = pwm > db + 1.0f ? (pwm - db) / (100.0f - db) * S.motor_max_rpm : 0.0f;
+    if (override || target_rpm <= 0.5f || exp_rpm < 1.0f || m.rpm < 0.5f || motor_[k].running_for() < 3.0f) {
+        load_steady_s_[i] = 0.0f;
+        if (target_rpm <= 0.5f) m.load_pct = -1.0f;
+        return;
+    }
+    const float ratio = m.rpm / exp_rpm;
+    if (std::fabs(mo.error_pct) < S.rate_tol_pct) {
+        load_steady_s_[i] += dt;
+        if (load_steady_s_[i] > 10.0f) {
+            if (base <= 0.0f) base = ratio;
+            else base += (ratio - base) * dt / 60.0f;   // lassú tanulás (~1 perc)
+        }
+    } else {
+        load_steady_s_[i] = 0.0f;
+    }
+    m.load_pct = base > 0.0f && ratio > 0.05f ? base / ratio * 100.0f : -1.0f;
+}
+
+bool Seeder::jam_test_start(int meter) {
+    const Settings &S = settings_;
+    if (!electric_drive(S)) {
+        say("Visszafordítás csak elektromos hajtással");
+        return false;
+    }
+    if (!motor_reversible(S)) {
+        say("Visszafordításhoz irányváltós bekötés kell (PWM + DIR vagy IBT-2)");
+        return false;
+    }
+    if (meter < 0 || meter >= meter_count(S)) {
+        say("Nincs ilyen adagoló");
+        return false;
+    }
+    if (master_ || status_.moving || crank_.hold || tuner_.active() || prefill_ != PrefillState::Idle) {
+        say("Próba csak álló gépnél, vetés KI állapotban");
+        return false;
+    }
+    const int k = shared_motor(S) ? 0 : meter;
+    jam_test_meter_ = meter;
+    if (!jam_[k].start_test(jam_config())) return false;
+    say(meter == 0 ? "Visszafordítás próba: 1. adagoló" : "Visszafordítás próba: 2. adagoló");
+    return true;
+}
+
+void Seeder::jam_test_stop() {
+    for (auto &j : jam_) j.stop_test();
 }
 
 void Seeder::crank_reset_count() {
@@ -1033,7 +1124,8 @@ void Seeder::tick(const TickInputs &input) {
         m.rpm = ppr > 0.0f ? hz * 60.0f / ppr : 0.0f;
         if (mp.count > 0) since_pulse_[i] = 0.0f;
         else since_pulse_[i] += dt;
-        if (i == crank_.meter && mp.count > 0 && !(elec && run_cond) && !tuner_.active()) {
+        if (i == crank_.meter && mp.count > 0 && !(elec && run_cond) && !tuner_.active() &&
+            jam_quiet_s_[shared ? 0 : i] <= 0.0f) {
             std::uint32_t c = mp.count;
             if (!crank_.armed) {   // nullpont: az első impulzus
                 crank_.armed = true;
@@ -1063,6 +1155,8 @@ void Seeder::tick(const TickInputs &input) {
             motor_[i].reset();
             outputs_.motor_pwm_pct[i] = pwm;
             outputs_.clutch_drive[i] = shared && exists && tuner_.meter() == i;
+            rev_req_[i] = false;
+            alarms_.set(METER_JAM[i], false);
             m.running = pwm > 0.5f;
             rate_dev_timer_[i] = 0.0f;
             alarms_.set(METER_RATE[i], false);
@@ -1087,10 +1181,21 @@ void Seeder::tick(const TickInputs &input) {
                     t = v_eff * S.width_m * S.crank_turns_10 / 60.0f;
                 }
                 const MotorOutput mo = motor_[0].step(S, dt, t, m.rpm);
-                shared_target_rpm_ = t;
-                shared_pwm_ = mo.pwm_pct;
-                outputs_.motor_pwm_pct[0] = mo.pwm_pct;
-                const bool dev = t > 0.5f && !crank_.hold && !manual_ && motor_[0].running_for() > 3.0f &&
+                const JamCommand jc = jam_[0].step(jam_config(), dt, t > 0.5f, motor_[0].running_for(), mo.pwm_pct,
+                                                   m.rpm, t, mp.count, since_pulse_[0], outputs_.motor_rev[0]);
+                float pwm_out = mo.pwm_pct;
+                if (jc.override) {
+                    motor_[0].pause();
+                    pwm_out = jc.pwm;
+                }
+                rev_req_[0] = jc.override && jc.reverse;
+                alarms_.set(METER_JAM[0], jc.alarm);
+                shared_target_rpm_ = jam_[0].testing() ? 0.0f : t;
+                shared_pwm_ = pwm_out;
+                outputs_.motor_pwm_pct[0] = pwm_out;
+                update_load(0, 0, mo, t, dt, jc.override);
+                const bool dev = t > 0.5f && !crank_.hold && !manual_ && !jam_[0].busy() &&
+                                 motor_[0].running_for() > 3.0f &&
                                  (std::fabs(mo.error_pct) > S.rate_tol_pct || mo.saturated);
                 rate_dev_timer_[0] = dev ? rate_dev_timer_[0] + dt : 0.0f;
                 alarms_.set(METER_RATE[0], rate_dev_timer_[0] >= 5.0f);
@@ -1100,11 +1205,18 @@ void Seeder::tick(const TickInputs &input) {
                 outputs_.motor_pwm_pct[i] = 0.0f;
                 rate_dev_timer_[i] = 0.0f;
                 alarms_.set(METER_RATE[i], false);
+                alarms_.set(METER_JAM[i], false);
+                rev_req_[i] = false;
+                m.load_pct = st.meter[0].load_pct;
+                m.crop = st.meter[0].crop;
             }
-            const bool clutch = exists && (crank_.hold ? crank_.meter == i : (meter_on[i] && shared_target_rpm_ > 0.0f));
+            const bool clutch =
+                exists && (jam_[0].testing() ? jam_test_meter_ == i
+                                             : crank_.hold ? crank_.meter == i
+                                                           : (meter_on[i] && shared_target_rpm_ > 0.0f));
             outputs_.clutch_drive[i] = clutch;
             target_rpm = clutch ? shared_target_rpm_ : 0.0f;
-            m.running = clutch && shared_pwm_ > 0.5f;
+            m.running = clutch && shared_pwm_ > 0.5f && !rev_req_[0];
         } else if (elec) {
             if (crank_this) {
                 const double left = chart::turns(crank_.turn_option, settings_.crank_turns_10) - crank_.counted_revs;
@@ -1122,11 +1234,27 @@ void Seeder::tick(const TickInputs &input) {
                 target_rpm = m.target_rate * v_eff * m.width_m / 600.0f / kg_rev;
             }
             const MotorOutput mo = motor_[i].step(S, dt, target_rpm, m.rpm);
-            outputs_.motor_pwm_pct[i] = exists ? mo.pwm_pct : 0.0f;
+            JamCommand jc;
+            if (exists) {
+                jc = jam_[i].step(jam_config(), dt, target_rpm > 0.5f, motor_[i].running_for(), mo.pwm_pct, m.rpm,
+                                  target_rpm, mp.count, since_pulse_[i], outputs_.motor_rev[i]);
+            } else {
+                jam_[i].release();
+            }
+            float pwm_out = mo.pwm_pct;
+            if (jc.override) {
+                motor_[i].pause();
+                pwm_out = jc.pwm;
+            }
+            rev_req_[i] = jc.override && jc.reverse;
+            alarms_.set(METER_JAM[i], jc.alarm);
+            outputs_.motor_pwm_pct[i] = exists ? pwm_out : 0.0f;
             outputs_.clutch_drive[i] = false;
-            m.running = exists && (target_rpm > 0.0f || mo.pwm_pct > 0.5f);
+            m.running = exists && !jc.alarm && !rev_req_[i] && (target_rpm > 0.0f || pwm_out > 0.5f);
+            if (exists) update_load(i, i, mo, target_rpm, dt, jc.override);
             // eltérés figyelés (felfutás után)
-            const bool dev = target_rpm > 0.5f && !crank_this && !manual_ && motor_[i].running_for() > 3.0f &&
+            const bool dev = target_rpm > 0.5f && !crank_this && !manual_ && !jam_[i].busy() &&
+                             motor_[i].running_for() > 3.0f &&
                              (std::fabs(mo.error_pct) > S.rate_tol_pct || mo.saturated);
             rate_dev_timer_[i] = dev ? rate_dev_timer_[i] + dt : 0.0f;
             alarms_.set(METER_RATE[i], rate_dev_timer_[i] >= 5.0f);
@@ -1138,6 +1266,9 @@ void Seeder::tick(const TickInputs &input) {
             outputs_.clutch_drive[i] = exists && meter_on[i] && (S.clutch_lift == 0 ? work_ok : true);
             m.running = outputs_.clutch_drive[i] && moving && work_ok;
             alarms_.set(METER_RATE[i], false);
+            alarms_.set(METER_JAM[i], false);
+            rev_req_[i] = false;
+            m.load_pct = -1.0f;
             rate_dev_timer_[i] = 0.0f;
         }
         m.target_rpm = target_rpm;
@@ -1145,14 +1276,17 @@ void Seeder::tick(const TickInputs &input) {
         m.since_pulse_s = since_pulse_[i];
 
         // "nem forog" figyelés: vetés közben, felfutás után
-        const bool expect = exists && !crank_this && (elec ? (drive && target_rpm > 0.5f) : (drive && moving));
+        const bool jam_busy = elec && jam_[shared ? 0 : i].busy();
+        const bool expect =
+            exists && !crank_this && !jam_busy && (elec ? (drive && target_rpm > 0.5f) : (drive && moving));
         meter_run_time_[i] = expect ? meter_run_time_[i] + dt : 0.0f;
         const bool stopped = expect && meter_run_time_[i] > 1.0f && since_pulse_[i] >= S.meter_timeout_s;
         alarms_.set(METER_STOPPED[i], stopped);
 
         // mennyiség elszámolása
         m.kg_per_min = m.rpm * kg_rev;
-        const bool counting = exists && !crank_this && (elec ? drive : outputs_.clutch_drive[i]);
+        const bool counting = exists && !crank_this && !jam_busy &&
+                              (shared ? (drive && outputs_.clutch_drive[i]) : elec ? drive : outputs_.clutch_drive[i]);
         if (counting && revs > 0.0f) {
             const double kg = static_cast<double>(revs) * kg_rev;
             persistent_.day.kg[i] += kg;
@@ -1172,7 +1306,18 @@ void Seeder::tick(const TickInputs &input) {
     }
     crank_.motor_running = crank_drive;
     // motorirány (holtidővel): egyelőre mindig előre; a visszafordítás a beszorulás-kezelésből jön
-    for (int i = 0; i < MAX_METERS; ++i) drive_motor(i, outputs_.motor_pwm_pct[i], false, dt);
+    for (int i = 0; i < MAX_METERS; ++i) drive_motor(i, outputs_.motor_pwm_pct[i], rev_req_[i], dt);
+    for (int i = 0; i < MAX_METERS; ++i) {
+        // a beszorulás-kezelés / próba után 1 s-ig a kifutó motor impulzusai sem számítanak
+        jam_quiet_s_[i] = jam_[i].busy() ? 1.0f : (jam_quiet_s_[i] > 0.0f ? jam_quiet_s_[i] - dt : 0.0f);
+        auto &jv = st.jam[i];
+        jv.phase = jam_[i].phase();
+        jv.tries = jam_[i].tries_used();
+        jv.jams = jam_[i].jams();
+        jv.recoveries = jam_[i].recoveries();
+        jv.last = jam_[i].last();
+        jv.message = jam_[i].message();
+    }
 
     // --- leforgatás visszajelzés (munkalámpa, hangjelző), cél elérése
     {
@@ -1504,6 +1649,9 @@ std::string Seeder::status_json() const {
         append_kv(o, "kg_min", m.kg_per_min, 3);
         append_kv(o, "width", m.width_m, 2);
         append_kv(o, "since_pulse", m.since_pulse_s, 1);
+        append_kv(o, "load", m.load_pct, 0);
+        append_kv(o, "crop", static_cast<double>(m.crop), 0);
+        append_kv(o, "dir_rev", outputs_.motor_rev[i]);
         append_kv(o, "view", static_cast<double>(m.view), 0);
         append_kv(o, "clutch", outputs_.clutch_drive[i]);
         o.back() = '}';
@@ -1572,6 +1720,27 @@ std::string Seeder::status_json() const {
     o.back() = '}';
     o += ',';
     static const char *const cal_states[] = {"Idle", "Running", "Stopped"};
+    o += "\"jam\":[";
+    for (int i = 0; i < MAX_METERS; ++i) {
+        const auto &j = st.jam[i];
+        o += '{';
+        append_kv(o, "phase", static_cast<double>(j.phase), 0);
+        append_kv(o, "label", jam_phase_label(j.phase));
+        append_kv(o, "latched", j.phase == JamPhase::Latched);
+        append_kv(o, "testing", j.phase >= JamPhase::TestFwd);
+        append_kv(o, "tries", static_cast<double>(j.tries), 0);
+        append_kv(o, "jams", static_cast<double>(j.jams), 0);
+        append_kv(o, "recoveries", static_cast<double>(j.recoveries), 0);
+        append_kv(o, "message", j.message);
+        append_kv(o, "last_valid", j.last.valid);
+        append_kv(o, "last_pulses", static_cast<double>(j.last.pulses), 0);
+        append_kv(o, "last_deg", j.last.degrees, 1);
+        append_kv(o, "last_ms", j.last.duration_s * 1000.0f, 0);
+        append_kv(o, "last_pwm", j.last.pwm, 0);
+        o.back() = '}';
+        o += i + 1 < MAX_METERS ? "," : "";
+    }
+    o += "],";
     o += "\"tune\":{";
     {
         const TuneResult &t = st.tune;

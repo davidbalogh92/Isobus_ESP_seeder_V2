@@ -51,9 +51,11 @@ bool load_persistent(seeder::Persistent &out) {
     nvs_handle_t h;
     if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) return false;
     seeder::Persistent p;
-    size_t len = sizeof(p);
-    bool ok = nvs_get_blob(h, KEY_PERSIST, &p, &len) == ESP_OK && len == sizeof(p) &&
-              p.magic == seeder::Persistent::MAGIC && p.version == seeder::Persistent::VERSION;
+    // régebbi (rövidebb) változat is betölthető: a hiányzó mezők alapértéken maradnak, a mag átalakítja
+    size_t len = 0;
+    bool ok = nvs_get_blob(h, KEY_PERSIST, nullptr, &len) == ESP_OK && len >= 8 && len <= sizeof(p) &&
+              nvs_get_blob(h, KEY_PERSIST, &p, &len) == ESP_OK && p.magic == seeder::Persistent::MAGIC &&
+              (p.version == seeder::Persistent::VERSION || p.version == 1);
     nvs_close(h);
     if (ok) out = p;
     return ok;

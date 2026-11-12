@@ -387,6 +387,11 @@ K_TUNE_START = KEY("K_TUNE_START", "softkey_start")
 K_TUNE_STOP = KEY("K_TUNE_STOP", "softkey_stop")
 K_TUNE_ACCEPT = KEY("K_TUNE_ACCEPT", "softkey_save")
 K_TUNE_DISCARD = KEY("K_TUNE_DISCARD", "softkey_cancel")
+# beszorulás / visszafordítás próba
+K_JAM_PAGE = KEY("K_JAM_PAGE", "softkey_unjam")
+K_JAM_METER, PIC_K_JAM_METER = KEYPTR("K_JAM_METER", "OP_K_JAM_METER", ["softkey_meter1_on", "softkey_meter2_on"])
+K_JAM_START = KEY("K_JAM_START", "softkey_start")
+K_JAM_STOP = KEY("K_JAM_STOP", "softkey_stop")
 
 # oldalak (menü): azonosító → (menüfelirat, ikon)
 PAGE_INFO = {
@@ -460,6 +465,8 @@ SK_CALIB_GROUND = P.softkey_mask(P.new_id(4000), [K_BACK, K_CAL_METER, K_SCALE_T
                                  name="SK_CALIB_GROUND")
 SK_ALARM = P.softkey_mask(P.new_id(4000), [K_ACK], name="SK_ALARM")
 SK_DRIVE = P.softkey_mask(P.new_id(4000), [K_BACK, K_TUNE_PAGE], name="SK_DRIVE")
+SK_MOTOR = P.softkey_mask(P.new_id(4000), [K_BACK, K_JAM_PAGE, K_TUNE_PAGE], name="SK_MOTOR")
+SK_JAM = P.softkey_mask(P.new_id(4000), [K_BACK, K_JAM_METER, K_JAM_START, K_JAM_STOP], name="SK_JAM")
 SK_TUNE = P.softkey_mask(P.new_id(4000), [K_BACK, K_TUNE_METER, K_TUNE_START, K_TUNE_STOP, K_TUNE_ACCEPT,
                                            K_TUNE_DISCARD], name="SK_TUNE")
 
@@ -475,7 +482,7 @@ ALARM_TEXTS = ["1. adagoló nem forog", "2. adagoló nem forog", "1. adagoló: a
                "1. tartály kiürült", "2. tartály kiürült", "Nincs sebességjel", "GPS sebesség kiesett",
                "Olaj túlmelegedett", "Olajhõmérõ hiba", "Nyomásszenzor hiba", "Mérleg nem válaszol",
                "Kerék nincs kalibrálva", "Szimuláció aktív", "Task Controller kiesett", "Kerék/GPS seb. eltér",
-               "AgOpenGPS kiesett"]
+               "AgOpenGPS kiesett", "1. adagoló beszorult", "2. adagoló beszorult"]
 REV_TEXTS = ["Normál", "Leállás", "Visszafúj", "Leállás"]
 STR_REV = [S(t, 136, 22, F_LABEL, name=f"STR_REV_{i}") for i, t in enumerate(REV_TEXTS)]
 SRC_TEXTS = ["Nincs", "Kerék", "ISOBUS föld", "ISOBUS kerék", "ISOBUS gép", "NMEA GPS", "Szimulált", "AgOpenGPS"]
@@ -742,7 +749,8 @@ def heading(text, h):
 
 
 PAGE_MASK = {}
-PAGE_SK = {"speed": SK_WCAL, "scale": SK_SCALE, "pressure": SK_PRESSURE, "cooling": SK_COOLING, "drive": SK_DRIVE}
+PAGE_SK = {"speed": SK_WCAL, "scale": SK_SCALE, "pressure": SK_PRESSURE, "cooling": SK_COOLING, "drive": SK_DRIVE,
+           "motor": SK_MOTOR}
 param_index = {p.key: i for i, p in enumerate(pd.P)}
 GEO_PICS = ["geo/geo_mounted", "geo/geo_steer_front", "geo/geo_steer_rear", "geo/geo_trailed_front",
             "geo/geo_trailed_rear"]
@@ -929,6 +937,33 @@ for fn in tune_rows:
 assert y <= MASK + 2, y
 DM_TUNE = P.data_mask(1075, SK_TUNE, tn, name="DM_TUNE")
 
+# ================================================================== VISSZAFORDÍTÁS PRÓBA
+DRV_TEXTS = ["Csak PWM", "PWM + DIR", "PWM + PWM"]
+STR_DRV = [S(t, 186, 22, F_LABEL, name=f"STR_DRV_{i}") for i, t in enumerate(DRV_TEXTS)]
+STR_JAM_STATE = S(" " * 22, 186, 22, F_LABEL, name="STR_JAM_STATE")
+STR_JAM_MSG = S(" " * 48, 388, 20, F_SMALL, name="STR_JAM_MSG")
+jm = title_bar("VISSZAFORDÍTÁS PRÓBA")
+h = 30
+y = 42
+jam_rows = [
+    lambda: output_row("Adagoló", P.obj_ptr(27190, STR_METER[0], "OP_JAM_METER"), "", h),
+    lambda: output_row("Bekötés", P.obj_ptr(27191, STR_DRV[0], "OP_JAM_DRV"), "", h),
+    lambda: output_row("Állapot", STR_JAM_STATE, "", h),
+    lambda: [(STR_JAM_MSG, 6, (h - 20) // 2)],
+    lambda: output_row("Beállított", num_out("OUT_JAM_SET"), "°", h),
+    lambda: heading("UTOLSÓ VISSZAFORDÍTÁS", h),
+    lambda: output_row("Mért ° / imp.", pair("OUT_JAM_DEG", "OUT_JAM_PULSES", dec=0, scale=1.0), "", h),
+    lambda: output_row("Idõ ms / PWM %", pair("OUT_JAM_MS", "OUT_JAM_PWM", dec=0, scale=1.0), "", h),
+    lambda: heading("MUNKA KÖZBEN", h),
+    lambda: output_row("Beszorult / OK", pair("OUT_JAM_COUNT", "OUT_JAM_REC", dec=0, scale=1.0), "", h),
+    lambda: output_row("Terhelés 1/2 %", pair("OUT_LOAD1", "OUT_LOAD2", dec=0, scale=1.0), "", h),
+]
+for fn in jam_rows:
+    jm += [(cid, x, y + yy) for cid, x, yy in fn()]
+    y += h
+assert y <= MASK + 2, y
+DM_JAM = P.data_mask(1076, SK_JAM, jm, name="DM_JAM")
+
 # ================================================================== RIASZTÁS
 alarm_kids = [(PIC("main/main_alarm", 120, bg=WHITE), (MASK - 120) // 2, 40),
               (P.obj_ptr(27150, STR_ALARM_BIG[0], "OP_ALARM_TEXT"), 10, 190),
@@ -981,7 +1016,8 @@ ARRAYS = {
     "PIC_K_VALVE": PIC_K_VALVE, "PIC_K_COOLER": PIC_K_COOLER, "PIC_K_CAL_METER": PIC_K_CAL_METER,
     "PIC_K_COOLER_REV": PIC_K_COOLER_REV, "STR_REV": STR_REV, "STR_SRC": STR_SRC,
     "SK_FUNC": SK_FUNC, "STR_ALARM": STR_ALARM, "STR_ALARMBIG": STR_ALARM_BIG, "STR_CAL": CAL_STATE,
-    "STR_METER": STR_METER, "STR_TUNE": STR_TUNE, "PIC_K_TUNE_METER": PIC_K_TUNE_METER, "STR_SETUP": STR_SETUP, "STR_NOTE": STR_NOTE, "K_BLANK": K_BLANK,
+    "STR_METER": STR_METER, "STR_TUNE": STR_TUNE, "PIC_K_TUNE_METER": PIC_K_TUNE_METER,
+          "STR_DRV": STR_DRV, "PIC_K_JAM_METER": PIC_K_JAM_METER, "STR_SETUP": STR_SETUP, "STR_NOTE": STR_NOTE, "K_BLANK": K_BLANK,
 }
 
 

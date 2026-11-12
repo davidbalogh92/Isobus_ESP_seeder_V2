@@ -149,6 +149,7 @@ const char *VtUi::page_name() const {
     case Page::Calib: return "Leforgatás";
     case Page::Diagnose: return "Diagnosztika";
     case Page::Tune: return "Önhangolás";
+    case Page::Jam: return "Visszafordítás próba";
     default: return "?";
     }
 }
@@ -163,6 +164,7 @@ void VtUi::go(Page page, std::uint16_t mask) {
     case Page::Calib: page_mask_ = vt::DM_CALIB; break;
     case Page::Diagnose: page_mask_ = vt::DM_DIAGNOSE; break;
     case Page::Tune: page_mask_ = vt::DM_TUNE; break;
+    case Page::Jam: page_mask_ = vt::DM_JAM; break;
     default: page_mask_ = mask; break;
     }
     if (page != Page::Settings) settings_from_calib_ = false;
@@ -221,6 +223,10 @@ void VtUi::on_softkey(std::uint16_t id, std::uint8_t activation) {
             go(Page::Main);
         } else if (pg == Page::Diagnose) {
             go(Page::Menu);
+        } else if (pg == Page::Jam) {
+            c.jam_test_stop();
+            for (const auto &p : vt::PAGES)
+                if (std::strcmp(p.id, "motor") == 0) go(Page::Settings, p.mask);
         } else if (pg == Page::Tune) {
             if (c.status().tune_phase == seeder::TunePhase::StartUp || c.status().tune_phase == seeder::TunePhase::StopDown ||
                 c.status().tune_phase == seeder::TunePhase::Points)
@@ -270,6 +276,12 @@ void VtUi::on_softkey(std::uint16_t id, std::uint8_t activation) {
     }
     case vt::K_CAL_METER: c.crank_set_meter(st.crank.meter == 0 ? 1 : 0); break;
     case vt::K_TUNE_PAGE: go(Page::Tune); break;
+    case vt::K_JAM_PAGE: go(Page::Jam); break;
+    case vt::K_JAM_METER:
+        jam_meter_ = seeder::meter_count(c.settings()) > 1 && jam_meter_.load() == 0 ? 1 : 0;
+        break;
+    case vt::K_JAM_START: c.jam_test_start(jam_meter_.load()); break;
+    case vt::K_JAM_STOP: c.jam_test_stop(); break;
     case vt::K_TUNE_METER:
         if (seeder::meter_count(c.settings()) > 1) tune_meter_ = tune_meter_.load() == 0 ? 1 : 0;
         else tune_meter_ = 0;
@@ -485,6 +497,7 @@ void VtUi::update(const Snapshot &s) {
     if (pg == Page::Calib) update_calib(s);
     if (pg == Page::Diagnose) update_diagnose(s);
     if (pg == Page::Tune) update_tune(s);
+    if (pg == Page::Jam) update_jam(s);
     if (pg == Page::Settings) {
         update_inputs(s);
         update_pages(s);
@@ -496,6 +509,7 @@ void VtUi::update(const Snapshot &s) {
     update_pages(s);
     update_diagnose(s);
     update_tune(s);
+    update_jam(s);
 }
 
 void VtUi::update_main(const Snapshot &s) {
@@ -767,6 +781,7 @@ void VtUi::update_tune(const Snapshot &s) {
     // az Adagolóhajtás oldalon csak elektromos hajtásnál van önhangolás gomb
     for (const auto &p : vt::PAGES)
         if (std::strcmp(p.id, "drive") == 0) softkeys(p.mask, elec ? vt::SK_DRIVE : vt::SK_BACK);
+        else if (std::strcmp(p.id, "motor") == 0) softkeys(p.mask, elec ? vt::SK_MOTOR : vt::SK_BACK);
     const bool active = st.tune_phase == seeder::TunePhase::StartUp || st.tune_phase == seeder::TunePhase::StopDown ||
                         st.tune_phase == seeder::TunePhase::Points;
     if (seeder::meter_count(set) < 2) tune_meter_ = 0;
@@ -793,6 +808,33 @@ void VtUi::update_tune(const Snapshot &s) {
     num(vt::OUT_TUNE_GAIN_CUR, set.reg_gain);
     num(vt::OUT_TUNE_TAU, r.tau_s > 0.0f ? d10(r.tau_s) : 0);
     num(vt::OUT_TUNE_LIN, d10(r.linearity_pct));
+}
+
+void VtUi::update_jam(const Snapshot &s) {
+    const auto &st = s.st;
+    const auto &set = s.set;
+    if (seeder::meter_count(set) < 2) jam_meter_ = 0;
+    const int m = jam_meter_.load() == 1 ? 1 : 0;
+    const int k = seeder::shared_motor(set) ? 0 : m;
+    const auto &j = st.jam[k];
+    num(vt::OP_JAM_METER, vt::STR_METER[m]);
+    num(vt::OP_K_JAM_METER, vt::PIC_K_JAM_METER[m]);
+    num(vt::OP_JAM_DRV, vt::STR_DRV[set.motor_driver >= 0 && set.motor_driver < 3 ? set.motor_driver : 0]);
+    text(vt::STR_JAM_STATE, vt_latin1(seeder::jam_phase_label(j.phase), 22));
+    const char *msg = j.message && *j.message ? j.message
+                      : !seeder::motor_reversible(set)
+                          ? "Irányváltós bekötés kell (PWM+DIR / IBT-2)"
+                          : (set.unjam_enable ? "Álló gép, vetés KI - Start: próba" : "Visszafordítás kikapcsolva");
+    text(vt::STR_JAM_MSG, vt_latin1(msg, 48));
+    num(vt::OUT_JAM_SET, std::lround(set.unjam_deg));
+    num(vt::OUT_JAM_DEG, j.last.valid ? std::lround(j.last.degrees) : 0);
+    num(vt::OUT_JAM_PULSES, j.last.valid ? static_cast<long>(j.last.pulses) : 0);
+    num(vt::OUT_JAM_MS, j.last.valid ? std::lround(j.last.duration_s * 1000.0f) : 0);
+    num(vt::OUT_JAM_PWM, j.last.valid ? std::lround(j.last.pwm) : 0);
+    num(vt::OUT_JAM_COUNT, static_cast<long>(j.jams));
+    num(vt::OUT_JAM_REC, static_cast<long>(j.recoveries));
+    num(vt::OUT_LOAD1, st.meter[0].load_pct >= 0.0f ? std::lround(st.meter[0].load_pct) : 0);
+    num(vt::OUT_LOAD2, st.meter[1].load_pct >= 0.0f ? std::lround(st.meter[1].load_pct) : 0);
 }
 
 } // namespace app
