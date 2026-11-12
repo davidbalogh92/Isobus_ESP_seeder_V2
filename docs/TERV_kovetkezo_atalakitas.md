@@ -35,9 +35,13 @@ Hajtás típusa
 | PWM + DIR | 1 PWM + 1 digitális | DIR=0, PWM=x | DIR=1, PWM=x |
 | PWM + PWM (IBT-2) | 2 PWM (EN-ek fixen 5 V-on) | RPWM=x, LPWM=0 | RPWM=0, LPWM=x |
 - Irányváltásnál holtidő (pl. 100 ms 0%), hogy a híd ne kapjon keresztáramot.
-- **Lábkiosztás:** a Waveshare panel dokumentáltan használt lábai: 0 (BOOT), 4–11 (DI), 12–16 (W5500), 17/18 (CAN),
-  38 (RGB LED), 41/42 (I2C), 46 (zümmer), **45/47/48 (TF-kártya foglalat)**. A mostani motor-PWM a 47/48-on van
-  (TF-vonalak, kártya nélkül szabad). Szabad jelölt: 21, 39, 40 – a tüskesor kiosztását a panelen ellenőrizni kell.
+- **Lábkiosztás (a panel tüskesorának felirata alapján):** kivezetett GPIO-k: **0, 1, 2, 3, 21, 45, 47, 48**,
+  valamint Tx/Rx (GPIO43/44, UART0) és DP/DN (USB). Most foglalt: 47/48 motor-PWM, 1/2 HX711, 3 DS18B20.
+  - **Szabadon használható: GPIO21.**
+  - GPIO45: indításkori „strapping” láb (flash-feszültség) – kimenetnek jó, de indításkor nem húzhatja fel semmi.
+  - GPIO0: BOOT láb – ha induláskor alacsonyra húzza a meghajtó, a panel letöltő módba indul → kerülendő.
+  - GPIO43/44: a soros konzol – indításkor a ROM üzeneteket ír rájuk (motor rándulhat) → kerülendő.
+  - Közvetlenül tehát 4 PWM: 47, 48, 21, 45 – megoldható, de a 45-ös láb miatt óvatosan.
 - **Lábtakarékos megoldás (javasolt):** a motoronkénti PWM marad a 47/48-on, az **irányjel egy olcsó I2C bővítőről**
   (PCF8574 modul a meglévő I2C buszon, 0x21–0x27) jön – az irány ritkán vált, ehhez elég az I2C.
   - Cytron (PWM+DIR): PWM → PWM, DIR ← bővítő.
@@ -51,7 +55,11 @@ Hajtás típusa
 - Teendő: motor áll → **visszafordítás néhány fokkal** (pl. 1/16 fordulat, a jeladó impulzusaiból számolva –
   a vezérlő tudja az irányt, mert ő adja) → újra előre. Legfeljebb 3 próbálkozás; ha nem old, riasztás
   „Adagoló beszorult”. Minden próbálkozás naplózva.
-- Beállítás: be/ki, visszafordítás mértéke, próbálkozások száma.
+- Beállítás (Hajtás csoport): **Visszafordítás be/ki** (választható tulajdonság), **mértéke** (fok vagy
+  fordulat-tört, pl. 10–90°), próbálkozások száma, felismerési idő.
+- **Tesztfelület** (VT + web, álló gép, vetés KI): adagoló kiválasztása, „Visszafordítás próba” gomb –
+  a vezérlő lefuttat egy teljes ciklust (előre forgás → megállás → visszafordítás a beállított mértékkel → előre),
+  és kiírja: mért visszafordulás (impulzus / fok), időtartam, PWM, motoráram (ha van mérés). Napló a webről.
 - Keya motornál: pozíció-paranccsal (célpozíció −x fordulat) és a motoráram alapján még egyszerűbb.
 - Egy motor + két adagoló (kuplungos) esetben a visszafordítás mindkét adagolót érinti.
 
