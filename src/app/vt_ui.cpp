@@ -873,10 +873,15 @@ void VtUi::update_tune(const Snapshot &s) {
     const auto &st = s.st;
     const auto &set = s.set;
     const bool elec = seeder::electric_drive(set);
-    // az Adagolóhajtás oldalon csak elektromos hajtásnál van önhangolás gomb
+    // önhangolás csak PWM motornál (a Keya maga szabályoz), beszorulás-próba minden elektromos hajtásnál
+    const bool keya = seeder::keya_drive(set);
     for (const auto &p : vt::PAGES)
-        if (std::strcmp(p.id, "drive") == 0) softkeys(p.mask, elec ? vt::SK_DRIVE : vt::SK_BACK);
-        else if (std::strcmp(p.id, "motor") == 0) softkeys(p.mask, elec ? vt::SK_MOTOR : vt::SK_BACK);
+        if (std::strcmp(p.id, "motor") == 0) softkeys(p.mask, elec && !keya ? vt::SK_MOTOR : vt::SK_BACK);
+        else if (std::strcmp(p.id, "jam") == 0) softkeys(p.mask, elec ? vt::SK_JAMPG : vt::SK_BACK);
+    // a Hajtás csoport almenüje: csak a választott hajtáshoz tartozó oldalak látszanak
+    shown(vt::CONT_PG_MOTOR, elec);
+    shown(vt::CONT_PG_JAM, elec);
+    shown(vt::CONT_PG_KEYA, keya);
     const bool active = st.tune_phase == seeder::TunePhase::StartUp || st.tune_phase == seeder::TunePhase::StopDown ||
                         st.tune_phase == seeder::TunePhase::Points;
     if (seeder::meter_count(set) < 2) tune_meter_ = 0;
@@ -925,7 +930,7 @@ void VtUi::update_jam(const Snapshot &s) {
     const auto &j = st.jam[k];
     num(vt::OP_JAM_METER, vt::STR_METER[m]);
     num(vt::OP_K_JAM_METER, vt::PIC_K_JAM_METER[m]);
-    num(vt::OP_JAM_DRV, vt::STR_DRV[set.motor_driver >= 0 && set.motor_driver < 3 ? set.motor_driver : 0]);
+    num(vt::OP_JAM_DRV, vt::STR_DRV[seeder::keya_drive(set) ? 3 : (set.motor_driver >= 0 && set.motor_driver < 3 ? set.motor_driver : 0)]);
     text(vt::STR_JAM_STATE, vt_latin1(seeder::jam_phase_label(j.phase), 22));
     const char *msg = j.message && *j.message ? j.message
                       : !seeder::motor_reversible(set)

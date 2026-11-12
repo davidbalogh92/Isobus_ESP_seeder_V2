@@ -35,32 +35,32 @@ _Generált fájl (tools/gen_params.py). Minden paraméter a webes felületen (Be
 
 | Kulcs | Megnevezés | Alapérték | Tartomány | VT oldal | Megjegyzés |
 |---|---|---|---|---|---|
-| `drive_type` | Adagolók hajtása | Talajhajtás + elektromágneses kuplung | Talajhajtás + elektromágneses kuplung / Elektromos motor (PWM) | ADAGOLÓHAJTÁS |  |
-| `clutch_mode` | Kuplung típusa | Áram alatt hajt | Áram alatt hajt / Áram alatt old | ADAGOLÓHAJTÁS |  |
-| `clutch_lift` | Kuplung kiemeléskor / megálláskor (talajhajtás) | Nem old (csak szakasz / gomb) | Old (kiemeléskor lekapcsol) / Nem old (csak szakasz / gomb) | ADAGOLÓHAJTÁS | Talajhajtásnál kiemelt vagy álló gépnél az adagoló úgysem forog, ezért a kuplungot alapból csak a szakaszolás és az adagológombok kapcsolják. 'Old': a régi működés, kiemeléskor is lekapcsol. |
-| `meter_ppr` | Adagolótengely-jeladó impulzus / fordulat (talajhajtás) | 1 imp | 1 – 100 imp | ADAGOLÓHAJTÁS |  |
-| `meter_timeout_s` | Adagoló nem forog riasztás késleltetése | 5.0 s | 1 – 60 s | ADAGOLÓHAJTÁS | Ha a vetés feltételei teljesülnek (vetés BE, gép lent, halad, adagoló bekapcsolva), és ennyi ideig nem jön impulzus az adagolótól, riasztás. |
-| `encoder_ppr` | Enkóder impulzus / adagolófordulat (motor) | 50 imp | 1 – 5000 imp | ADAGOLÓHAJTÁS |  |
-| `motor_max_rpm` | Adagoló fordulat 100% PWM-nél | 60.0 1/min | 1 – 600 1/min | ADAGOLÓHAJTÁS | Az előrecsatoláshoz; a szabályzó ebből indul, utána az enkóder alapján korrigál. |
-| `pwm_min_pct` | PWM minimum (forgás közben) | 8.0 % | 0 – 100 % | ADAGOLÓHAJTÁS |  |
-| `pwm_max_pct` | PWM maximum | 100.0 % | 1 – 100 % | ADAGOLÓHAJTÁS |  |
-| `ramp_up_s` | Felfutás (0 → 100%) | 1.0 s | 0 – 10 s | ADAGOLÓHAJTÁS |  |
-| `ramp_down_s` | Lefutás (100% → 0) | 0.5 s | 0 – 10 s | ADAGOLÓHAJTÁS |  |
-| `reg_gain` | Szabályzási állandó (1 lassú – 10 gyors) | 5 | 1 – 10 | ADAGOLÓHAJTÁS |  |
-| `pwm_freq_hz` | PWM frekvencia | 1000 Hz | 100 – 20000 Hz | MOTORVEZÉRLÕ | Cytron / Pololu / IBT-2: 16000–20000 Hz csendes (nem sípol). Alacsonyabb frekvencián a motor jobban indul kis PWM-nél, de hallhatóan sípol. |
-| `motor_layout` | Motorok (elektromos hajtás) | Adagolónként saját motor | Adagolónként saját motor / Egy motor hajtja mindkét adagolót (kuplungokkal) | MOTORVEZÉRLÕ | Egy motornál a motor a talajkereket helyettesíti: a haladással arányosan forog (fordulat 1/10 ha-ra alapján), a kg/ha-t adagolónként a skála adja, a kuplungok adagolónként kapcsolnak (mint talajhajtásnál). Az 1. motor kimenetét használja, a fordulatot az 1. adagoló enkódere (IN3) méri. |
-| `motor_driver` | Motorvezérlő bekötése | Csak PWM (egy irány) | Csak PWM (egy irány) / PWM + DIR (Cytron, Pololu) / PWM + PWM (IBT-2) / Keya CAN-motor | MOTORVEZÉRLÕ | Csak PWM: GPIO47 / GPIO48 a PWM, a motor csak előre forog. PWM + DIR: GPIO47 / 48 a PWM, GPIO21 / 45 az irány (DIR). PWM + PWM (IBT-2): előre GPIO47 / 48 (RPWM), hátra GPIO21 / 45 (LPWM), R_EN és L_EN 5 V-on. Az 1. motor 47 + 21, a 2. motor 48 + 45. A visszafordításhoz (beszorulás) irányváltós bekötés kell. Keya CAN-motor: a motor maga szabályozza a fordulatot, az ISOBUS buszon (250 kbit/s) kap célfordulatot; beállítása a 'Keya CAN-motor' oldalon. |
-| `motor_invert` | Forgásirány megfordítása | Nem | Nem / Igen | MOTORVEZÉRLÕ | Ha a motor 'előre' parancsra visszafelé forog (irányváltós bekötésnél). |
-| `unjam_enable` | Beszorulásnál visszafordítás | Igen | Nem / Igen | MOTORVEZÉRLÕ | Ha az adagoló beszorul (hajtott motor, de nem jön enkóderjel), a motor megáll, a beállított szöggel visszafordul, majd újra előre indul. Csak irányváltós bekötésnél (PWM + DIR vagy IBT-2). 'Nem' (vagy egyirányú bekötés): beszorulásnál megáll és riaszt. |
-| `unjam_deg` | Visszafordítás mértéke | 30.0 ° | 5 – 180 ° | MOTORVEZÉRLÕ | Adagolótengely-fok, az enkóder impulzusaiból számolva. |
-| `unjam_tries` | Visszafordítási próbák száma | 3 db | 1 – 5 db | MOTORVEZÉRLÕ | Ennyi sikertelen próba után a motor áll és riaszt. 5 s rendben forgás után nullázódik. |
-| `jam_detect_s` | Beszorulás felismerési ideje | 0.6 s | 0.2 – 5 s | MOTORVEZÉRLÕ | Ennyi ideig nem jön enkóderjel elég nagy PWM mellett (vagy a PWM a maximumon, és a fordulat a cél negyede alatt) → beszorulás. |
+| `drive_type` | Adagolók hajtása | Talajhajtás + elektromágneses kuplung | Talajhajtás + elektromágneses kuplung / Elektromos – PWM motorvezérlő / Elektromos – Keya CAN-motor | HAJTÁS | Talajhajtás: a talajkerék hajtja az adagolókat, a vezérlő a kuplungokat kapcsolja. Elektromos – PWM: motorvezérlő (Cytron, Pololu, IBT-2 …) a panel PWM kimenetein, enkóderrel. Elektromos – Keya: saját fordulatszabályzású CAN-motor az ISOBUS-szal közös buszon (beállítás: Keya CAN-motor oldal). |
+| `motor_layout` | Motorok (elektromos hajtás) | Adagolónként saját motor | Adagolónként saját motor / Egy motor hajtja mindkét adagolót (kuplungokkal) | HAJTÁS | Egy motornál a motor a talajkereket helyettesíti: a haladással arányosan forog (fordulat 1/10 ha-ra alapján), a kg/ha-t adagolónként a skála adja, a kuplungok adagolónként kapcsolnak (mint talajhajtásnál). Az 1. motor kimenetét használja, a fordulatot az 1. adagoló enkódere (IN3) méri. |
+| `motor_driver` | PWM motorvezérlő bekötése | Csak PWM (egy irány) | Csak PWM (egy irány) / PWM + DIR (Cytron, Pololu) / PWM + PWM (IBT-2) | HAJTÁS | Csak PWM: GPIO47 / GPIO48 a PWM, a motor csak előre forog. PWM + DIR: GPIO47 / 48 a PWM, GPIO21 / 45 az irány (DIR). PWM + PWM (IBT-2): előre GPIO47 / 48 (RPWM), hátra GPIO21 / 45 (LPWM), R_EN és L_EN 5 V-on. Az 1. motor 47 + 21, a 2. motor 48 + 45. A visszafordításhoz (beszorulás) irányváltós bekötés kell. Csak 'Elektromos – PWM motorvezérlő' hajtásnál számít. |
+| `clutch_mode` | Kuplung típusa | Áram alatt hajt | Áram alatt hajt / Áram alatt old | HAJTÁS |  |
+| `clutch_lift` | Kuplung kiemeléskor / megálláskor (talajhajtás) | Nem old (csak szakasz / gomb) | Old (kiemeléskor lekapcsol) / Nem old (csak szakasz / gomb) | HAJTÁS | Talajhajtásnál kiemelt vagy álló gépnél az adagoló úgysem forog, ezért a kuplungot alapból csak a szakaszolás és az adagológombok kapcsolják. 'Old': a régi működés, kiemeléskor is lekapcsol. |
+| `meter_ppr` | Adagolótengely-jeladó impulzus / fordulat (talajhajtás) | 1 imp | 1 – 100 imp | HAJTÁS |  |
+| `meter_timeout_s` | Adagoló nem forog riasztás késleltetése | 5.0 s | 1 – 60 s | HAJTÁS | Ha a vetés feltételei teljesülnek (vetés BE, gép lent, halad, adagoló bekapcsolva), és ennyi ideig nem jön impulzus az adagolótól, riasztás. |
+| `encoder_ppr` | Enkóder impulzus / adagolófordulat (motor) | 50 imp | 1 – 5000 imp | HAJTÁS |  |
+| `motor_max_rpm` | Adagoló fordulat 100% PWM-nél | 60.0 1/min | 1 – 600 1/min | MOTORSZABÁLYZÁS | Az előrecsatoláshoz; a szabályzó ebből indul, utána az enkóder alapján korrigál. |
+| `pwm_min_pct` | PWM minimum (forgás közben) | 8.0 % | 0 – 100 % | MOTORSZABÁLYZÁS |  |
+| `pwm_max_pct` | PWM maximum | 100.0 % | 1 – 100 % | MOTORSZABÁLYZÁS |  |
+| `ramp_up_s` | Felfutás (0 → 100%) | 1.0 s | 0 – 10 s | MOTORSZABÁLYZÁS |  |
+| `ramp_down_s` | Lefutás (100% → 0) | 0.5 s | 0 – 10 s | MOTORSZABÁLYZÁS |  |
+| `reg_gain` | Szabályzási állandó (1 lassú – 10 gyors) | 5 | 1 – 10 | MOTORSZABÁLYZÁS |  |
+| `pwm_freq_hz` | PWM frekvencia | 1000 Hz | 100 – 20000 Hz | MOTORSZABÁLYZÁS | Cytron / Pololu / IBT-2: 16000–20000 Hz csendes (nem sípol). Alacsonyabb frekvencián a motor jobban indul kis PWM-nél, de hallhatóan sípol. |
+| `motor_invert` | Forgásirány megfordítása | Nem | Nem / Igen | MOTORSZABÁLYZÁS | Ha a motor 'előre' parancsra visszafelé forog (irányváltós bekötésnél). |
+| `unjam_enable` | Beszorulásnál visszafordítás | Igen | Nem / Igen | BESZORULÁS | Ha az adagoló beszorul (hajtott motor, de nem jön enkóderjel), a motor megáll, a beállított szöggel visszafordul, majd újra előre indul. Csak irányváltós bekötésnél (PWM + DIR vagy IBT-2). 'Nem' (vagy egyirányú bekötés): beszorulásnál megáll és riaszt. |
+| `unjam_deg` | Visszafordítás mértéke | 30.0 ° | 5 – 180 ° | BESZORULÁS | Adagolótengely-fok, az enkóder impulzusaiból számolva. |
+| `unjam_tries` | Visszafordítási próbák száma | 3 db | 1 – 5 db | BESZORULÁS | Ennyi sikertelen próba után a motor áll és riaszt. 5 s rendben forgás után nullázódik. |
+| `jam_detect_s` | Beszorulás felismerési ideje | 0.6 s | 0.2 – 5 s | BESZORULÁS | Ennyi ideig nem jön enkóderjel elég nagy PWM mellett (vagy a PWM a maximumon, és a fordulat a cél negyede alatt) → beszorulás. |
 | `keya_node1` | Keya: 1. motor CAN azonosító (node ID) | 1 | 1 – 31 | KEYA CAN-MOTOR | A motorban beállított node ID (gyárilag 1). Két motornál a 2. motort át kell állítani (pl. 2). |
 | `keya_node2` | Keya: 2. motor CAN azonosító (node ID) | 2 | 1 – 31 | KEYA CAN-MOTOR |  |
 | `keya_unit` | Keya: a fordulat/s mire vonatkozik | Motortengely (× áttétel) | Hajtómű kimenete (adagoló) / Motortengely (× áttétel) | KEYA CAN-MOTOR | A gyári leírás nem mondja meg. Próbával dönthető el: 1 ford/s parancsra a kimenő tengely másodpercenként 1-et fordul (→ kimenet), vagy 1/áttételnyit (→ motortengely). KY40…-PX40-49: áttétel 49. |
 | `keya_gear` | Keya: hajtómű áttétel | 49.0 | 1 – 500 | KEYA CAN-MOTOR |  |
 | `keya_hb_ms` | Keya: szívverés-időkorlát a motorban | 500 ms | 0 – 5000 ms | KEYA CAN-MOTOR | Induláskor a vezérlő beírja a motorba (33-as paraméter): ha ennyi ideig nem jön szívverés, a motor magától megáll. 0 = nem írja be. |
-| `motor_deadband_pct` | Indulási PWM (holtsáv) | 0.0 % | 0 – 60 % | MOTORVEZÉRLÕ | Ennél kisebb PWM-nél a motor nem forog. Az önhangolás méri és menti; a terhelési mutató és az előrecsatolás pontosításához. |
+| `motor_deadband_pct` | Indulási PWM (holtsáv) | 0.0 % | 0 – 60 % | MOTORSZABÁLYZÁS | Ennél kisebb PWM-nél a motor nem forog. Az önhangolás méri és menti; a terhelési mutató és az előrecsatolás pontosításához. |
 
 ## Turbina
 

@@ -203,6 +203,12 @@ TEST(settings_json_roundtrip_and_errors) {
     CHECK_NEAR(c.rate1, 120.0, 1e-4);
     CHECK(settings_from_json(c, "[1,2]", &err) < 0);
     CHECK(settings_from_json(c, "{\"drive_type\":7}", &err) < 0);
+    // 2.3 előzetes: a Keya a motorvezérlők között volt (motor_driver 3) → hajtás típusa lesz
+    Settings k = default_settings();
+    CHECK(settings_from_json(k, "{\"motor_driver\":3,\"drive_type\":1}", &err) > 0);
+    CHECK(k.drive_type == 2 && k.motor_driver == 0 && keya_drive(k) && motor_reversible(k) && electric_drive(k));
+    Settings t = default_settings();
+    CHECK(settings_from_json(t, "{\"drive_type\":2}", &err) > 0 && keya_drive(t));
     CHECK(!err.empty());
     CHECK(settings_from_json(c, "{\"wifi_pass\":\"rov\"}", &err) < 0); // túl rövid jelszó
     const std::string schema = schema_json();

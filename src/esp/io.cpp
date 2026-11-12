@@ -675,7 +675,7 @@ void apply(const seeder::Outputs &o, const seeder::Settings &s) {
     if (board::MOTOR_PWM_GPIO[0] >= 0 && pwm_freq.load() != freq) pwm_setup(freq);
     // motorvezérlő bekötése: 0 csak PWM, 1 PWM + DIR, 2 PWM + PWM (IBT-2)
     // Keya CAN-motornál (3) nincs PWM: a motor a CAN-en kap célfordulatot
-    const bool keya = seeder::electric_drive(s) && s.motor_driver == 3;
+    const bool keya = seeder::keya_drive(s);
     const int drv = seeder::electric_drive(s) && !keya ? std::max<int>(0, std::min<int>(2, s.motor_driver)) : 0;
     if (pwm_ready[0] || pwm_ready[1]) aux_setup(drv);
     for (int i = 0; i < 2; ++i) {

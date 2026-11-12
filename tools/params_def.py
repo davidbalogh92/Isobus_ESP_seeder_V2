@@ -135,7 +135,23 @@ add("prefill_after_s", "rate", "Utánfutás indulás után", "Utánfutás", "flo
 
 # --------------------------------------------------------------------------- hajtás
 add("drive_type", "drive", "Adagolók hajtása", "Hajtás", "enum", 0,
-    options=("Talajhajtás + elektromágneses kuplung", "Elektromos motor (PWM)"), vt_page="drive")
+    options=("Talajhajtás + elektromágneses kuplung", "Elektromos – PWM motorvezérlő", "Elektromos – Keya CAN-motor"),
+    vt_page="drive",
+    help="Talajhajtás: a talajkerék hajtja az adagolókat, a vezérlő a kuplungokat kapcsolja. Elektromos – PWM: "
+         "motorvezérlő (Cytron, Pololu, IBT-2 …) a panel PWM kimenetein, enkóderrel. Elektromos – Keya: saját "
+         "fordulatszabályzású CAN-motor az ISOBUS-szal közös buszon (beállítás: Keya CAN-motor oldal).")
+add("motor_layout", "drive", "Motorok (elektromos hajtás)", "Motorok", "enum", 0,
+    options=("Adagolónként saját motor", "Egy motor hajtja mindkét adagolót (kuplungokkal)"), vt_page="drive",
+    help="Egy motornál a motor a talajkereket helyettesíti: a haladással arányosan forog (fordulat 1/10 ha-ra "
+         "alapján), a kg/ha-t adagolónként a skála adja, a kuplungok adagolónként kapcsolnak (mint talajhajtásnál). "
+         "Az 1. motor kimenetét használja, a fordulatot az 1. adagoló enkódere (IN3) méri.")
+add("motor_driver", "drive", "PWM motorvezérlő bekötése", "Motorvezérlő", "enum", 0,
+    options=("Csak PWM (egy irány)", "PWM + DIR (Cytron, Pololu)", "PWM + PWM (IBT-2)"),
+    vt_page="drive",
+    help="Csak PWM: GPIO47 / GPIO48 a PWM, a motor csak előre forog. PWM + DIR: GPIO47 / 48 a PWM, GPIO21 / 45 "
+         "az irány (DIR). PWM + PWM (IBT-2): előre GPIO47 / 48 (RPWM), hátra GPIO21 / 45 (LPWM), R_EN és L_EN 5 V-on. "
+         "Az 1. motor 47 + 21, a 2. motor 48 + 45. A visszafordításhoz (beszorulás) irányváltós bekötés kell. "
+         "Csak 'Elektromos – PWM motorvezérlő' hajtásnál számít.")
 add("clutch_mode", "drive", "Kuplung típusa", "Kuplung", "enum", 0,
     options=("Áram alatt hajt", "Áram alatt old"), vt_page="drive")
 add("clutch_lift", "drive", "Kuplung kiemeléskor / megálláskor (talajhajtás)", "Kuplung kiemel.", "enum", 1,
@@ -151,44 +167,31 @@ add("meter_timeout_s", "drive", "Adagoló nem forog riasztás késleltetése", "
 add("encoder_ppr", "drive", "Enkóder impulzus / adagolófordulat (motor)", "Enkóder imp/ford", "int", 50, 1, 5000, 1,
     0, "imp", vt_page="drive")
 add("motor_max_rpm", "drive", "Adagoló fordulat 100% PWM-nél", "Ford. 100% PWM", "float", 60.0, 1.0, 600.0, 0.5, 1,
-    "1/min", vt_page="drive", help="Az előrecsatoláshoz; a szabályzó ebből indul, utána az enkóder alapján korrigál.")
+    "1/min", vt_page="motor", help="Az előrecsatoláshoz; a szabályzó ebből indul, utána az enkóder alapján korrigál.")
 add("pwm_min_pct", "drive", "PWM minimum (forgás közben)", "PWM minimum", "float", 8.0, 0, 100, 1, 0, "%",
-    vt_page="drive")
-add("pwm_max_pct", "drive", "PWM maximum", "PWM maximum", "float", 100.0, 1, 100, 1, 0, "%", vt_page="drive")
+    vt_page="motor")
+add("pwm_max_pct", "drive", "PWM maximum", "PWM maximum", "float", 100.0, 1, 100, 1, 0, "%", vt_page="motor")
 add("ramp_up_s", "drive", "Felfutás (0 → 100%)", "Felfutás", "float", 1.0, 0.0, 10.0, 0.1, 1, "s",
-    vt_page="drive")
+    vt_page="motor")
 add("ramp_down_s", "drive", "Lefutás (100% → 0)", "Lefutás", "float", 0.5, 0.0, 10.0, 0.1, 1, "s",
-    vt_page="drive")
+    vt_page="motor")
 add("reg_gain", "drive", "Szabályzási állandó (1 lassú – 10 gyors)", "Szab. állandó", "int", 5, 1, 10, 1, 0, "",
-    vt_page="drive")
+    vt_page="motor")
 add("pwm_freq_hz", "drive", "PWM frekvencia", "PWM frekvencia", "int", 1000, 100, 20000, 100, 0, "Hz",
     vt_page="motor", help="Cytron / Pololu / IBT-2: 16000–20000 Hz csendes (nem sípol). Alacsonyabb frekvencián a "
                           "motor jobban indul kis PWM-nél, de hallhatóan sípol.")
-add("motor_layout", "drive", "Motorok (elektromos hajtás)", "Motorok", "enum", 0,
-    options=("Adagolónként saját motor", "Egy motor hajtja mindkét adagolót (kuplungokkal)"), vt_page="motor",
-    help="Egy motornál a motor a talajkereket helyettesíti: a haladással arányosan forog (fordulat 1/10 ha-ra "
-         "alapján), a kg/ha-t adagolónként a skála adja, a kuplungok adagolónként kapcsolnak (mint talajhajtásnál). "
-         "Az 1. motor kimenetét használja, a fordulatot az 1. adagoló enkódere (IN3) méri.")
-add("motor_driver", "drive", "Motorvezérlő bekötése", "Motorvezérlő", "enum", 0,
-    options=("Csak PWM (egy irány)", "PWM + DIR (Cytron, Pololu)", "PWM + PWM (IBT-2)", "Keya CAN-motor"),
-    vt_page="motor",
-    help="Csak PWM: GPIO47 / GPIO48 a PWM, a motor csak előre forog. PWM + DIR: GPIO47 / 48 a PWM, GPIO21 / 45 "
-         "az irány (DIR). PWM + PWM (IBT-2): előre GPIO47 / 48 (RPWM), hátra GPIO21 / 45 (LPWM), R_EN és L_EN 5 V-on. "
-         "Az 1. motor 47 + 21, a 2. motor 48 + 45. A visszafordításhoz (beszorulás) irányváltós bekötés kell. "
-         "Keya CAN-motor: a motor maga szabályozza a fordulatot, az ISOBUS buszon (250 kbit/s) kap célfordulatot; "
-         "beállítása a 'Keya CAN-motor' oldalon.")
 add("motor_invert", "drive", "Forgásirány megfordítása", "Irány fordítva", "bool", 0, options=YES_NO,
     vt_page="motor", help="Ha a motor 'előre' parancsra visszafelé forog (irányváltós bekötésnél).")
 add("unjam_enable", "drive", "Beszorulásnál visszafordítás", "Visszafordítás", "bool", 1, options=YES_NO,
-    vt_page="motor", help="Ha az adagoló beszorul (hajtott motor, de nem jön enkóderjel), a motor megáll, a "
+    vt_page="jam", help="Ha az adagoló beszorul (hajtott motor, de nem jön enkóderjel), a motor megáll, a "
                           "beállított szöggel visszafordul, majd újra előre indul. Csak irányváltós bekötésnél "
                           "(PWM + DIR vagy IBT-2). 'Nem' (vagy egyirányú bekötés): beszorulásnál megáll és riaszt.")
 add("unjam_deg", "drive", "Visszafordítás mértéke", "Vissza mérték", "float", 30.0, 5.0, 180.0, 5.0, 0, "°",
-    vt_page="motor", help="Adagolótengely-fok, az enkóder impulzusaiból számolva.")
+    vt_page="jam", help="Adagolótengely-fok, az enkóder impulzusaiból számolva.")
 add("unjam_tries", "drive", "Visszafordítási próbák száma", "Vissza próbák", "int", 3, 1, 5, 1, 0, "db",
-    vt_page="motor", help="Ennyi sikertelen próba után a motor áll és riaszt. 5 s rendben forgás után nullázódik.")
+    vt_page="jam", help="Ennyi sikertelen próba után a motor áll és riaszt. 5 s rendben forgás után nullázódik.")
 add("jam_detect_s", "drive", "Beszorulás felismerési ideje", "Felismerés", "float", 0.6, 0.2, 5.0, 0.1, 1, "s",
-    vt_page="motor", help="Ennyi ideig nem jön enkóderjel elég nagy PWM mellett (vagy a PWM a maximumon, és a "
+    vt_page="jam", help="Ennyi ideig nem jön enkóderjel elég nagy PWM mellett (vagy a PWM a maximumon, és a "
                           "fordulat a cél negyede alatt) → beszorulás.")
 add("keya_node1", "drive", "Keya: 1. motor CAN azonosító (node ID)", "1. motor ID", "int", 1, 1, 31, 1, 0, "",
     vt_page="keya", help="A motorban beállított node ID (gyárilag 1). Két motornál a 2. motort át kell állítani (pl. 2).")
@@ -413,8 +416,9 @@ VT_PAGES = [
     # (azonosító, cím a VT-n)
     ("machine", "GÉP"),
     ("rate", "ADAGOLÁS, FELTÖLTÉS"),
-    ("drive", "ADAGOLÓHAJTÁS"),
-    ("motor", "MOTORVEZÉRLÕ"),
+    ("drive", "HAJTÁS"),
+    ("motor", "MOTORSZABÁLYZÁS"),
+    ("jam", "BESZORULÁS"),
     ("keya", "KEYA CAN-MOTOR"),
     ("fan", "TURBINA"),
     ("speed", "SEBESSÉG"),
@@ -435,7 +439,7 @@ VT_PAGES = [
 VT_GROUPS = [
     ("rate", "Adagolás", "softkeys/softkey_dosing", ["rate"]),
     ("machine", "Gép, geometria", "menu/menu_machine", ["machine", "geometry"]),
-    ("drive", "Hajtás, motor", "menu/menu_drive", ["drive", "motor", "keya"]),
+    ("drive", "Hajtás, motor", "menu/menu_drive", ["drive", "motor", "jam", "keya"]),
     ("fan", "Turbina, hûtés", "softkeys/softkey_fan", ["fan", "cooling"]),
     ("measure", "Mérés", "main/main_speed", ["speed", "scale", "pressure"]),
     ("switches", "Kapcsolók", "softkeys/softkey_switch", ["switches", "extras"]),

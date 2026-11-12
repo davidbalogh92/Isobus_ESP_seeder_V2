@@ -522,12 +522,12 @@ TEST(virtual_terminal_motor_tune_page) {
         run_app(a, 0.3f);
     };
     key(vt::K_MENU);
-    key(vt::K_PG_DRIVE);
+    key(vt::K_PG_MOTOR);
     std::uint16_t drive_mask = 0;
     for (const auto &p : vt::PAGES)
-        if (std::strcmp(p.id, "drive") == 0) drive_mask = p.mask;
+        if (std::strcmp(p.id, "motor") == 0) drive_mask = p.mask;
     CHECK(has(vt_json(a), "\"mask\":" + std::to_string(drive_mask)));
-    CHECK(has(vt_json(a), "\"" + std::to_string(drive_mask) + "\":" + std::to_string(vt::SK_DRIVE)));
+    CHECK(has(vt_json(a), "\"" + std::to_string(drive_mask) + "\":" + std::to_string(vt::SK_MOTOR)));
     key(vt::K_TUNE_PAGE);   // előbb a tudnivalók
     CHECK(has(vt_json(a), "\"mask\":" + std::to_string(vt::DM_TUNE_INFO)));
     CHECK(has(vt_json(a), "kb. "));
@@ -571,11 +571,11 @@ TEST(virtual_terminal_jam_test_page) {
     key(vt::K_MENU);
     key(vt::K_GR_DRIVE);   // csoport almenü: Hajtás, motor
     CHECK(has(vt_json(a), "\"mask\":" + std::to_string(vt::DM_GR_DRIVE)));
-    key(vt::K_PG_MOTOR);
-    std::uint16_t motor_mask = 0;
+    key(vt::K_PG_JAM);
+    std::uint16_t jam_mask = 0;
     for (const auto &p : vt::PAGES)
-        if (std::strcmp(p.id, "motor") == 0) motor_mask = p.mask;
-    CHECK(has(vt_json(a), "\"" + std::to_string(motor_mask) + "\":" + std::to_string(vt::SK_MOTOR)));
+        if (std::strcmp(p.id, "jam") == 0) jam_mask = p.mask;
+    CHECK(has(vt_json(a), "\"" + std::to_string(jam_mask) + "\":" + std::to_string(vt::SK_JAMPG)));
     key(vt::K_JAM_PAGE);
     CHECK(has(vt_json(a), "\"mask\":" + std::to_string(vt::DM_JAM)));
     CHECK(has(vt_json(a), "\"" + std::to_string(vt::OP_JAM_DRV) + "\":" + std::to_string(vt::STR_DRV[2])));
@@ -585,7 +585,7 @@ TEST(virtual_terminal_jam_test_page) {
         CHECK(shared.core.status().jam[0].phase >= JamPhase::TestFwd);
     }
     key(vt::K_BACK);
-    CHECK(has(vt_json(a), "\"mask\":" + std::to_string(motor_mask)));
+    CHECK(has(vt_json(a), "\"mask\":" + std::to_string(jam_mask)));
     {
         std::lock_guard<std::mutex> g(shared.lock);
         CHECK(shared.core.status().jam[0].phase == JamPhase::Normal);
@@ -629,6 +629,23 @@ TEST(virtual_terminal_settings_groups) {
     CHECK(mask_is(vt::DM_MENU));
     // minden oldal pontosan egy csoportban
     for (const auto &p : vt::PAGES) CHECK(p.group < sizeof(vt::GROUPS) / sizeof(vt::GROUPS[0]));
+    // Hajtás csoport: a hajtás típusa szerint látszanak az oldalak
+    auto hid = [&](std::uint16_t id) { return has(vt_json(a), "\"" + std::to_string(id) + "\":1"); };
+    auto vis = [&](std::uint16_t id) { return has(vt_json(a), "\"" + std::to_string(id) + "\":0"); };
+    auto set_drive = [&](int d) {
+        std::lock_guard<std::mutex> g(shared.lock);
+        shared.core.set_param(seeder::P_drive_type, static_cast<float>(d));
+    };
+    set_drive(0);   // talajhajtás: csak a Hajtás oldal
+    btn(vt::BTN_GR_DRIVE);
+    CHECK(mask_is(vt::DM_GR_DRIVE));
+    CHECK(hid(vt::CONT_PG_MOTOR) && hid(vt::CONT_PG_JAM) && hid(vt::CONT_PG_KEYA));
+    set_drive(1);   // PWM: motor + beszorulás, Keya nem
+    run_app(a, 0.3f);
+    CHECK(vis(vt::CONT_PG_MOTOR) && vis(vt::CONT_PG_JAM) && hid(vt::CONT_PG_KEYA));
+    set_drive(2);   // Keya: minden
+    run_app(a, 0.3f);
+    CHECK(vis(vt::CONT_PG_KEYA) && vis(vt::CONT_PG_JAM));
 }
 
 TEST(virtual_terminal_tank_page_and_profile_names) {
@@ -737,8 +754,7 @@ TEST(keya_motor_follows_target_over_can) {
     app::Shared shared;
     {
         Settings st = default_settings();
-        st.drive_type = 1;
-        st.motor_driver = 3;      // Keya
+        st.drive_type = 2;        // elektromos – Keya CAN-motor
         st.meter_count = 1;
         st.keya_unit = 1;         // motortengely
         st.keya_gear = 49.0f;

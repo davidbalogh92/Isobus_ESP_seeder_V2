@@ -11,7 +11,7 @@ ikonok az ESC vetőgép-monitorból jönnek.
 | Terület | Funkció |
 |---|---|
 | Gép | munkaszélesség (alap 6 m), 1–2 adagoló, 1–2 tartály(rekesz), 1–2 szakasz; két adagolónál bal/jobb félszélesség vagy első/hátsó sor (mindkettő a teljes szélességet veti) |
-| Hajtás | **talajhajtás + elektromágneses kuplung** adagolónként (áram alatt hajt / old), vagy **elektromos motor** enkóderrel (alap 50 imp/ford), PWM min/max, rámpák, PI + előrecsatolás. Motorok: **adagolónként saját motor**, vagy **egy motor hajtja mindkét adagolót** (a kuplungok maradnak, azokkal kapcsol). Motorvezérlő bekötése: **csak PWM** (egy irány) · **PWM + DIR** (Cytron MD13S / MDD10A / SmartDriveDuo, Pololu G2) · **PWM + PWM** (IBT-2 / BTS7960) · **Keya CAN-motor** (saját fordulatszabályzású „All-in-One” vetőmotor az ISOBUS-szal közös CAN-en). Irányváltásnál 100 ms holtidő, PWM-frekvencia állítható |
+| Hajtás | **talajhajtás + elektromágneses kuplung** adagolónként (áram alatt hajt / old), vagy **elektromos motor** enkóderrel (alap 50 imp/ford), PWM min/max, rámpák, PI + előrecsatolás. Motorok: **adagolónként saját motor**, vagy **egy motor hajtja mindkét adagolót** (a kuplungok maradnak, azokkal kapcsol). Hajtás típusa: **talajhajtás + kuplung**, **elektromos – PWM motorvezérlő** (bekötés: csak PWM / PWM + DIR – Cytron MD13S, MDD10A, SmartDriveDuo, Pololu G2 / PWM + PWM – IBT-2, BTS7960) vagy **elektromos – Keya CAN-motor** (saját fordulatszabályzású „All-in-One” vetőmotor az ISOBUS-szal közös CAN-en). Irányváltásnál 100 ms holtidő, PWM-frekvencia állítható |
 | Beszorulás | elektromos hajtásnál a vezérlő figyeli, hogy a motor forog-e (enkóder / Keya pozíció). **Visszafordítás bekapcsolva** (csak irányváltós bekötésnél): megáll → a beállított szöggel visszafordít → újra előre, legfeljebb a beállított számú próbával; ha nem szabadul, megáll és riaszt. **Kikapcsolva:** azonnal megáll és riaszt. **Próba felület** álló gépen (VT: Beállítások → Hajtás → Motorvezérlő → próba gomb; web: Kalibrálás → Visszafordítás) – kiírja a ténylegesen mért visszafordulást. **Terhelési mutató**: a PWM és a fordulat viszonyából, növényenként tanult alapszinthez képest (100 % = szokásos) |
 | Keya CAN-motor | 11 bites keretek a közös 250 kbit/s-os buszon, motoronként saját cím (1. / 2. adagoló: node 1 / 2); a vezérlő fordulatot küld, a pozícióból „virtuális enkódert” képez (a leforgatás, beszorulás, mennyiség-elszámolás változatlanul működik), figyeli a hibabiteket (jeladó, túl-/alacsony feszültség, túláram) és a kapcsolatot (riasztás), szívverést küld. **Beállító mód** a weben (Kalibrálás → Keya): a gyári 500 kbit/s-os motorra beírja az új címet és a 250 kbit/s-ot – csak asztalon, egyedül a buszon |
 | Adagolás | előírt mennyiség adagolónként (kg/ha), ±% léptetés; elektromos hajtásnál a kg/ha a leforgatásból kapott kg/fordulattal motorfordulatra számolva; a leforgatott adagoló adatai (kg/fordulat + előírt érték) **egy gombbal átmásolhatók a másik adagolóra** (bármelyik irányban) |
@@ -67,7 +67,10 @@ Az automata szakaszolást a navigáció (TC vagy AgOpenGPS) kapcsolja: a gép ke
 **Funkciók:** vissza · automata szakaszolás · leforgatás · nyugtázás · visszafúvás · lámpa 1/2 ·
 szétnyitás/nyomjelző · hűtő (automata → kézi BE → kézi KI). A gombok csak a bekapcsolt kiegészítőknél
 jelennek meg. **Menü:** Leforgatás · Számlálók · Tartálytöltet · Diagnosztika elöl, utána a beállítás-csoportok
-(Adagolás · Gép, geom. · Hajtás · Turbina · Mérés · Kapcsolók · Szakaszolás · Szerviz); a több oldalas csoport
+(Adagolás · Gép, geom. · Hajtás · Turbina · Mérés · Kapcsolók · Szakaszolás · Szerviz). **A hajtás kiválasztása:**
+Menü → Hajtás, motor → Hajtás oldal → Hajtás = Talaj+kuplung / Elektr. PWM / Elektr. Keya; ugyanitt a motorok száma és
+a PWM motorvezérlő bekötése. A Hajtás csoport almenüjében csak a választott hajtás oldalai látszanak (Motorszabályzás,
+Beszorulás, Keya CAN-motor). A több oldalas csoport
 almenüt nyit (oldalanként ikon, cím és a fő beállítások), az egyoldalas közvetlenül az oldalt. A web ugyanezt a
 csoportosítást követi.
 

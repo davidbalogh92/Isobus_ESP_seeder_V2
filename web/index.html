@@ -394,7 +394,7 @@ table.pins td:first-child{font-variant-numeric:tabular-nums;white-space:nowrap;f
     <div class="card" style="margin-bottom:var(--gap)">
       <h2>Keya CAN-motorok</h2>
       <p class="note">A motorok az ISOBUS-szal közös CAN-vezetéken, 250 kbit/s-on, saját címen (node ID) dolgoznak.
-        A hajtás a Beállítások → Motorvezérlő → Motorvezérlő bekötése = <b>Keya CAN-motor</b> értékkel kapcsol be,
+        A hajtás a Beállítások → Hajtás, motor → Hajtás → Adagolók hajtása = <b>Elektromos – Keya CAN-motor</b> értékkel kapcsol be,
         a címek a Keya CAN-motor oldalon állíthatók.</p>
       <div id="kyMotors"></div>
       <p class="note warn" id="kyOff">A Keya hajtás nincs kiválasztva – az adatok csak tájékoztató jellegűek.</p>
@@ -555,7 +555,7 @@ function buildGroups(){
       const body=d.querySelector('.body');
       for(const pg of g.pages){
         const ps=SCHEMA.params.filter(p=>p.page===pg.id);if(!ps.length)continue;
-        if(g.pages.length>1){const h=document.createElement('div');h.className='sub';h.textContent=pg.title;body.appendChild(h)}
+        if(g.pages.length>1){const h=document.createElement('div');h.className='sub';h.dataset.page=pg.id;h.textContent=pg.title;body.appendChild(h)}
         for(const p of ps)body.appendChild(fieldFor(p))}
       // ami nincs VT oldalon (csak weben állítható), a csoport végén
       const extra=SCHEMA.params.filter(p=>!p.page&&(PARAM_TO_VT[p.group]||'service')===g.id);
@@ -589,14 +589,21 @@ function fieldFor(p){
   return f}
 // csak az érvényes beállítások látszanak (pl. 1 adagolónál nincs 2. előírt érték)
 function relevant(key){
-  const m=Math.round(CFG.meter_count||1),el=Math.round(CFG.drive_type)===1,ws=Math.round(CFG.work_sw)>0,sp=Math.round(CFG.speed_src);
+  const m=Math.round(CFG.meter_count||1),dt=Math.round(CFG.drive_type),el=dt>=1,pwm=dt===1,keya=dt===2,
+        ws=Math.round(CFG.work_sw)>0,sp=Math.round(CFG.speed_src);
   if(/(^rate2$|^cal2_kg_rev$)/.test(key))return m>1;
   if(key==='meter_layout')return m>1;
   if(key==='section_count')return m>1&&Math.round(CFG.meter_layout)===0;
   if(key==='sec_w1')return Math.round(CFG.section_count)>1;
   if(key==='tank_count')return true;
   if(key==='hopper2_nc')return Math.round(CFG.tank_count)>1;
-  if(['encoder_ppr','motor_max_rpm','pwm_min_pct','pwm_max_pct','ramp_up_s','ramp_down_s','reg_gain','pwm_freq_hz','prefill_auto','prefill_speed_kmh','prefill_time_s','prefill_after_s'].includes(key))return el;
+  // hajtás: talaj / elektromos PWM / elektromos Keya – csak a választotthoz tartozó beállítások látszanak
+  if(['encoder_ppr','pwm_min_pct','pwm_max_pct','reg_gain','pwm_freq_hz','motor_driver','motor_invert','motor_deadband_pct'].includes(key))return pwm;
+  if(['motor_max_rpm','ramp_up_s','ramp_down_s','prefill_auto','prefill_speed_kmh','prefill_time_s','prefill_after_s',
+      'unjam_enable','unjam_tries','jam_detect_s'].includes(key))return el;
+  if(key==='unjam_deg')return el&&!!CFG.unjam_enable;
+  if(key==='motor_layout')return el&&m>1;
+  if(key.startsWith('keya_'))return keya&&(key!=='keya_node2'||(m>1&&Math.round(CFG.motor_layout)===0));
   if(['clutch_mode','meter_ppr','clutch_lift'].includes(key))return !el;
   if(key==='crank_autostop')return el;
   if(key==='work_sw_tc')return ws&&Math.round(CFG.sec_src)===1;
@@ -619,7 +626,10 @@ function fillInputs(except){
     if(f)f.style.display=(!p.feature||CFG[p.feature])&&relevant(p.key)?'':'none';
     const el=$('p_'+p.key);if(!el||document.activeElement===el)continue;
     const v=CFG[p.key];if(v===undefined)continue;
-    el.value=p.kind==='str'?v:(p.kind==='enum'||p.kind==='bool'?String(Math.round(v)):Number(v).toFixed(p.decimals))}}
+    el.value=p.kind==='str'?v:(p.kind==='enum'||p.kind==='bool'?String(Math.round(v)):Number(v).toFixed(p.decimals))}
+  // az oldalcím (pl. Keya CAN-motor) csak akkor látszik, ha van alatta látható beállítás
+  document.querySelectorAll('.sub[data-page]').forEach(h=>{
+    const vis=SCHEMA.params.some(p=>p.page===h.dataset.page&&(!p.feature||CFG[p.feature])&&relevant(p.key));h.style.display=vis?'':'none'})}
 
 // ---------------------------------------------------------------- kalibrálási táblázat
 function renderChart(){
@@ -741,15 +751,15 @@ function render(){
    $('tuTab').innerHTML=r('Fordulat 100% PWM-nél',t.max_rpm,t.cur_max_rpm,1,' 1/min')+r('PWM minimum',t.pwm_min,t.cur_pwm_min,0,' %')+r('Szabályzási állandó',t.gain,t.cur_gain,0,'');
    $('tuAcc').disabled=!t.valid;}
   if(st.jam){const m=+$('jmMeter').value,k=(CFG.motor_layout==1&&st.meters>1)?0:m,j=st.jam[k]||st.jam[0];
-   show('jmMeterF',st.meters>1);show('jmOff',!(st.electric&&CFG.motor_driver>0));
-   $('jmDrv').textContent=['Csak PWM (egy irány)','PWM + DIR','PWM + PWM (IBT-2)','Keya CAN-motor'][CFG.motor_driver||0];
+   show('jmMeterF',st.meters>1);show('jmOff',!(st.electric&&(CFG.motor_driver>0||CFG.drive_type==2)));
+   $('jmDrv').textContent=CFG.drive_type==2?'Keya CAN-motor':['Csak PWM (egy irány)','PWM + DIR','PWM + PWM (IBT-2)'][CFG.motor_driver||0];
    $('jmState').textContent=j.label+(j.message?' – '+j.message:'');
    $('jmSet').textContent=fmt(CFG.unjam_deg||0)+' ° · '+(CFG.unjam_enable?'bekapcsolva':'kikapcsolva');
    $('jmLast').textContent=j.last_valid?fmt(j.last_deg,1)+' ° ('+j.last_pulses+' imp.)':'–';
    $('jmTime').textContent=j.last_valid?fmt(j.last_ms)+' ms · '+fmt(j.last_pwm)+' %':'–';
    $('jmCount').textContent=j.jams+' / '+j.recoveries;
    $('jmLoad').textContent=st.meter.slice(0,st.meters).map(x=>x.load>=0?fmt(x.load)+' %':'–').join(' · ');}
-  if(S.keya){const on=CFG.drive_type==1&&CFG.motor_driver==3,n=(CFG.motor_layout==1)?1:st.meters,
+  if(S.keya){const on=CFG.drive_type==2,n=(CFG.motor_layout==1)?1:st.meters,
      FB={0:'önteszt',1:'jeladó',17:'túlfeszültség',18:'alacsony fesz.',19:'túláram'};show('kyOff',!on);
    $('kyMotors').innerHTML=S.keya.slice(0,n).map((m,i)=>{const f=Object.keys(FB).filter(b=>m.faults&(1<<b)).map(b=>FB[b]);
      return `<h3 style="margin:10px 0 4px">${n>1?(i+1)+'. motor':'Motor'} · cím ${m.node}</h3>`+

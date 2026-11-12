@@ -58,7 +58,7 @@ def main():
     ev("button", "BTN_PAGE_DIAGNOSE")
     save("05_diag.json")
     ev("key", "K_BACK")
-    ev("key", "K_PG_DRIVE")
+    ev("key", "K_PG_MOTOR")
     ev("key", "K_TUNE_PAGE")
     save("06_tune.json")
     ev("key", "K_BACK")

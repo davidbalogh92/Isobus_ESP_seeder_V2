@@ -141,10 +141,10 @@ bool param_set_str(Settings &s, std::uint16_t id, const char *value) {
 int meter_count(const Settings &s) { return s.meter_count >= 2 ? 2 : 1; }
 int tank_count(const Settings &s) { return s.tank_count >= 2 ? 2 : 1; }
 int section_count(const Settings &s) { return s.section_count >= 2 ? 2 : 1; }
-bool electric_drive(const Settings &s) { return s.drive_type == 1; }
+bool electric_drive(const Settings &s) { return s.drive_type >= 1; }
 bool shared_motor(const Settings &s) { return electric_drive(s) && s.motor_layout == 1 && meter_count(s) == 2; }
-bool motor_reversible(const Settings &s) { return electric_drive(s) && s.motor_driver != 0; }
-bool keya_drive(const Settings &s) { return electric_drive(s) && s.motor_driver == 3; }
+bool keya_drive(const Settings &s) { return s.drive_type == 2; }
+bool motor_reversible(const Settings &s) { return keya_drive(s) || (electric_drive(s) && s.motor_driver != 0); }
 float meter_pulses_per_rev(const Settings &s) {
     if (!electric_drive(s)) return static_cast<float>(s.meter_ppr);
     return keya_drive(s) ? KEYA_VIRTUAL_PPR : static_cast<float>(s.encoder_ppr);
@@ -332,6 +332,7 @@ int settings_from_json(Settings &s, const char *json, std::string *error) {
     ++r.p;
     Settings work = s;
     int applied = 0;
+    bool keya_legacy = false;
     std::string key, sval;
     for (;;) {
         r.ws();
@@ -374,7 +375,11 @@ int settings_from_json(Settings &s, const char *json, std::string *error) {
             const double v = std::strtod(r.p, &end);
             if (end == r.p) { if (error) *error = std::string("hibás szám: ") + key; return -1; }
             r.p = end;
-            if (id >= 0) {
+            if (id == P_motor_driver && v > 2.5 && v < 3.5) {
+                // 2.3-as előzetes: a Keya a motorvezérlők között volt → most a hajtás típusa
+                keya_legacy = true;
+                ++applied;
+            } else if (id >= 0) {
                 if (!param_set(work, static_cast<std::uint16_t>(id), static_cast<float>(v))) {
                     if (error) *error = std::string("érvénytelen érték: ") + key;
                     return -1;
@@ -387,6 +392,10 @@ int settings_from_json(Settings &s, const char *json, std::string *error) {
         if (*r.p == '}') { ++r.p; break; }
         if (error) *error = "hiányzó ',' vagy '}'";
         return -1;
+    }
+    if (keya_legacy) {
+        work.motor_driver = 0;
+        if (work.drive_type >= 1) work.drive_type = 2;
     }
     normalize(work, -1);
     s = work;

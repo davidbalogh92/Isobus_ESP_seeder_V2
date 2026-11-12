@@ -28,6 +28,8 @@ struct Settings {
     float prefill_time_s;
     float prefill_after_s;
     std::int32_t drive_type;
+    std::int32_t motor_layout;
+    std::int32_t motor_driver;
     std::int32_t clutch_mode;
     std::int32_t clutch_lift;
     std::int32_t meter_ppr;
@@ -40,8 +42,6 @@ struct Settings {
     float ramp_down_s;
     std::int32_t reg_gain;
     std::int32_t pwm_freq_hz;
-    std::int32_t motor_layout;
-    std::int32_t motor_driver;
     std::int32_t motor_invert;
     std::int32_t unjam_enable;
     float unjam_deg;
@@ -167,20 +167,20 @@ enum ParamId : std::uint16_t {
     P_prefill_time_s = 17,
     P_prefill_after_s = 18,
     P_drive_type = 19,
-    P_clutch_mode = 20,
-    P_clutch_lift = 21,
-    P_meter_ppr = 22,
-    P_meter_timeout_s = 23,
-    P_encoder_ppr = 24,
-    P_motor_max_rpm = 25,
-    P_pwm_min_pct = 26,
-    P_pwm_max_pct = 27,
-    P_ramp_up_s = 28,
-    P_ramp_down_s = 29,
-    P_reg_gain = 30,
-    P_pwm_freq_hz = 31,
-    P_motor_layout = 32,
-    P_motor_driver = 33,
+    P_motor_layout = 20,
+    P_motor_driver = 21,
+    P_clutch_mode = 22,
+    P_clutch_lift = 23,
+    P_meter_ppr = 24,
+    P_meter_timeout_s = 25,
+    P_encoder_ppr = 26,
+    P_motor_max_rpm = 27,
+    P_pwm_min_pct = 28,
+    P_pwm_max_pct = 29,
+    P_ramp_up_s = 30,
+    P_ramp_down_s = 31,
+    P_reg_gain = 32,
+    P_pwm_freq_hz = 33,
     P_motor_invert = 34,
     P_unjam_enable = 35,
     P_unjam_deg = 36,
@@ -266,18 +266,18 @@ constexpr std::size_t GROUP_COUNT = 14;
 constexpr std::uint16_t VT_INPUT_BASE = 9000;
 extern const ParamDef PARAMS[PARAM_COUNT];
 extern const GroupDef GROUPS[GROUP_COUNT];
-constexpr const char *VT_GROUPS_JSON = "[{\"id\":\"rate\",\"label\":\"Adagolás\",\"pages\":[{\"id\":\"rate\",\"title\":\"ADAGOLÁS, FELTÖLTÉS\"}]},{\"id\":\"machine\",\"label\":\"Gép, geometria\",\"pages\":[{\"id\":\"machine\",\"title\":\"GÉP\"},{\"id\":\"geometry\",\"title\":\"GEOMETRIA\"}]},{\"id\":\"drive\",\"label\":\"Hajtás, motor\",\"pages\":[{\"id\":\"drive\",\"title\":\"ADAGOLÓHAJTÁS\"},{\"id\":\"motor\",\"title\":\"MOTORVEZÉRLŐ\"},{\"id\":\"keya\",\"title\":\"KEYA CAN-MOTOR\"}]},{\"id\":\"fan\",\"label\":\"Turbina, hűtés\",\"pages\":[{\"id\":\"fan\",\"title\":\"TURBINA\"},{\"id\":\"cooling\",\"title\":\"OLAJHŐMÉRSÉKLET\"}]},{\"id\":\"measure\",\"label\":\"Mérés\",\"pages\":[{\"id\":\"speed\",\"title\":\"SEBESSÉG\"},{\"id\":\"scale\",\"title\":\"MÉRLEG\"},{\"id\":\"pressure\",\"title\":\"NYOMÁSMÉRÉS\"}]},{\"id\":\"switches\",\"label\":\"Kapcsolók\",\"pages\":[{\"id\":\"switches\",\"title\":\"KAPCSOLÓK\"},{\"id\":\"extras\",\"title\":\"KIEGÉSZÍTŐK\"}]},{\"id\":\"tc\",\"label\":\"Szakaszolás, TC\",\"pages\":[{\"id\":\"tc\",\"title\":\"SZAKASZOLÁS, TC\"},{\"id\":\"aog\",\"title\":\"AGOPENGPS\"}]},{\"id\":\"service\",\"label\":\"Szerviz\",\"pages\":[{\"id\":\"diag\",\"title\":\"SZIMULÁCIÓ / TESZT\"}]}]";
+constexpr const char *VT_GROUPS_JSON = "[{\"id\":\"rate\",\"label\":\"Adagolás\",\"pages\":[{\"id\":\"rate\",\"title\":\"ADAGOLÁS, FELTÖLTÉS\"}]},{\"id\":\"machine\",\"label\":\"Gép, geometria\",\"pages\":[{\"id\":\"machine\",\"title\":\"GÉP\"},{\"id\":\"geometry\",\"title\":\"GEOMETRIA\"}]},{\"id\":\"drive\",\"label\":\"Hajtás, motor\",\"pages\":[{\"id\":\"drive\",\"title\":\"HAJTÁS\"},{\"id\":\"motor\",\"title\":\"MOTORSZABÁLYZÁS\"},{\"id\":\"jam\",\"title\":\"BESZORULÁS\"},{\"id\":\"keya\",\"title\":\"KEYA CAN-MOTOR\"}]},{\"id\":\"fan\",\"label\":\"Turbina, hűtés\",\"pages\":[{\"id\":\"fan\",\"title\":\"TURBINA\"},{\"id\":\"cooling\",\"title\":\"OLAJHŐMÉRSÉKLET\"}]},{\"id\":\"measure\",\"label\":\"Mérés\",\"pages\":[{\"id\":\"speed\",\"title\":\"SEBESSÉG\"},{\"id\":\"scale\",\"title\":\"MÉRLEG\"},{\"id\":\"pressure\",\"title\":\"NYOMÁSMÉRÉS\"}]},{\"id\":\"switches\",\"label\":\"Kapcsolók\",\"pages\":[{\"id\":\"switches\",\"title\":\"KAPCSOLÓK\"},{\"id\":\"extras\",\"title\":\"KIEGÉSZÍTŐK\"}]},{\"id\":\"tc\",\"label\":\"Szakaszolás, TC\",\"pages\":[{\"id\":\"tc\",\"title\":\"SZAKASZOLÁS, TC\"},{\"id\":\"aog\",\"title\":\"AGOPENGPS\"}]},{\"id\":\"service\",\"label\":\"Szerviz\",\"pages\":[{\"id\":\"diag\",\"title\":\"SZIMULÁCIÓ / TESZT\"}]}]";
 
 #ifdef SEEDER_PARAMS_IMPLEMENTATION
 static const char *const OPT_tank_fill[] = {"Kikapcsolva", "Közös mennyiség", "Tartályonként"};
 static const char *const OPT_meter_layout[] = {"Bal / jobb félszélesség", "Első / hátsó sor (teljes szélesség)"};
 static const char *const OPT_crank_autostop[] = {"Nem", "Igen"};
 static const char *const OPT_prefill_auto[] = {"Nem", "Igen"};
-static const char *const OPT_drive_type[] = {"Talajhajtás + elektromágneses kuplung", "Elektromos motor (PWM)"};
+static const char *const OPT_drive_type[] = {"Talajhajtás + elektromágneses kuplung", "Elektromos – PWM motorvezérlő", "Elektromos – Keya CAN-motor"};
+static const char *const OPT_motor_layout[] = {"Adagolónként saját motor", "Egy motor hajtja mindkét adagolót (kuplungokkal)"};
+static const char *const OPT_motor_driver[] = {"Csak PWM (egy irány)", "PWM + DIR (Cytron, Pololu)", "PWM + PWM (IBT-2)"};
 static const char *const OPT_clutch_mode[] = {"Áram alatt hajt", "Áram alatt old"};
 static const char *const OPT_clutch_lift[] = {"Old (kiemeléskor lekapcsol)", "Nem old (csak szakasz / gomb)"};
-static const char *const OPT_motor_layout[] = {"Adagolónként saját motor", "Egy motor hajtja mindkét adagolót (kuplungokkal)"};
-static const char *const OPT_motor_driver[] = {"Csak PWM (egy irány)", "PWM + DIR (Cytron, Pololu)", "PWM + PWM (IBT-2)", "Keya CAN-motor"};
 static const char *const OPT_motor_invert[] = {"Nem", "Igen"};
 static const char *const OPT_unjam_enable[] = {"Nem", "Igen"};
 static const char *const OPT_keya_unit[] = {"Hajtómű kimenete (adagoló)", "Motortengely (× áttétel)"};
@@ -348,26 +348,26 @@ const ParamDef PARAMS[PARAM_COUNT] = {
     {"prefill_speed_kmh", "rate", "Feltöltési (elméleti) sebesség", "Feltöltési seb.", "km/h", "", ParamKind::Float, 1.0f, 20.0f, 0.1f, 8.0f, 1, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, prefill_speed_kmh)), nullptr, 9016, "rate", "", ""},
     {"prefill_time_s", "rate", "Feltöltési idő (álló gép)", "Feltöltési idő", "s", "", ParamKind::Float, 0.0f, 30.0f, 0.1f, 3.0f, 1, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, prefill_time_s)), nullptr, 9017, "rate", "", ""},
     {"prefill_after_s", "rate", "Utánfutás indulás után", "Utánfutás", "s", "", ParamKind::Float, 0.0f, 20.0f, 0.1f, 4.0f, 1, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, prefill_after_s)), nullptr, 9018, "rate", "", ""},
-    {"drive_type", "drive", "Adagolók hajtása", "Hajtás", "", "", ParamKind::Enum, 0.0f, 0.0f, 1.0f, 0.0f, 0, OPT_drive_type, 2, static_cast<std::uint16_t>(offsetof(Settings, drive_type)), nullptr, 9019, "drive", "", ""},
-    {"clutch_mode", "drive", "Kuplung típusa", "Kuplung", "", "", ParamKind::Enum, 0.0f, 0.0f, 1.0f, 0.0f, 0, OPT_clutch_mode, 2, static_cast<std::uint16_t>(offsetof(Settings, clutch_mode)), nullptr, 9020, "drive", "", ""},
-    {"clutch_lift", "drive", "Kuplung kiemeléskor / megálláskor (talajhajtás)", "Kuplung kiemel.", "", "Talajhajtásnál kiemelt vagy álló gépnél az adagoló úgysem forog, ezért a kuplungot alapból csak a szakaszolás és az adagológombok kapcsolják. 'Old': a régi működés, kiemeléskor is lekapcsol.", ParamKind::Enum, 0.0f, 0.0f, 1.0f, 1.0f, 0, OPT_clutch_lift, 2, static_cast<std::uint16_t>(offsetof(Settings, clutch_lift)), nullptr, 9021, "drive", "", ""},
-    {"meter_ppr", "drive", "Adagolótengely-jeladó impulzus / fordulat (talajhajtás)", "Jeladó imp/ford", "imp", "", ParamKind::Int, 1.0f, 100.0f, 1.0f, 1.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, meter_ppr)), nullptr, 9022, "drive", "", ""},
-    {"meter_timeout_s", "drive", "Adagoló nem forog riasztás késleltetése", "Nem forog késl.", "s", "Ha a vetés feltételei teljesülnek (vetés BE, gép lent, halad, adagoló bekapcsolva), és ennyi ideig nem jön impulzus az adagolótól, riasztás.", ParamKind::Float, 1.0f, 60.0f, 0.5f, 5.0f, 1, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, meter_timeout_s)), nullptr, 9023, "drive", "", ""},
-    {"encoder_ppr", "drive", "Enkóder impulzus / adagolófordulat (motor)", "Enkóder imp/ford", "imp", "", ParamKind::Int, 1.0f, 5000.0f, 1.0f, 50.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, encoder_ppr)), nullptr, 9024, "drive", "", ""},
-    {"motor_max_rpm", "drive", "Adagoló fordulat 100% PWM-nél", "Ford. 100% PWM", "1/min", "Az előrecsatoláshoz; a szabályzó ebből indul, utána az enkóder alapján korrigál.", ParamKind::Float, 1.0f, 600.0f, 0.5f, 60.0f, 1, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, motor_max_rpm)), nullptr, 9025, "drive", "", ""},
-    {"pwm_min_pct", "drive", "PWM minimum (forgás közben)", "PWM minimum", "%", "", ParamKind::Float, 0.0f, 100.0f, 1.0f, 8.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, pwm_min_pct)), nullptr, 9026, "drive", "", ""},
-    {"pwm_max_pct", "drive", "PWM maximum", "PWM maximum", "%", "", ParamKind::Float, 1.0f, 100.0f, 1.0f, 100.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, pwm_max_pct)), nullptr, 9027, "drive", "", ""},
-    {"ramp_up_s", "drive", "Felfutás (0 → 100%)", "Felfutás", "s", "", ParamKind::Float, 0.0f, 10.0f, 0.1f, 1.0f, 1, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, ramp_up_s)), nullptr, 9028, "drive", "", ""},
-    {"ramp_down_s", "drive", "Lefutás (100% → 0)", "Lefutás", "s", "", ParamKind::Float, 0.0f, 10.0f, 0.1f, 0.5f, 1, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, ramp_down_s)), nullptr, 9029, "drive", "", ""},
-    {"reg_gain", "drive", "Szabályzási állandó (1 lassú – 10 gyors)", "Szab. állandó", "", "", ParamKind::Int, 1.0f, 10.0f, 1.0f, 5.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, reg_gain)), nullptr, 9030, "drive", "", ""},
-    {"pwm_freq_hz", "drive", "PWM frekvencia", "PWM frekvencia", "Hz", "Cytron / Pololu / IBT-2: 16000–20000 Hz csendes (nem sípol). Alacsonyabb frekvencián a motor jobban indul kis PWM-nél, de hallhatóan sípol.", ParamKind::Int, 100.0f, 20000.0f, 100.0f, 1000.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, pwm_freq_hz)), nullptr, 9031, "motor", "", ""},
-    {"motor_layout", "drive", "Motorok (elektromos hajtás)", "Motorok", "", "Egy motornál a motor a talajkereket helyettesíti: a haladással arányosan forog (fordulat 1/10 ha-ra alapján), a kg/ha-t adagolónként a skála adja, a kuplungok adagolónként kapcsolnak (mint talajhajtásnál). Az 1. motor kimenetét használja, a fordulatot az 1. adagoló enkódere (IN3) méri.", ParamKind::Enum, 0.0f, 0.0f, 1.0f, 0.0f, 0, OPT_motor_layout, 2, static_cast<std::uint16_t>(offsetof(Settings, motor_layout)), nullptr, 9032, "motor", "", ""},
-    {"motor_driver", "drive", "Motorvezérlő bekötése", "Motorvezérlő", "", "Csak PWM: GPIO47 / GPIO48 a PWM, a motor csak előre forog. PWM + DIR: GPIO47 / 48 a PWM, GPIO21 / 45 az irány (DIR). PWM + PWM (IBT-2): előre GPIO47 / 48 (RPWM), hátra GPIO21 / 45 (LPWM), R_EN és L_EN 5 V-on. Az 1. motor 47 + 21, a 2. motor 48 + 45. A visszafordításhoz (beszorulás) irányváltós bekötés kell. Keya CAN-motor: a motor maga szabályozza a fordulatot, az ISOBUS buszon (250 kbit/s) kap célfordulatot; beállítása a 'Keya CAN-motor' oldalon.", ParamKind::Enum, 0.0f, 0.0f, 1.0f, 0.0f, 0, OPT_motor_driver, 4, static_cast<std::uint16_t>(offsetof(Settings, motor_driver)), nullptr, 9033, "motor", "", ""},
+    {"drive_type", "drive", "Adagolók hajtása", "Hajtás", "", "Talajhajtás: a talajkerék hajtja az adagolókat, a vezérlő a kuplungokat kapcsolja. Elektromos – PWM: motorvezérlő (Cytron, Pololu, IBT-2 …) a panel PWM kimenetein, enkóderrel. Elektromos – Keya: saját fordulatszabályzású CAN-motor az ISOBUS-szal közös buszon (beállítás: Keya CAN-motor oldal).", ParamKind::Enum, 0.0f, 0.0f, 1.0f, 0.0f, 0, OPT_drive_type, 3, static_cast<std::uint16_t>(offsetof(Settings, drive_type)), nullptr, 9019, "drive", "", ""},
+    {"motor_layout", "drive", "Motorok (elektromos hajtás)", "Motorok", "", "Egy motornál a motor a talajkereket helyettesíti: a haladással arányosan forog (fordulat 1/10 ha-ra alapján), a kg/ha-t adagolónként a skála adja, a kuplungok adagolónként kapcsolnak (mint talajhajtásnál). Az 1. motor kimenetét használja, a fordulatot az 1. adagoló enkódere (IN3) méri.", ParamKind::Enum, 0.0f, 0.0f, 1.0f, 0.0f, 0, OPT_motor_layout, 2, static_cast<std::uint16_t>(offsetof(Settings, motor_layout)), nullptr, 9020, "drive", "", ""},
+    {"motor_driver", "drive", "PWM motorvezérlő bekötése", "Motorvezérlő", "", "Csak PWM: GPIO47 / GPIO48 a PWM, a motor csak előre forog. PWM + DIR: GPIO47 / 48 a PWM, GPIO21 / 45 az irány (DIR). PWM + PWM (IBT-2): előre GPIO47 / 48 (RPWM), hátra GPIO21 / 45 (LPWM), R_EN és L_EN 5 V-on. Az 1. motor 47 + 21, a 2. motor 48 + 45. A visszafordításhoz (beszorulás) irányváltós bekötés kell. Csak 'Elektromos – PWM motorvezérlő' hajtásnál számít.", ParamKind::Enum, 0.0f, 0.0f, 1.0f, 0.0f, 0, OPT_motor_driver, 3, static_cast<std::uint16_t>(offsetof(Settings, motor_driver)), nullptr, 9021, "drive", "", ""},
+    {"clutch_mode", "drive", "Kuplung típusa", "Kuplung", "", "", ParamKind::Enum, 0.0f, 0.0f, 1.0f, 0.0f, 0, OPT_clutch_mode, 2, static_cast<std::uint16_t>(offsetof(Settings, clutch_mode)), nullptr, 9022, "drive", "", ""},
+    {"clutch_lift", "drive", "Kuplung kiemeléskor / megálláskor (talajhajtás)", "Kuplung kiemel.", "", "Talajhajtásnál kiemelt vagy álló gépnél az adagoló úgysem forog, ezért a kuplungot alapból csak a szakaszolás és az adagológombok kapcsolják. 'Old': a régi működés, kiemeléskor is lekapcsol.", ParamKind::Enum, 0.0f, 0.0f, 1.0f, 1.0f, 0, OPT_clutch_lift, 2, static_cast<std::uint16_t>(offsetof(Settings, clutch_lift)), nullptr, 9023, "drive", "", ""},
+    {"meter_ppr", "drive", "Adagolótengely-jeladó impulzus / fordulat (talajhajtás)", "Jeladó imp/ford", "imp", "", ParamKind::Int, 1.0f, 100.0f, 1.0f, 1.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, meter_ppr)), nullptr, 9024, "drive", "", ""},
+    {"meter_timeout_s", "drive", "Adagoló nem forog riasztás késleltetése", "Nem forog késl.", "s", "Ha a vetés feltételei teljesülnek (vetés BE, gép lent, halad, adagoló bekapcsolva), és ennyi ideig nem jön impulzus az adagolótól, riasztás.", ParamKind::Float, 1.0f, 60.0f, 0.5f, 5.0f, 1, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, meter_timeout_s)), nullptr, 9025, "drive", "", ""},
+    {"encoder_ppr", "drive", "Enkóder impulzus / adagolófordulat (motor)", "Enkóder imp/ford", "imp", "", ParamKind::Int, 1.0f, 5000.0f, 1.0f, 50.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, encoder_ppr)), nullptr, 9026, "drive", "", ""},
+    {"motor_max_rpm", "drive", "Adagoló fordulat 100% PWM-nél", "Ford. 100% PWM", "1/min", "Az előrecsatoláshoz; a szabályzó ebből indul, utána az enkóder alapján korrigál.", ParamKind::Float, 1.0f, 600.0f, 0.5f, 60.0f, 1, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, motor_max_rpm)), nullptr, 9027, "motor", "", ""},
+    {"pwm_min_pct", "drive", "PWM minimum (forgás közben)", "PWM minimum", "%", "", ParamKind::Float, 0.0f, 100.0f, 1.0f, 8.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, pwm_min_pct)), nullptr, 9028, "motor", "", ""},
+    {"pwm_max_pct", "drive", "PWM maximum", "PWM maximum", "%", "", ParamKind::Float, 1.0f, 100.0f, 1.0f, 100.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, pwm_max_pct)), nullptr, 9029, "motor", "", ""},
+    {"ramp_up_s", "drive", "Felfutás (0 → 100%)", "Felfutás", "s", "", ParamKind::Float, 0.0f, 10.0f, 0.1f, 1.0f, 1, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, ramp_up_s)), nullptr, 9030, "motor", "", ""},
+    {"ramp_down_s", "drive", "Lefutás (100% → 0)", "Lefutás", "s", "", ParamKind::Float, 0.0f, 10.0f, 0.1f, 0.5f, 1, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, ramp_down_s)), nullptr, 9031, "motor", "", ""},
+    {"reg_gain", "drive", "Szabályzási állandó (1 lassú – 10 gyors)", "Szab. állandó", "", "", ParamKind::Int, 1.0f, 10.0f, 1.0f, 5.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, reg_gain)), nullptr, 9032, "motor", "", ""},
+    {"pwm_freq_hz", "drive", "PWM frekvencia", "PWM frekvencia", "Hz", "Cytron / Pololu / IBT-2: 16000–20000 Hz csendes (nem sípol). Alacsonyabb frekvencián a motor jobban indul kis PWM-nél, de hallhatóan sípol.", ParamKind::Int, 100.0f, 20000.0f, 100.0f, 1000.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, pwm_freq_hz)), nullptr, 9033, "motor", "", ""},
     {"motor_invert", "drive", "Forgásirány megfordítása", "Irány fordítva", "", "Ha a motor 'előre' parancsra visszafelé forog (irányváltós bekötésnél).", ParamKind::Bool, 0.0f, 0.0f, 1.0f, 0.0f, 0, OPT_motor_invert, 2, static_cast<std::uint16_t>(offsetof(Settings, motor_invert)), nullptr, 9034, "motor", "", ""},
-    {"unjam_enable", "drive", "Beszorulásnál visszafordítás", "Visszafordítás", "", "Ha az adagoló beszorul (hajtott motor, de nem jön enkóderjel), a motor megáll, a beállított szöggel visszafordul, majd újra előre indul. Csak irányváltós bekötésnél (PWM + DIR vagy IBT-2). 'Nem' (vagy egyirányú bekötés): beszorulásnál megáll és riaszt.", ParamKind::Bool, 0.0f, 0.0f, 1.0f, 1.0f, 0, OPT_unjam_enable, 2, static_cast<std::uint16_t>(offsetof(Settings, unjam_enable)), nullptr, 9035, "motor", "", ""},
-    {"unjam_deg", "drive", "Visszafordítás mértéke", "Vissza mérték", "°", "Adagolótengely-fok, az enkóder impulzusaiból számolva.", ParamKind::Float, 5.0f, 180.0f, 5.0f, 30.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, unjam_deg)), nullptr, 9036, "motor", "", ""},
-    {"unjam_tries", "drive", "Visszafordítási próbák száma", "Vissza próbák", "db", "Ennyi sikertelen próba után a motor áll és riaszt. 5 s rendben forgás után nullázódik.", ParamKind::Int, 1.0f, 5.0f, 1.0f, 3.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, unjam_tries)), nullptr, 9037, "motor", "", ""},
-    {"jam_detect_s", "drive", "Beszorulás felismerési ideje", "Felismerés", "s", "Ennyi ideig nem jön enkóderjel elég nagy PWM mellett (vagy a PWM a maximumon, és a fordulat a cél negyede alatt) → beszorulás.", ParamKind::Float, 0.2f, 5.0f, 0.1f, 0.6f, 1, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, jam_detect_s)), nullptr, 9038, "motor", "", ""},
+    {"unjam_enable", "drive", "Beszorulásnál visszafordítás", "Visszafordítás", "", "Ha az adagoló beszorul (hajtott motor, de nem jön enkóderjel), a motor megáll, a beállított szöggel visszafordul, majd újra előre indul. Csak irányváltós bekötésnél (PWM + DIR vagy IBT-2). 'Nem' (vagy egyirányú bekötés): beszorulásnál megáll és riaszt.", ParamKind::Bool, 0.0f, 0.0f, 1.0f, 1.0f, 0, OPT_unjam_enable, 2, static_cast<std::uint16_t>(offsetof(Settings, unjam_enable)), nullptr, 9035, "jam", "", ""},
+    {"unjam_deg", "drive", "Visszafordítás mértéke", "Vissza mérték", "°", "Adagolótengely-fok, az enkóder impulzusaiból számolva.", ParamKind::Float, 5.0f, 180.0f, 5.0f, 30.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, unjam_deg)), nullptr, 9036, "jam", "", ""},
+    {"unjam_tries", "drive", "Visszafordítási próbák száma", "Vissza próbák", "db", "Ennyi sikertelen próba után a motor áll és riaszt. 5 s rendben forgás után nullázódik.", ParamKind::Int, 1.0f, 5.0f, 1.0f, 3.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, unjam_tries)), nullptr, 9037, "jam", "", ""},
+    {"jam_detect_s", "drive", "Beszorulás felismerési ideje", "Felismerés", "s", "Ennyi ideig nem jön enkóderjel elég nagy PWM mellett (vagy a PWM a maximumon, és a fordulat a cél negyede alatt) → beszorulás.", ParamKind::Float, 0.2f, 5.0f, 0.1f, 0.6f, 1, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, jam_detect_s)), nullptr, 9038, "jam", "", ""},
     {"keya_node1", "drive", "Keya: 1. motor CAN azonosító (node ID)", "1. motor ID", "", "A motorban beállított node ID (gyárilag 1). Két motornál a 2. motort át kell állítani (pl. 2).", ParamKind::Int, 1.0f, 31.0f, 1.0f, 1.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, keya_node1)), nullptr, 9039, "keya", "", ""},
     {"keya_node2", "drive", "Keya: 2. motor CAN azonosító (node ID)", "2. motor ID", "", "", ParamKind::Int, 1.0f, 31.0f, 1.0f, 2.0f, 0, nullptr, 0, static_cast<std::uint16_t>(offsetof(Settings, keya_node2)), nullptr, 9040, "keya", "", ""},
     {"keya_unit", "drive", "Keya: a fordulat/s mire vonatkozik", "Ford. egység", "", "A gyári leírás nem mondja meg. Próbával dönthető el: 1 ford/s parancsra a kimenő tengely másodpercenként 1-et fordul (→ kimenet), vagy 1/áttételnyit (→ motortengely). KY40…-PX40-49: áttétel 49.", ParamKind::Enum, 0.0f, 0.0f, 1.0f, 1.0f, 0, OPT_keya_unit, 2, static_cast<std::uint16_t>(offsetof(Settings, keya_unit)), nullptr, 9041, "keya", "", ""},

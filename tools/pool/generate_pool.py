@@ -399,7 +399,8 @@ PAGE_INFO = {
     "machine": ("Gép", "menu/menu_machine"),
     "rate": ("Adagolás", "softkeys/softkey_dosing"),
     "drive": ("Hajtás", "menu/menu_drive"),
-    "motor": ("Motorvezérlõ", "softkeys/softkey_tune"),
+    "motor": ("Motorszabályzás", "softkeys/softkey_tune"),
+    "jam": ("Beszorulás", "softkeys/softkey_unjam"),
     "keya": ("Keya CAN-motor", "menu/menu_drive"),
     "fan": ("Turbina", "softkeys/softkey_fan"),
     "speed": ("Sebesség", "main/main_speed"),
@@ -472,8 +473,8 @@ SK_CALIB_GROUND = P.softkey_mask(P.new_id(4000), [K_BACK, K_CAL_METER, K_SCALE_T
                                                    K_CRANK_RESET, K_WEIGHT_CLEAR, K_CRANK_COPY],
                                  name="SK_CALIB_GROUND")
 SK_ALARM = P.softkey_mask(P.new_id(4000), [K_ACK], name="SK_ALARM")
-SK_DRIVE = P.softkey_mask(P.new_id(4000), [K_BACK, K_TUNE_PAGE], name="SK_DRIVE")
-SK_MOTOR = P.softkey_mask(P.new_id(4000), [K_BACK, K_JAM_PAGE, K_TUNE_PAGE], name="SK_MOTOR")
+SK_MOTOR = P.softkey_mask(P.new_id(4000), [K_BACK, K_TUNE_PAGE], name="SK_MOTOR")
+SK_JAMPG = P.softkey_mask(P.new_id(4000), [K_BACK, K_JAM_PAGE], name="SK_JAMPG")
 SK_TUNE_INFO = P.softkey_mask(P.new_id(4000), [K_BACK, K_TUNE_GO], name="SK_TUNE_INFO")
 SK_JAM = P.softkey_mask(P.new_id(4000), [K_BACK, K_JAM_METER, K_JAM_START, K_JAM_STOP], name="SK_JAM")
 SK_TUNE = P.softkey_mask(P.new_id(4000), [K_BACK, K_TUNE_METER, K_TUNE_START, K_TUNE_STOP, K_TUNE_ACCEPT,
@@ -683,8 +684,9 @@ for _pid, _ in pd.VT_PAGES:
     _labels = [p.vt_label for p in pd.P if p.vt_page == _pid]
     _d = ", ".join(_labels[:3])
     PAGE_DESC[_pid] = _d if len(_d) <= 40 else _d[:37].rstrip(", ") + "..."
-PAGE_DESC["motor"] = "Bekötés, visszafordítás, önhangolás"
-PAGE_DESC["drive"] = "Hajtás, kuplung, jeladók, szabályzás"
+PAGE_DESC["drive"] = "Hajtás típusa, motorok, kuplung, jeladók"
+PAGE_DESC["motor"] = "Fordulat, PWM, rámpák, önhangolás"
+PAGE_DESC["jam"] = "Visszafordítás, próba"
 PAGE_DESC["keya"] = "Node ID, egység, áttétel, szívverés"
 PBTN = {}
 GROUP_MASK = {}
@@ -700,17 +702,18 @@ for gi, (gid, glabel, _icon, pages) in enumerate(pd.VT_GROUPS):
                       (S(PAGE_DESC[pid].replace("ő", "õ").replace("ű", "û"), 320, 16, F_SMALL), 58, gbh // 2 + 4)],
                      name="BTN_PG_" + pid.upper())
         PBTN[pid] = b
-        kids.append((b, 6, 48 + k * (gbh + 8)))
+        # konténerben: a hajtás típusától függően elrejthető (pl. Keya oldal csak Keya hajtásnál)
+        kids.append((C(MASK - 12, gbh, [(b, 0, 0)], name="CONT_PG_" + pid.upper()), 6, 48 + k * (gbh + 8)))
     GROUP_MASK[gid] = P.data_mask(1080 + gi, SK_GROUP[gid], kids, name="DM_GR_" + gid.upper())
 
 # ================================================================== BEÁLLÍTÓOLDALAK
 VT_OPTION_SHORT = {
     "motor_layout": ("Saját motor", "Egy motor"),
     "tank_fill": ("Kikapcsolva", "Közös", "Tartályonként"),
-    "motor_driver": ("Csak PWM", "PWM + DIR", "PWM + PWM", "Keya CAN"),
+    "motor_driver": ("Csak PWM", "PWM + DIR", "PWM + PWM"),
     "keya_unit": ("Kimenet", "Motortengely"),
     "meter_layout": ("Bal / jobb", "Elsõ / hátsó"),
-    "drive_type": ("Talaj+kuplung", "El. motor"),
+    "drive_type": ("Talaj+kuplung", "Elektr. PWM", "Elektr. Keya"),
     "clutch_mode": ("Áram: hajt", "Áram: old"),
     "speed_src": ("Kerékjeladó", "ISOBUS", "ISOBUS+kerék", "Szimulált", "AgOpenGPS", "AOG+kerék"),
     "clutch_lift": ("Old", "Nem old"),
@@ -801,8 +804,8 @@ def heading(text, h):
 
 
 PAGE_MASK = {}
-PAGE_SK = {"speed": SK_WCAL, "scale": SK_SCALE, "pressure": SK_PRESSURE, "cooling": SK_COOLING, "drive": SK_DRIVE,
-           "motor": SK_MOTOR}
+PAGE_SK = {"speed": SK_WCAL, "scale": SK_SCALE, "pressure": SK_PRESSURE, "cooling": SK_COOLING,
+           "motor": SK_MOTOR, "jam": SK_JAMPG}
 param_index = {p.key: i for i, p in enumerate(pd.P)}
 GEO_PICS = ["geo/geo_mounted", "geo/geo_steer_front", "geo/geo_steer_rear", "geo/geo_trailed_front",
             "geo/geo_trailed_rear"]
