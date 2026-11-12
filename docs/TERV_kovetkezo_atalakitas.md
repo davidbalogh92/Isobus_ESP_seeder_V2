@@ -35,9 +35,25 @@ Hajtás típusa
 | PWM + DIR | 1 PWM + 1 digitális | DIR=0, PWM=x | DIR=1, PWM=x |
 | PWM + PWM (IBT-2) | 2 PWM (EN-ek fixen 5 V-on) | RPWM=x, LPWM=0 | RPWM=0, LPWM=x |
 - Irányváltásnál holtidő (pl. 100 ms 0%), hogy a híd ne kapjon keresztáramot.
-- **Lábkiosztás ellenőrizendő** a Waveshare panelen: 2 motor × 2 kimenet = 4 szabad, PWM-képes GPIO kell
-  (LEDC). A mostani motor-PWM lábak mellé szabad lábakat kell találni (a bővítő tüskesoron).
+- **Lábkiosztás:** a Waveshare panel dokumentáltan használt lábai: 0 (BOOT), 4–11 (DI), 12–16 (W5500), 17/18 (CAN),
+  38 (RGB LED), 41/42 (I2C), 46 (zümmer), **45/47/48 (TF-kártya foglalat)**. A mostani motor-PWM a 47/48-on van
+  (TF-vonalak, kártya nélkül szabad). Szabad jelölt: 21, 39, 40 – a tüskesor kiosztását a panelen ellenőrizni kell.
+- **Lábtakarékos megoldás (javasolt):** a motoronkénti PWM marad a 47/48-on, az **irányjel egy olcsó I2C bővítőről**
+  (PCF8574 modul a meglévő I2C buszon, 0x21–0x27) jön – az irány ritkán vált, ehhez elég az I2C.
+  - Cytron (PWM+DIR): PWM → PWM, DIR ← bővítő.
+  - IBT-2: R_EN + L_EN összekötve ← PWM (GPIO), RPWM / LPWM ← bővítő (egyik magas, másik alacsony).
+  Így 2 motorhoz sem kell újabb GPIO, és a vissza irány is megvan.
 - Beállítás: PWM-frekvencia (pl. 1–20 kHz), irány megfordítása.
+
+### 1.4 Beszorulás-kezelés (visszafordítás)
+- Felismerés: nagy PWM mellett a fordulat leesik / nincs impulzus (pl. 0,5 s), opcionálisan motoráram
+  (ADS1115 A1–A2) vagy Keya motoráram.
+- Teendő: motor áll → **visszafordítás néhány fokkal** (pl. 1/16 fordulat, a jeladó impulzusaiból számolva –
+  a vezérlő tudja az irányt, mert ő adja) → újra előre. Legfeljebb 3 próbálkozás; ha nem old, riasztás
+  „Adagoló beszorult”. Minden próbálkozás naplózva.
+- Beállítás: be/ki, visszafordítás mértéke, próbálkozások száma.
+- Keya motornál: pozíció-paranccsal (célpozíció −x fordulat) és a motoráram alapján még egyszerűbb.
+- Egy motor + két adagoló (kuplungos) esetben a visszafordítás mindkét adagolót érinti.
 
 ### 1.3 Keya CAN-motor
 Lásd 4. pont. Fordulatszám-üzemmód: a vezérlő célfordulatot küld, a motor maga szabályoz,
