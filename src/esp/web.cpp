@@ -199,7 +199,14 @@ esp_err_t api_factory(httpd_req_t *req) {
 esp_err_t api_ota(httpd_req_t *req) {
     {
         std::lock_guard<std::mutex> g(shared->lock);
-        if (shared->core.status().master) return send_error(req, "Frissítés előtt kapcsold KI a vetést!");
+        // Talajhajtásnál nincs vetés BE/KI gomb (a "master" mindig igaz, a munkakapcsoló és a haladás indít),
+        // ezért ott csak a tényleges vetés / haladás tiltja a frissítést.
+        const auto &st = shared->core.status();
+        const bool elec = seeder::electric_drive(shared->core.settings());
+        if (st.state == seeder::SowState::Sowing || st.state == seeder::SowState::Prefill)
+            return send_error(req, "Frissítés előtt állj meg / emeld ki a gépet (vetés folyik)!");
+        if (st.moving) return send_error(req, "Frissítés csak álló gépnél!");
+        if (elec && st.master) return send_error(req, "Frissítés előtt kapcsold KI a vetést!");
     }
     const esp_partition_t *target = esp_ota_get_next_update_partition(nullptr);
     if (!target || req->content_len < 4096 || static_cast<std::size_t>(req->content_len) > target->size)
