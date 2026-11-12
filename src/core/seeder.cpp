@@ -31,6 +31,8 @@ const AlarmInfo ALARMS[] = {
     {"AOG_LOST", "AgOpenGPS kapcsolat megszakadt", Severity::Warning},
     {"METER1_JAM", "1. adagoló beszorult", Severity::Alarm},
     {"METER2_JAM", "2. adagoló beszorult", Severity::Alarm},
+    {"MOTOR1_FAULT", "1. motor: hiba / nincs CAN kapcsolat", Severity::Alarm},
+    {"MOTOR2_FAULT", "2. motor: hiba / nincs CAN kapcsolat", Severity::Alarm},
 };
 static_assert(sizeof(ALARMS) / sizeof(ALARMS[0]) == static_cast<std::size_t>(AlarmId::COUNT), "alarm table");
 
@@ -80,6 +82,7 @@ PulseSample make_pulses(float hz, float dt, double &acc, double &since_us) {
 constexpr AlarmId METER_STOPPED[MAX_METERS] = {AlarmId::Meter1Stopped, AlarmId::Meter2Stopped};
 constexpr AlarmId METER_RATE[MAX_METERS] = {AlarmId::Meter1Rate, AlarmId::Meter2Rate};
 constexpr AlarmId METER_JAM[MAX_METERS] = {AlarmId::Meter1Jam, AlarmId::Meter2Jam};
+constexpr AlarmId MOTOR_FAULT[MAX_METERS] = {AlarmId::Motor1Fault, AlarmId::Motor2Fault};
 constexpr AlarmId HOPPER_EMPTY[2] = {AlarmId::Hopper1Empty, AlarmId::Hopper2Empty};
 } // namespace
 
@@ -269,8 +272,23 @@ bool WheelCalibration::compute(float &ppm, const char **error) const {
 }
 
 // ------------------------------------------------------------------------- motor
-MotorOutput MotorController::step(const Settings &s, float dt, float target_rpm, float actual_rpm) {
+MotorOutput MotorController::step(const Settings &s, float dt, float target_rpm, float actual_rpm, bool direct) {
     MotorOutput o;
+    if (direct) {
+        // saját szabályzású motor (Keya): a kimenet maga a cél (a fordulat 100 %-ához viszonyítva)
+        const float max_rpm = s.motor_max_rpm > 0.1f ? s.motor_max_rpm : 0.1f;
+        if (target_rpm <= 0.01f) {
+            run_time_ = 0.0f;
+            out_ = 0.0f;
+            return o;
+        }
+        run_time_ += dt;
+        out_ = clampf(target_rpm / max_rpm * 100.0f, 0.0f, 100.0f);
+        o.pwm_pct = out_;
+        o.saturated = target_rpm > max_rpm * 1.001f;
+        o.error_pct = (actual_rpm - target_rpm) / target_rpm * 100.0f;
+        return o;
+    }
     const float down_rate = 100.0f / (s.ramp_down_s > 0.01f ? s.ramp_down_s : 0.01f);
     const float up_rate = 100.0f / (s.ramp_up_s > 0.01f ? s.ramp_up_s : 0.01f);
     if (target_rpm <= 0.01f) {
@@ -599,7 +617,7 @@ double Seeder::crank_effective_revs() const {
     double n = crank_.counted_revs;
     if (n <= 0.0) return 0.0;
     const Settings &S = settings_;
-    const int ppr = electric_drive(S) ? S.encoder_ppr : S.meter_ppr;
+    const float ppr = meter_pulses_per_rev(S);
     // fél fordulatos cél (42,5) kevés impulzusos jeladóval: a 42 egész után a felet a kezelő kézzel teszi rá
     const double target = chart::turns(crank_.turn_option, settings_.crank_turns_10);
     const double whole = std::floor(target);
@@ -752,6 +770,10 @@ bool Seeder::motor_tune_start(int meter) {
         say("Előbb állítsd le a leforgatást / csőfeltöltést");
         return false;
     }
+    if (keya_drive(S)) {
+        say("Keya CAN-motornál nincs önhangolás (a motor maga szabályoz)");
+        return false;
+    }
     if (S.encoder_ppr < 10) {
         say("Az önhangoláshoz legalább 10 imp/ford enkóder kell");
         return false;
@@ -796,7 +818,7 @@ JamConfig Seeder::jam_config() const {
     c.reverse_deg = S.unjam_deg;
     c.tries = S.unjam_tries;
     c.detect_s = S.jam_detect_s;
-    c.ppr = static_cast<float>(S.encoder_ppr);
+    c.ppr = meter_pulses_per_rev(S);
     c.pwm_min = S.pwm_min_pct;
     c.pwm_max = S.pwm_max_pct;
     c.deadband = S.motor_deadband_pct;
@@ -867,7 +889,7 @@ void Seeder::crank_reset_count() {
     crank_.counted_revs = 0.0f;
     crank_.motor_revs_done = 0.0f;
     crank_.target_reached = false;
-    const int ppr = electric_drive(settings_) ? settings_.encoder_ppr : settings_.meter_ppr;
+    const float ppr = meter_pulses_per_rev(settings_);
     crank_.armed = ppr >= 4;   // sok impulzusnál (enkóder) nem kell nullpontot keresni
     crank_.session = true;
     crank_idle_s_ = 0.0f;
@@ -938,7 +960,7 @@ void Seeder::update_simulation(TickInputs &in, float dt) {
             const float kg_rev = cal_kg_rev(S, i);
             rpm = kg_rev > 0.0f ? rate_setting(S, i) * status_.speed_kmh * meter_width(S, i) / 600.0f / kg_rev : 0.0f;
         }
-        const float ppr = static_cast<float>(elec ? S.encoder_ppr : S.meter_ppr);
+        const float ppr = meter_pulses_per_rev(S);
         in.meter[i] = make_pulses(rpm / 60.0f * ppr, dt, sim_acc_[1 + i], sim_since_[1 + i]);
     }
 }
@@ -1116,7 +1138,7 @@ void Seeder::tick(const TickInputs &input) {
     for (int i = 0; i < MAX_METERS; ++i) {
         MeterStatus &m = st.meter[i];
         const bool exists = i < n_met;
-        const float ppr = static_cast<float>(elec ? S.encoder_ppr : S.meter_ppr);
+        const float ppr = meter_pulses_per_rev(S);
         // egymotoros hajtásnál mindkét adagoló a motor enkóderét (IN3) látja
         const PulseSample &mp = in.meter[shared ? 0 : i];
         const float timeout = maxf(2.0f, S.meter_timeout_s);
@@ -1180,7 +1202,7 @@ void Seeder::tick(const TickInputs &input) {
                     // adagoló-fordulat / perc = km/h · m / 10 (ha/h) · fordulat/ha / 60
                     t = v_eff * S.width_m * S.crank_turns_10 / 60.0f;
                 }
-                const MotorOutput mo = motor_[0].step(S, dt, t, m.rpm);
+                const MotorOutput mo = motor_[0].step(S, dt, t, m.rpm, keya_drive(S));
                 const JamCommand jc = jam_[0].step(jam_config(), dt, t > 0.5f, motor_[0].running_for(), mo.pwm_pct,
                                                    m.rpm, t, mp.count, since_pulse_[0], outputs_.motor_rev[0]);
                 float pwm_out = mo.pwm_pct;
@@ -1233,7 +1255,7 @@ void Seeder::tick(const TickInputs &input) {
             } else if (drive && kg_rev > 0.0f) {
                 target_rpm = m.target_rate * v_eff * m.width_m / 600.0f / kg_rev;
             }
-            const MotorOutput mo = motor_[i].step(S, dt, target_rpm, m.rpm);
+            const MotorOutput mo = motor_[i].step(S, dt, target_rpm, m.rpm, keya_drive(S));
             JamCommand jc;
             if (exists) {
                 jc = jam_[i].step(jam_config(), dt, target_rpm > 0.5f, motor_[i].running_for(), mo.pwm_pct, m.rpm,
@@ -1307,6 +1329,10 @@ void Seeder::tick(const TickInputs &input) {
     crank_.motor_running = crank_drive;
     // motorirány (holtidővel): egyelőre mindig előre; a visszafordítás a beszorulás-kezelésből jön
     for (int i = 0; i < MAX_METERS; ++i) drive_motor(i, outputs_.motor_pwm_pct[i], rev_req_[i], dt);
+    for (int i = 0; i < MAX_METERS; ++i) {
+        const bool used = keya_drive(S) && i < (shared ? 1 : n_met);
+        alarms_.set(MOTOR_FAULT[i], used && in.motor_fault[i]);
+    }
     for (int i = 0; i < MAX_METERS; ++i) {
         // a beszorulás-kezelés / próba után 1 s-ig a kifutó motor impulzusai sem számítanak
         jam_quiet_s_[i] = jam_[i].busy() ? 1.0f : (jam_quiet_s_[i] > 0.0f ? jam_quiet_s_[i] - dt : 0.0f);

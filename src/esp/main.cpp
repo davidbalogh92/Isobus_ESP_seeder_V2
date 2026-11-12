@@ -13,7 +13,7 @@
 #include "seeder/vt_ids.hpp"
 
 #include "isobus/hardware_integration/can_hardware_interface.hpp"
-#include "isobus/hardware_integration/twai_plugin.hpp"
+#include "isobus/hardware_integration/can_hardware_plugin.hpp"
 #include "isobus/isobus/can_stack_logger.hpp"
 
 #include "driver/twai.h"
@@ -24,7 +24,10 @@
 #include "freertos/task.h"
 
 #include <cstdint>
+#include <atomic>
+#include <cstring>
 #include <memory>
+#include <shared_mutex>
 
 extern "C" const std::uint8_t pool_start[] asm("_binary_object_pool_iop_start");
 extern "C" const std::uint8_t pool_end[] asm("_binary_object_pool_iop_end");
@@ -41,6 +44,105 @@ WebLogger stack_logger;
 
 app::Shared shared;
 std::unique_ptr<app::SeederApp> isobus_app;
+std::atomic<app::SeederApp *> keya_sink{nullptr};   // a CAN olvasó szálnak (az alkalmazás később jön létre)
+
+/// TWAI meghajtó a közös buszra: a 29 bites (ISOBUS) kereteket az AgIsoStack kapja, a 11 bitesek
+/// (Keya CAN-motorok) közvetlenül az alkalmazáshoz mennek. A Keya beállító módhoz a sebesség
+/// futás közben váltható (250 / 500 kbit/s) – ekkor a meghajtót a kizárólagos zár alatt újratelepítjük.
+class SplitTwai final : public isobus::CANHardwarePlugin {
+public:
+    SplitTwai() {
+        general_ = TWAI_GENERAL_CONFIG_DEFAULT(static_cast<gpio_num_t>(board::CAN_TX_GPIO),
+                                               static_cast<gpio_num_t>(board::CAN_RX_GPIO), TWAI_MODE_NORMAL);
+        general_.rx_queue_len = 64;
+        general_.tx_queue_len = 32;
+        timing_ = TWAI_TIMING_CONFIG_250KBITS();
+        filter_ = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+    }
+    std::string get_name() const override { return "TWAI+Keya"; }
+    bool get_is_valid() const override {
+        twai_status_info_t st;
+        return twai_get_status_info(&st) == ESP_OK && st.state == TWAI_STATE_RUNNING;
+    }
+    void open() override {
+        std::unique_lock<std::shared_mutex> g(mx_);
+        install();
+    }
+    void close() override {
+        std::unique_lock<std::shared_mutex> g(mx_);
+        uninstall();
+    }
+    bool read_frame(isobus::CANMessageFrame &f) override {
+        for (;;) {
+            twai_message_t m{};
+            {
+                std::shared_lock<std::shared_mutex> g(mx_);
+                if (!installed_ || twai_receive(&m, pdMS_TO_TICKS(5)) != ESP_OK) {
+                    if (!installed_) vTaskDelay(pdMS_TO_TICKS(5));
+                    return false;
+                }
+            }
+            if (m.rtr) continue;
+            if (!m.extd) {   // 11 bites: Keya
+                if (auto *a = keya_sink.load()) a->on_can_frame(m.identifier, m.data, m.data_length_code);
+                continue;
+            }
+            if (kbps_ != 250) continue;   // beállító módban az ISOBUS-t nem etetjük
+            f.identifier = m.identifier;
+            f.isExtendedFrame = true;
+            f.dataLength = m.data_length_code > 8 ? 8 : m.data_length_code;
+            std::memcpy(f.data, m.data, f.dataLength);
+            return true;
+        }
+    }
+    bool write_frame(const isobus::CANMessageFrame &f) override {
+        if (kbps_ != 250) return false;   // beállító mód: az ISOBUS hallgat
+        return tx(f.identifier, f.isExtendedFrame, f.data, f.dataLength, 10);
+    }
+    bool tx(std::uint32_t id, bool ext, const std::uint8_t *d, std::uint8_t len, int timeout_ms) {
+        twai_message_t m{};
+        m.identifier = id;
+        m.extd = ext ? 1 : 0;
+        m.data_length_code = len > 8 ? 8 : len;
+        if (d && m.data_length_code) std::memcpy(m.data, d, m.data_length_code);
+        std::shared_lock<std::shared_mutex> g(mx_);
+        return installed_ && twai_transmit(&m, pdMS_TO_TICKS(timeout_ms)) == ESP_OK;
+    }
+    bool set_bitrate(int kbps) {
+        std::unique_lock<std::shared_mutex> g(mx_);
+        uninstall();
+        const twai_timing_config_t t500 = TWAI_TIMING_CONFIG_500KBITS();
+        const twai_timing_config_t t250 = TWAI_TIMING_CONFIG_250KBITS();
+        timing_ = kbps == 500 ? t500 : t250;
+        kbps_ = kbps == 500 ? 500 : 250;
+        return install();
+    }
+    int bitrate() const { return kbps_; }
+
+private:
+    bool install() {
+        if (installed_) return true;
+        if (twai_driver_install(&general_, &timing_, &filter_) != ESP_OK) return false;
+        if (twai_start() != ESP_OK) {
+            twai_driver_uninstall();
+            return false;
+        }
+        installed_ = true;
+        return true;
+    }
+    void uninstall() {
+        if (!installed_) return;
+        twai_stop();
+        twai_driver_uninstall();
+        installed_ = false;
+    }
+    twai_general_config_t general_;
+    twai_timing_config_t timing_;
+    twai_filter_config_t filter_;
+    std::shared_mutex mx_;
+    bool installed_ = false;
+    std::atomic<int> kbps_{250};
+};
 
 const char *twai_state_name(twai_state_t s) {
     switch (s) {
@@ -78,13 +180,8 @@ extern "C" void app_main() {
     if (board::HAS_ETH && !aognet::start(&shared, settings)) web::log("WARN", "Ethernet nem indult");
 
     // --- CAN (250 kbit/s ISOBUS)
-    twai_general_config_t general = TWAI_GENERAL_CONFIG_DEFAULT(
-        static_cast<gpio_num_t>(board::CAN_TX_GPIO), static_cast<gpio_num_t>(board::CAN_RX_GPIO), TWAI_MODE_NORMAL);
-    general.rx_queue_len = 64;
-    general.tx_queue_len = 32;
-    twai_timing_config_t timing = TWAI_TIMING_CONFIG_250KBITS();
-    twai_filter_config_t filter = TWAI_FILTER_CONFIG_ACCEPT_ALL();
-    auto driver = std::make_shared<isobus::TWAIPlugin>(&general, &timing, &filter);
+    // a 11 bites (Keya) kereteket a meghajtó maga választja le, lásd SplitTwai
+    auto driver = std::make_shared<SplitTwai>();
     isobus::CANStackLogger::set_can_stack_logger_sink(&stack_logger);
     isobus::CANStackLogger::set_log_level(isobus::CANStackLogger::LoggingLevel::Warning);
     isobus::CANHardwareInterface::set_number_of_can_channels(1);
@@ -97,6 +194,15 @@ extern "C" void app_main() {
     web::log("INFO", "Object pool: %lu bájt, verzió %s", static_cast<unsigned long>(hwd.pool_size), vt::POOL_VERSION);
 
     isobus_app = std::make_unique<app::SeederApp>(shared);
+    isobus_app->set_can_sender([driver](std::uint32_t id, const std::uint8_t *d, std::uint8_t len) {
+        return driver->tx(id, false, d, len, 0);   // a vezérlési ciklus nem várhat
+    });
+    isobus_app->keya().set_rebaud([driver](int kbps) {
+        const bool ok = driver->set_bitrate(kbps);
+        web::log(ok ? "WARN" : "ERROR", "CAN sebesség: %d kbit/s%s", kbps, ok ? "" : " – HIBA");
+        return ok;
+    });
+    keya_sink = isobus_app.get();
     isobus_app->set_aux_storage([] { return storage::load_aux(); },
                                 [](const std::vector<std::uint8_t> &b) {
                                     const bool ok = storage::save_aux(b);
@@ -179,7 +285,7 @@ extern "C" void app_main() {
                 if (st.state == TWAI_STATE_BUS_OFF) {
                     web::log("ERROR", "CAN BUS_OFF – helyreállítás");
                     twai_initiate_recovery();
-                } else if (st.state == TWAI_STATE_STOPPED && hwd.can_started) {
+                } else if (st.state == TWAI_STATE_STOPPED && hwd.can_started && !isobus_app->keya().setup_busy()) {
                     twai_start();   // a helyreállítás után újraindítjuk
                 }
             }

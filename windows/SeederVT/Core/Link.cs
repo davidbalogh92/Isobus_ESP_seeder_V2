@@ -170,7 +170,7 @@ public sealed class Link : IDisposable
         "METER1_STOPPED", "METER2_STOPPED", "METER1_RATE", "METER2_RATE", "FAN_LOW", "FAN_HIGH",
         "HOPPER1_EMPTY", "HOPPER2_EMPTY", "NO_SPEED", "SPEED_FALLBACK", "OIL_HOT", "TEMP_SENSOR",
         "PRESSURE_SENSOR", "SCALE_SENSOR", "WHEEL_NOT_CAL", "SIMULATION", "TC_LOST", "SPEED_MISMATCH", "AOG_LOST",
-        "METER1_JAM", "METER2_JAM",
+        "METER1_JAM", "METER2_JAM", "MOTOR1_FAULT", "MOTOR2_FAULT",
     };
 
     private static int AlarmBit(JsonNode? s, string code) => Array.IndexOf(AlarmCodes, code);

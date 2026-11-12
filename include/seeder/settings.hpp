@@ -36,6 +36,11 @@ bool electric_drive(const Settings &s);
 bool shared_motor(const Settings &s);
 /// A motorvezérlő tud-e hátrafelé forgatni (PWM+DIR vagy IBT-2 bekötés).
 bool motor_reversible(const Settings &s);
+/// Keya CAN-motor (saját fordulatszabályzással, a CAN-en kap célfordulatot).
+bool keya_drive(const Settings &s);
+constexpr float KEYA_VIRTUAL_PPR = 360.0f;   ///< a Keya pozíciójából képzett impulzus / adagolófordulat
+/// Az adagoló (motor) jeladójának impulzus / fordulat értéke a hajtás szerint.
+float meter_pulses_per_rev(const Settings &s);
 /// Az i. adagoló által vetett szélesség (m). Bal/jobb elrendezésnél a félszélesség, első/hátsó
 /// soros gépnél és 1 adagolónál a teljes munkaszélesség.
 float meter_width(const Settings &s, int meter);

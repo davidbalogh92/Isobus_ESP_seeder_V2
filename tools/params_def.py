@@ -165,10 +165,13 @@ add("motor_layout", "drive", "Motorok (elektromos hajtás)", "Motorok", "enum", 
          "alapján), a kg/ha-t adagolónként a skála adja, a kuplungok adagolónként kapcsolnak (mint talajhajtásnál). "
          "Az 1. motor kimenetét használja, a fordulatot az 1. adagoló enkódere (IN3) méri.")
 add("motor_driver", "drive", "Motorvezérlő bekötése", "Motorvezérlő", "enum", 0,
-    options=("Csak PWM (egy irány)", "PWM + DIR (Cytron, Pololu)", "PWM + PWM (IBT-2)"), vt_page="motor",
+    options=("Csak PWM (egy irány)", "PWM + DIR (Cytron, Pololu)", "PWM + PWM (IBT-2)", "Keya CAN-motor"),
+    vt_page="motor",
     help="Csak PWM: GPIO47 / GPIO48 a PWM, a motor csak előre forog. PWM + DIR: GPIO47 / 48 a PWM, GPIO21 / 45 "
          "az irány (DIR). PWM + PWM (IBT-2): előre GPIO47 / 48 (RPWM), hátra GPIO21 / 45 (LPWM), R_EN és L_EN 5 V-on. "
-         "Az 1. motor 47 + 21, a 2. motor 48 + 45. A visszafordításhoz (beszorulás) irányváltós bekötés kell.")
+         "Az 1. motor 47 + 21, a 2. motor 48 + 45. A visszafordításhoz (beszorulás) irányváltós bekötés kell. "
+         "Keya CAN-motor: a motor maga szabályozza a fordulatot, az ISOBUS buszon (250 kbit/s) kap célfordulatot; "
+         "beállítása a 'Keya CAN-motor' oldalon.")
 add("motor_invert", "drive", "Forgásirány megfordítása", "Irány fordítva", "bool", 0, options=YES_NO,
     vt_page="motor", help="Ha a motor 'előre' parancsra visszafelé forog (irányváltós bekötésnél).")
 add("unjam_enable", "drive", "Beszorulásnál visszafordítás", "Visszafordítás", "bool", 1, options=YES_NO,
@@ -182,6 +185,19 @@ add("unjam_tries", "drive", "Visszafordítási próbák száma", "Vissza próbá
 add("jam_detect_s", "drive", "Beszorulás felismerési ideje", "Felismerés", "float", 0.6, 0.2, 5.0, 0.1, 1, "s",
     vt_page="motor", help="Ennyi ideig nem jön enkóderjel elég nagy PWM mellett (vagy a PWM a maximumon, és a "
                           "fordulat a cél negyede alatt) → beszorulás.")
+add("keya_node1", "drive", "Keya: 1. motor CAN azonosító (node ID)", "1. motor ID", "int", 1, 1, 31, 1, 0, "",
+    vt_page="keya", help="A motorban beállított node ID (gyárilag 1). Két motornál a 2. motort át kell állítani (pl. 2).")
+add("keya_node2", "drive", "Keya: 2. motor CAN azonosító (node ID)", "2. motor ID", "int", 2, 1, 31, 1, 0, "",
+    vt_page="keya")
+add("keya_unit", "drive", "Keya: a fordulat/s mire vonatkozik", "Ford. egység", "enum", 1,
+    options=("Hajtómű kimenete (adagoló)", "Motortengely (× áttétel)"), vt_page="keya",
+    help="A gyári leírás nem mondja meg. Próbával dönthető el: 1 ford/s parancsra a kimenő tengely másodpercenként "
+         "1-et fordul (→ kimenet), vagy 1/áttételnyit (→ motortengely). KY40…-PX40-49: áttétel 49.")
+add("keya_gear", "drive", "Keya: hajtómű áttétel", "Áttétel", "float", 49.0, 1.0, 500.0, 0.5, 1, "",
+    vt_page="keya")
+add("keya_hb_ms", "drive", "Keya: szívverés-időkorlát a motorban", "Szívverés", "int", 500, 0, 5000, 50, 0, "ms",
+    vt_page="keya", help="Induláskor a vezérlő beírja a motorba (33-as paraméter): ha ennyi ideig nem jön szívverés, "
+                         "a motor magától megáll. 0 = nem írja be.")
 add("motor_deadband_pct", "drive", "Indulási PWM (holtsáv)", "Indulási PWM", "float", 0.0, 0, 60, 0.5, 1, "%",
     vt_page="motor", help="Ennél kisebb PWM-nél a motor nem forog. Az önhangolás méri és menti; a terhelési mutató "
                           "és az előrecsatolás pontosításához.")
@@ -394,6 +410,7 @@ VT_PAGES = [
     ("rate", "ADAGOLÁS, FELTÖLTÉS"),
     ("drive", "ADAGOLÓHAJTÁS"),
     ("motor", "MOTORVEZÉRLÕ"),
+    ("keya", "KEYA CAN-MOTOR"),
     ("fan", "TURBINA"),
     ("speed", "SEBESSÉG"),
     ("switches", "KAPCSOLÓK"),
@@ -413,7 +430,7 @@ VT_PAGES = [
 VT_GROUPS = [
     ("rate", "Adagolás", "softkeys/softkey_dosing", ["rate"]),
     ("machine", "Gép, geometria", "menu/menu_machine", ["machine", "geometry"]),
-    ("drive", "Hajtás, motor", "menu/menu_drive", ["drive", "motor"]),
+    ("drive", "Hajtás, motor", "menu/menu_drive", ["drive", "motor", "keya"]),
     ("fan", "Turbina, hûtés", "softkeys/softkey_fan", ["fan", "cooling"]),
     ("measure", "Mérés", "main/main_speed", ["speed", "scale", "pressure"]),
     ("switches", "Kapcsolók", "softkeys/softkey_switch", ["switches", "extras"]),

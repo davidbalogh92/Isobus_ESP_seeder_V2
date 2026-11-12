@@ -202,6 +202,7 @@ table.pins td:first-child{font-variant-numeric:tabular-nums;white-space:nowrap;f
     <button data-p="press">Nyomás</button>
     <button data-p="tune">Motor</button>
     <button data-p="jam">Visszafordítás</button>
+    <button data-p="keya">Keya</button>
   </div>
 
   <div class="calpage on" id="cal-crank">
@@ -364,6 +365,30 @@ table.pins td:first-child{font-variant-numeric:tabular-nums;white-space:nowrap;f
   </div>
 </section>
 
+  <div class="calpage" id="cal-keya">
+    <div class="card" style="margin-bottom:var(--gap)">
+      <h2>Keya CAN-motorok</h2>
+      <p class="note">A motorok az ISOBUS-szal közös CAN-vezetéken, 250 kbit/s-on, saját címen (node ID) dolgoznak.
+        A hajtás a Beállítások → Motorvezérlő → Motorvezérlő bekötése = <b>Keya CAN-motor</b> értékkel kapcsol be,
+        a címek a Keya CAN-motor oldalon állíthatók.</p>
+      <div id="kyMotors"></div>
+      <p class="note warn" id="kyOff">A Keya hajtás nincs kiválasztva – az adatok csak tájékoztató jellegűek.</p>
+    </div>
+    <div class="card">
+      <h2>Motor előkészítése (beállító mód)</h2>
+      <p class="note warn"><b>Csak asztalon, úgy, hogy a CAN-vezetéken kizárólag a vezérlő és EGY motor van!</b>
+        A gyári motor 500 kbit/s-on beszél; a beállítás idejére a vezérlő átvált erre a sebességre, ami a traktor
+        ISOBUS-át megzavarná, és közben a terminál is elveszíti a kapcsolatot.
+        A vezérlő megkeresi a motort, beírja az új címet és a 250 kbit/s sebességet, elmenti, majd visszavált 250 kbit/s-ra.
+        Ezután <b>kapcsold ki-be a motor tápját</b> – a vezérlő 30 másodpercig várja az új címen.</p>
+      <div class="field"><label>Jelenlegi cím</label><div class="inp"><select id="kyFrom"><option value="0">ismeretlen – keresés</option></select></div></div>
+      <div class="field"><label>Jelenlegi sebesség</label><div class="inp"><select id="kyKbps"><option value="500">500 kbit/s (gyári)</option><option value="250">250 kbit/s</option></select></div></div>
+      <div class="field"><label>Új cím</label><div class="inp"><select id="kyNew"><option value="1">1 – 1. adagoló</option><option value="2">2 – 2. adagoló</option></select></div></div>
+      <div class="row" style="margin:12px 0"><button class="btn go wide" id="kyGo" onclick="keyaSetup()">Beállítás indítása</button></div>
+      <div class="kv"><span>Állapot</span><b id="kySetup">–</b></div>
+    </div>
+  </div>
+
 <!-- motor önhangolás: a kalibrálás fül része -->
 <!-- ============================ SZÁMLÁLÓK ============================ -->
 <section class="tab" id="tab-count">
@@ -452,6 +477,9 @@ async function post(u,body){
   try{const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const j=await r.json().catch(()=>({ok:r.ok}));if(!r.ok||j.ok===false){toast(j.error||('Hiba: HTTP '+r.status));return null}return j}
   catch(e){toast('Kapcsolati hiba');return null}}
+async function keyaSetup(){
+  if(!confirm('Csak a vezérlő és egy motor van a CAN-vezetéken? A beállítás idejére a terminál elveszíti a kapcsolatot.'))return;
+  await post('/api/cmd',{cmd:'keya_setup',from_node:+$('kyFrom').value,from_kbps:+$('kyKbps').value,new_node:+$('kyNew').value});refresh()}
 async function cmd(c,v=0){const r=await post('/api/cmd',{cmd:c,value:v});refresh();return r}
 async function setParam(key,value){const r=await post('/api/param',{key,value});if(r&&r.config)CFG=r.config;refresh();return r}
 function setRate(v){if(!S)return;setParam(S.status.crank.meter===1?'rate2':'rate1',v)}
@@ -674,13 +702,25 @@ function render(){
    $('tuAcc').disabled=!t.valid;}
   if(st.jam){const m=+$('jmMeter').value,k=(CFG.motor_layout==1&&st.meters>1)?0:m,j=st.jam[k]||st.jam[0];
    show('jmMeterF',st.meters>1);show('jmOff',!(st.electric&&CFG.motor_driver>0));
-   $('jmDrv').textContent=['Csak PWM (egy irány)','PWM + DIR','PWM + PWM (IBT-2)'][CFG.motor_driver||0];
+   $('jmDrv').textContent=['Csak PWM (egy irány)','PWM + DIR','PWM + PWM (IBT-2)','Keya CAN-motor'][CFG.motor_driver||0];
    $('jmState').textContent=j.label+(j.message?' – '+j.message:'');
    $('jmSet').textContent=fmt(CFG.unjam_deg||0)+' ° · '+(CFG.unjam_enable?'bekapcsolva':'kikapcsolva');
    $('jmLast').textContent=j.last_valid?fmt(j.last_deg,1)+' ° ('+j.last_pulses+' imp.)':'–';
    $('jmTime').textContent=j.last_valid?fmt(j.last_ms)+' ms · '+fmt(j.last_pwm)+' %':'–';
    $('jmCount').textContent=j.jams+' / '+j.recoveries;
    $('jmLoad').textContent=st.meter.slice(0,st.meters).map(x=>x.load>=0?fmt(x.load)+' %':'–').join(' · ');}
+  if(S.keya){const on=CFG.drive_type==1&&CFG.motor_driver==3,n=(CFG.motor_layout==1)?1:st.meters,
+     FB={0:'önteszt',1:'jeladó',17:'túlfeszültség',18:'alacsony fesz.',19:'túláram'};show('kyOff',!on);
+   $('kyMotors').innerHTML=S.keya.slice(0,n).map((m,i)=>{const f=Object.keys(FB).filter(b=>m.faults&(1<<b)).map(b=>FB[b]);
+     return `<h3 style="margin:10px 0 4px">${n>1?(i+1)+'. motor':'Motor'} · cím ${m.node}</h3>`+
+     [['Kapcsolat',m.online?'<span style="color:var(--ok)">válaszol</span>':'<span style="color:var(--bad)">nincs válasz</span>'],
+      ['Engedélyezve · cél elérve',(m.enabled?'igen':'nem')+' · '+(m.reached?'igen':'nem')+(m.current_limit?' · ÁRAMKORLÁT':'')],
+      ['Cél (adagoló)',fmt(m.cmd_rpm,1)+' 1/min'],['Fordulat (nyers)',fmt(m.vel_raw,2)+' ford/s'],
+      ['Áram · tápfeszültség',fmt(m.current_a,1)+' A · '+fmt(m.vbus_v,1)+' V'],
+      ['Hibák',f.length?'<span style="color:var(--bad)">'+f.join(', ')+'</span>':'nincs'],['Keretek ki / be',m.tx+' / '+m.rx]]
+      .map(([k,v])=>`<div class="kv"><span>${k}</span><b>${v}</b></div>`).join('')}).join('');
+   if($('kyFrom').options.length<2)for(let i=1;i<=31;i++)$('kyFrom').add(new Option(String(i),String(i)));
+   const su=S.keya_setup||{};$('kySetup').textContent=su.msg?(su.msg+(su.busy?' …':'')):'–';$('kyGo').disabled=!!su.busy;}
   $('prV').textContent=fmt(st.pressure_v,3)+' V';$('prBar').textContent=st.pressure_ok?fmt(st.pressure_bar,1)+' bar':'nincs jel';show('prOff',!CFG.pressure_enable);
   // számlálók
   const rows=[['Terület','ha',st.day.ha,st.total.ha,2],['Megtett út','km',st.day.km,st.total.km,2],['Vetési idő','óra',st.day.h,st.total.h,1],['1. adagoló','kg',st.day.kg1,st.total.kg1,0]];

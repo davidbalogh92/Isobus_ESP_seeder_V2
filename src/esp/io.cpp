@@ -674,11 +674,13 @@ void apply(const seeder::Outputs &o, const seeder::Settings &s) {
     const int freq = std::max<int>(100, std::min<int>(20000, s.pwm_freq_hz));
     if (board::MOTOR_PWM_GPIO[0] >= 0 && pwm_freq.load() != freq) pwm_setup(freq);
     // motorvezérlő bekötése: 0 csak PWM, 1 PWM + DIR, 2 PWM + PWM (IBT-2)
-    const int drv = seeder::electric_drive(s) ? std::max<int>(0, std::min<int>(2, s.motor_driver)) : 0;
+    // Keya CAN-motornál (3) nincs PWM: a motor a CAN-en kap célfordulatot
+    const bool keya = seeder::electric_drive(s) && s.motor_driver == 3;
+    const int drv = seeder::electric_drive(s) && !keya ? std::max<int>(0, std::min<int>(2, s.motor_driver)) : 0;
     if (pwm_ready[0] || pwm_ready[1]) aux_setup(drv);
     for (int i = 0; i < 2; ++i) {
         if (!pwm_ready[i]) continue;
-        const float pct = std::max(0.0f, std::min(100.0f, o.motor_pwm_pct[i]));
+        const float pct = keya ? 0.0f : std::max(0.0f, std::min(100.0f, o.motor_pwm_pct[i]));
         // a mag már a holtidőt (irányváltáskor 0) is kezeli; itt csak a logikai irányt képezzük le
         const bool rev = drv != 0 && (o.motor_rev[i] != (s.motor_invert != 0));
         const float fwd_pct = drv == 2 && rev ? 0.0f : pct;

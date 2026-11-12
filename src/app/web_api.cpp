@@ -1,4 +1,5 @@
 #include "web_api.hpp"
+#include "keya.hpp"
 
 #include <cstdio>
 
@@ -44,7 +45,9 @@ ApiResult handle_api(Shared &shared, SeederApp *isobus, const std::string &metho
         }
         const IsobusDiag d = isobus ? isobus->diag() : IsobusDiag{};
         return ok("{\"status\":" + st + ",\"isobus\":" + isobus_diag_json(d) +
-                  ",\"aux\":" + (isobus ? isobus->aux_json() : std::string("{}")) + ",\"hw\":" +
+                  ",\"aux\":" + (isobus ? isobus->aux_json() : std::string("{}")) +
+                  ",\"keya\":" + (isobus ? isobus->keya_json() : std::string("[]")) +
+                  ",\"keya_setup\":" + (isobus ? isobus->keya().setup_json() : std::string("{}")) + ",\"hw\":" +
                   (hw_json.empty() ? std::string("{}") : hw_json) + ",\"fw\":\"" + seeder::json_escape(fw_version) +
                   "\",\"ssid\":\"" + seeder::json_escape(ssid) + "\"}");
     }
@@ -155,6 +158,16 @@ ApiResult handle_api(Shared &shared, SeederApp *isobus, const std::string &metho
         if (cmd == "isobus_reconnect") {
             if (!isobus) return error("Az ISOBUS nem fut");
             isobus->request_reconnect();
+            return ok("{\"ok\":true}");
+        }
+        if (cmd == "keya_setup") {   // {"cmd":"keya_setup","from_node":0,"from_kbps":500,"new_node":1}
+            if (!isobus) return error("Az ISOBUS nem fut");
+            double fn = 0, fk = 500, nn = 1;
+            seeder::json_get_number(body.c_str(), "from_node", fn);
+            seeder::json_get_number(body.c_str(), "from_kbps", fk);
+            seeder::json_get_number(body.c_str(), "new_node", nn);
+            if (!isobus->keya().start_setup(static_cast<int>(fn), static_cast<int>(fk), static_cast<int>(nn), err))
+                return error(err);
             return ok("{\"ok\":true}");
         }
         bool done = false;

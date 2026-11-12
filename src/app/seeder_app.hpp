@@ -75,6 +75,7 @@ class VtUi;
 class TcLink;
 class VirtualScreen;
 class AuxN;
+class KeyaBus;
 
 class SeederApp {
 public:
@@ -86,6 +87,12 @@ public:
                          std::function<bool(const std::vector<std::uint8_t> &)> save);
     /// AUX-N diagnosztika (JSON objektum).
     std::string aux_json() const;
+    /// Keya CAN-motorok: keretküldő (az ESP réteg adja: 11 bites keret a közös CAN-en)
+    void set_can_sender(std::function<bool(std::uint32_t, const std::uint8_t *, std::uint8_t)> send);
+    /// Bejövő 11 bites keret (a CAN olvasó szálból). true: a Keya meghajtóé volt.
+    bool on_can_frame(std::uint32_t id, const std::uint8_t *data, std::uint8_t len);
+    std::string keya_json() const;
+    KeyaBus &keya() { return *keya_; }
     /// AUX-N bemenet közvetlenül (teszt / szimuláció): funkció objektum, value1.
     bool aux_input(std::uint16_t function, std::uint16_t value1);
 
@@ -120,6 +127,7 @@ private:
     std::unique_ptr<VtUi> ui_;
     std::unique_ptr<VtUi> vui_;            ///< virtuális terminál (CAN nélkül is fut)
     std::unique_ptr<AuxN> aux_;            ///< AUX-N funkciók (joystick)
+    std::unique_ptr<KeyaBus> keya_;        ///< Keya CAN-motorok
     VirtualScreen *vscreen_ = nullptr;     ///< vui_ kimenete
     float vui_timer_ = 0.0f;
     std::unique_ptr<TcLink> tc_;

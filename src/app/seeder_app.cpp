@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "aux_n.hpp"
+#include "keya.hpp"
 #include "pool_scaler.hpp"
 #include "tc_link.hpp"
 #include "vt_sink.hpp"
@@ -84,6 +85,7 @@ SeederApp::SeederApp(Shared &shared) : shared_(shared) {
     auto screen = std::make_unique<VirtualScreen>(vt::DM_MAIN);
     vscreen_ = screen.get();
     vui_ = std::make_unique<VtUi>(shared_, std::move(screen));
+    keya_ = std::make_unique<KeyaBus>();
     // AUX gomb → az azonos softkey művelete a valódi VT felületen (ha még nincs, a virtuálison)
     aux_ = std::make_unique<AuxN>([this](std::uint16_t key, std::uint8_t act) {
         VtUi *ui = ui_ ? ui_.get() : vui_.get();
@@ -97,6 +99,14 @@ void SeederApp::set_aux_storage(std::function<std::vector<std::uint8_t>()> load,
 }
 
 std::string SeederApp::aux_json() const { return aux_->json(); }
+
+void SeederApp::set_can_sender(std::function<bool(std::uint32_t, const std::uint8_t *, std::uint8_t)> send) {
+    keya_->set_sender(std::move(send));
+}
+bool SeederApp::on_can_frame(std::uint32_t id, const std::uint8_t *data, std::uint8_t len) {
+    return keya_->on_frame(id, data, len);
+}
+std::string SeederApp::keya_json() const { return keya_->json(); }
 
 bool SeederApp::aux_input(std::uint16_t function, std::uint16_t value1) { return aux_->on_input(function, value1); }
 
@@ -245,10 +255,16 @@ void SeederApp::update(float dt_s, const HwInputs &hw) {
     in.aog = hw.aog;
     in.crank_button = hw.crank_button;
     in.tc_connected = tc_ && tc_->connected();
+    keya_->setup_step(dt_s);   // Keya beállító mód (CAN-sebességváltás a magzáron kívül)
     Snapshot snap;
     {
         std::lock_guard<std::mutex> g(shared_.lock);
+        // Keya CAN-motor: a pozícióból képzett impulzusok és a motorhibák a mag bemenetére
+        const seeder::Settings &cs = shared_.core.settings();
+        if (KeyaBus::active(cs) && !cs.sim_inputs) keya_->feedback(cs, dt_s, in.meter, in.motor_fault);
         shared_.core.tick(in);
+        if (KeyaBus::active(shared_.core.settings()))
+            keya_->command(shared_.core.settings(), shared_.core.outputs(), dt_s);
         snap.st = shared_.core.status();
         snap.set = shared_.core.settings();
         snap.per = shared_.core.persistent();

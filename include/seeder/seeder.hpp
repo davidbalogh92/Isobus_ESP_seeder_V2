@@ -62,6 +62,8 @@ enum class AlarmId : std::uint8_t {
     AogLost,
     Meter1Jam,
     Meter2Jam,
+    Motor1Fault,
+    Motor2Fault,
     COUNT
 };
 enum class Severity : std::uint8_t { Info = 0, Warning = 1, Alarm = 2 };
@@ -102,7 +104,7 @@ public:
     void reset() { integral_ = 0.0f; out_ = 0.0f; run_time_ = 0.0f; }
     /// megállás a tanult korrekció megtartásával (beszorulás-kezelés után újra felfut)
     void pause() { out_ = 0.0f; run_time_ = 0.0f; }
-    MotorOutput step(const Settings &s, float dt, float target_rpm, float actual_rpm);
+    MotorOutput step(const Settings &s, float dt, float target_rpm, float actual_rpm, bool direct = false);
     float integral() const { return integral_; }
     void restore(float integral) { integral_ = integral; }
     float running_for() const { return run_time_; }
@@ -206,6 +208,7 @@ struct TickInputs {
     AogInput aog;
     bool tc_connected = false;
     bool crank_button = false;         ///< gépre szerelt leforgató gomb (IN8) zárva
+    bool motor_fault[MAX_METERS] = {false, false};   ///< CAN-motor: hiba vagy nincs kapcsolat (Keya)
     float pressure_v = -1.0f;          ///< ADS1115 feszültség (V), < 0 = nincs adat
     float temp_c[2] = {-300.0f, -300.0f}; ///< DS18B20: [0] olajtartály, [1] hűtő kimenet; < -100 = nincs
     bool scale_valid = false;
@@ -218,6 +221,7 @@ struct Outputs {
     bool clutch_drive[MAX_METERS] = {false, false};   ///< logikai: az adagoló hajtva
     float motor_pwm_pct[MAX_METERS] = {0.0f, 0.0f};
     bool motor_rev[MAX_METERS] = {false, false};     ///< logikai irány: hátra (visszafordítás)
+    // (Keya CAN-motornál a motor_pwm_pct a fordulat 100 %-ához viszonyított cél: a CAN-réteg fordulatra váltja)
     bool lamp_level[2] = {false, false};
     bool valve_level = false;
     bool cooler_level = false;

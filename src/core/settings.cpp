@@ -144,6 +144,11 @@ int section_count(const Settings &s) { return s.section_count >= 2 ? 2 : 1; }
 bool electric_drive(const Settings &s) { return s.drive_type == 1; }
 bool shared_motor(const Settings &s) { return electric_drive(s) && s.motor_layout == 1 && meter_count(s) == 2; }
 bool motor_reversible(const Settings &s) { return electric_drive(s) && s.motor_driver != 0; }
+bool keya_drive(const Settings &s) { return electric_drive(s) && s.motor_driver == 3; }
+float meter_pulses_per_rev(const Settings &s) {
+    if (!electric_drive(s)) return static_cast<float>(s.meter_ppr);
+    return keya_drive(s) ? KEYA_VIRTUAL_PPR : static_cast<float>(s.encoder_ppr);
+}
 
 float section_width(const Settings &s, int section) {
     if (section_count(s) == 1) return section == 0 ? s.width_m : 0.0f;

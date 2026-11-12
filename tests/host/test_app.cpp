@@ -1,6 +1,7 @@
 // Az ISOBUS alkalmazásréteg tiszta függvényeinek unit tesztjei: TC geometria, kondenzált
 // munkaállapot, DDOP felépítés minden gépváltozatra, VT szövegkódolás, geometria-vázlat választás.
 #include "aux_n.hpp"
+#include "keya.hpp"
 #include "pool_scaler.hpp"
 #include "seeder_app.hpp"
 #include "tc_link.hpp"
@@ -628,6 +629,181 @@ TEST(virtual_terminal_settings_groups) {
     CHECK(mask_is(vt::DM_MENU));
     // minden oldal pontosan egy csoportban
     for (const auto &p : vt::PAGES) CHECK(p.group < sizeof(vt::GROUPS) / sizeof(vt::GROUPS[0]));
+}
+
+namespace {
+/// Keya motor modell: a célfordulatot (ford/s, motor egységben) 0,15 s időállandóval követi, válaszol.
+struct FakeKeya {
+    int node = 1;
+    bool enabled = false;
+    float cmd = 0.0f, vel = 0.0f;
+    double pos = 0.0;
+    std::uint32_t faults = 0;
+    bool alive = true;
+    std::vector<std::pair<std::uint32_t, std::vector<std::uint8_t>>> out;   // válaszok
+    unsigned enables = 0, vel_cmds = 0, hb = 0, params = 0;
+    float last_cmd_sent = 0.0f;
+    void rx(std::uint32_t id, const std::uint8_t *d, std::uint8_t len) {
+        if (!alive || static_cast<int>(id >> 6) != node) return;
+        const std::uint8_t c = id & 0x3F;
+        auto reply_f = [&](float f) {
+            std::vector<std::uint8_t> v(4);
+            std::memcpy(v.data(), &f, 4);
+            out.push_back({id, v});
+        };
+        switch (c) {
+        case 0x00: enabled = false; out.push_back({id, std::vector<std::uint8_t>(4, 0)}); break;
+        case 0x01: enabled = true; ++enables; out.push_back({id, std::vector<std::uint8_t>(4, 0)}); break;
+        case 0x03: std::memcpy(&cmd, d, 4); last_cmd_sent = cmd; ++vel_cmds; break;
+        case 0x0E: {
+            std::vector<std::uint8_t> v(8, 0);
+            v[0] = enabled ? 1 : 0;
+            std::memcpy(v.data() + 4, &faults, 4);
+            out.push_back({id, v});
+            break;
+        }
+        case 0x11: reply_f(vel); break;
+        case 0x12: reply_f(static_cast<float>(pos)); break;
+        case 0x13: reply_f(1.5f); break;
+        case 0x14: reply_f(13.2f); break;
+        case 0x17: ++params; out.push_back({id, std::vector<std::uint8_t>(d, d + len)}); break;
+        case 0x3F: ++hb; break;
+        default: break;
+        }
+        (void)len;
+    }
+    void step(float dt) {
+        const float target = enabled ? cmd : 0.0f;
+        vel += (target - vel) * dt / (0.15f + dt);
+        pos += vel * dt;
+    }
+};
+
+void run_keya(app::SeederApp &a, FakeKeya &k, float seconds) {
+    for (int i = 0; i < static_cast<int>(seconds / 0.05f); ++i) {
+        k.step(0.05f);
+        a.update(0.05f, app::HwInputs{});
+        for (auto &r : k.out) a.on_can_frame(r.first, r.second.data(), static_cast<std::uint8_t>(r.second.size()));
+        k.out.clear();
+    }
+}
+} // namespace
+
+TEST(keya_motor_follows_target_over_can) {
+    app::Shared shared;
+    {
+        Settings st = default_settings();
+        st.drive_type = 1;
+        st.motor_driver = 3;      // Keya
+        st.meter_count = 1;
+        st.keya_unit = 1;         // motortengely
+        st.keya_gear = 49.0f;
+        st.motor_max_rpm = 120.0f;
+        st.work_sw = 0;           // nincs munkakapcsoló
+        st.speed_src = 3;
+        st.sim_speed = 8.0f;
+        st.prefill_auto = 0;
+        normalize(st);
+        shared.core.load(st, Persistent{});
+    }
+    app::SeederApp a(shared);
+    FakeKeya k;
+    a.set_can_sender([&](std::uint32_t id, const std::uint8_t *d, std::uint8_t len) {
+        CHECK(id <= 0x7FF);
+        k.rx(id, d, len);
+        return true;
+    });
+    run_keya(a, k, 1.0f);
+    CHECK(k.params >= 1);   // szívverés-időkorlát beírva
+    CHECK(k.hb >= 3);
+    {
+        std::lock_guard<std::mutex> g(shared.lock);
+        shared.core.set_master(true);
+    }
+    run_keya(a, k, 4.0f);
+    float target, rpm;
+    {
+        std::lock_guard<std::mutex> g(shared.lock);
+        target = shared.core.status().meter[0].target_rpm;
+        rpm = shared.core.status().meter[0].rpm;
+        CHECK(shared.core.outputs().motor_pwm_pct[0] > 1.0f);
+        CHECK(!(shared.core.status().alarms_active & (1u << static_cast<int>(AlarmId::Motor1Fault))));
+    }
+    CHECK(k.enabled && k.enables >= 1);
+    CHECK(target > 1.0f);
+    CHECK(std::fabs(k.last_cmd_sent - target / 60.0f * 49.0f) < 0.05f);   // ford/s a motortengelyen
+    CHECK(std::fabs(rpm - target) < target * 0.1f);                        // a pozícióból mért adagoló-fordulat
+    CHECK(has(a.keya_json(), "\"online\":true"));
+    // a motor elhallgat → riasztás
+    k.alive = false;
+    run_keya(a, k, 1.5f);
+    {
+        std::lock_guard<std::mutex> g(shared.lock);
+        CHECK(shared.core.status().alarms_active & (1u << static_cast<int>(AlarmId::Motor1Fault)));
+    }
+    // vetés KI után letiltja (3 s álló cél)
+    k.alive = true;
+    {
+        std::lock_guard<std::mutex> g(shared.lock);
+        shared.core.set_master(false);
+    }
+    run_keya(a, k, 4.5f);
+    CHECK(!k.enabled);
+}
+
+TEST(keya_setup_mode_rewrites_node_and_baud) {
+    app::Shared shared;
+    shared.core.load(default_settings(), Persistent{});   // a beállító mód hajtástípustól független
+    app::SeederApp a(shared);
+    FakeKeya k;
+    k.node = 5;                         // ismeretlen címen, 500 kbit/s-on (gyári)
+    int motor_kbps = 500, bus_kbps = 250, saved_node = 0, saved_baud = -1, saves = 0;
+    a.set_can_sender([&](std::uint32_t id, const std::uint8_t *d, std::uint8_t len) {
+        if (bus_kbps != motor_kbps) return true;   // eltérő sebesség: a motor nem hallja
+        if (static_cast<int>(id >> 6) == k.node) {
+            if ((id & 0x3F) == 0x17 && len == 8) {
+                std::int32_t idx, val;
+                std::memcpy(&idx, d, 4);
+                std::memcpy(&val, d + 4, 4);
+                if (idx == 31) saved_node = val;
+                if (idx == 32) saved_baud = val;
+            }
+            if ((id & 0x3F) == 0x19) ++saves;
+        }
+        k.rx(id, d, len);
+        return true;
+    });
+    a.keya().set_rebaud([&](int kbps) { bus_kbps = kbps; k.out.clear(); return true; });
+    std::string err;
+    CHECK(!a.keya().start_setup(0, 300, 1, err));          // érvénytelen sebesség
+    CHECK(a.keya().start_setup(0, 500, 2, err));           // keresés, új cím: 2
+    CHECK(a.keya().setup_busy());
+    run_keya(a, k, 3.0f);
+    CHECK(saved_node == 2 && saved_baud == 0 && saves == 1);
+    CHECK(!k.enabled);
+    CHECK(bus_kbps == 250);                                 // visszaállt az ISOBUS sebességre
+    CHECK(a.keya().setup_busy());                           // vár a táp ki-be kapcsolására
+    CHECK(has(a.keya().setup_json(), "ki-be"));
+    // "táp ki-be": a motor az új címen, 250 kbit/s-on jelentkezik
+    k.node = saved_node;
+    motor_kbps = 250;
+    run_keya(a, k, 1.0f);
+    CHECK(!a.keya().setup_busy());
+    CHECK(has(a.keya().setup_json(), "\"ok\":true"));
+    // nem válaszoló motor → hiba, visszaáll 250-re
+    k.alive = false;
+    CHECK(a.keya().start_setup(3, 500, 1, err));
+    run_keya(a, k, 4.0f);
+    CHECK(!a.keya().setup_busy() && bus_kbps == 250);
+    CHECK(has(a.keya().setup_json(), "\"ok\":false"));
+}
+
+TEST(keya_ignores_other_frames) {
+    app::KeyaBus kb;
+    std::uint8_t d[4] = {0, 0, 0x80, 0x3F};
+    CHECK(!kb.on_frame(0x18FEF100u, d, 4));     // 29 bites ISOBUS
+    CHECK(!kb.on_frame((5u << 6) | 0x11, d, 4)); // ismeretlen node
+    CHECK(kb.on_frame((1u << 6) | 0x11, d, 4));
 }
 
 int main() {

@@ -400,6 +400,7 @@ PAGE_INFO = {
     "rate": ("Adagolás", "softkeys/softkey_dosing"),
     "drive": ("Hajtás", "menu/menu_drive"),
     "motor": ("Motorvezérlõ", "softkeys/softkey_tune"),
+    "keya": ("Keya CAN-motor", "menu/menu_drive"),
     "fan": ("Turbina", "softkeys/softkey_fan"),
     "speed": ("Sebesség", "main/main_speed"),
     "switches": ("Kapcsolók", "softkeys/softkey_switch"),
@@ -490,7 +491,8 @@ ALARM_TEXTS = ["1. adagoló nem forog", "2. adagoló nem forog", "1. adagoló: a
                "1. tartály kiürült", "2. tartály kiürült", "Nincs sebességjel", "GPS sebesség kiesett",
                "Olaj túlmelegedett", "Olajhõmérõ hiba", "Nyomásszenzor hiba", "Mérleg nem válaszol",
                "Kerék nincs kalibrálva", "Szimuláció aktív", "Task Controller kiesett", "Kerék/GPS seb. eltér",
-               "AgOpenGPS kiesett", "1. adagoló beszorult", "2. adagoló beszorult"]
+               "AgOpenGPS kiesett", "1. adagoló beszorult", "2. adagoló beszorult",
+               "1. motor hiba (CAN)", "2. motor hiba (CAN)"]
 REV_TEXTS = ["Normál", "Leállás", "Visszafúj", "Leállás"]
 STR_REV = [S(t, 136, 22, F_LABEL, name=f"STR_REV_{i}") for i, t in enumerate(REV_TEXTS)]
 SRC_TEXTS = ["Nincs", "Kerék", "ISOBUS föld", "ISOBUS kerék", "ISOBUS gép", "NMEA GPS", "Szimulált", "AgOpenGPS"]
@@ -674,6 +676,7 @@ for _pid, _ in pd.VT_PAGES:
     PAGE_DESC[_pid] = _d if len(_d) <= 40 else _d[:37].rstrip(", ") + "..."
 PAGE_DESC["motor"] = "Bekötés, visszafordítás, önhangolás"
 PAGE_DESC["drive"] = "Hajtás, kuplung, jeladók, szabályzás"
+PAGE_DESC["keya"] = "Node ID, egység, áttétel, szívverés"
 PBTN = {}
 GROUP_MASK = {}
 for gi, (gid, glabel, _icon, pages) in enumerate(pd.VT_GROUPS):
@@ -694,7 +697,8 @@ for gi, (gid, glabel, _icon, pages) in enumerate(pd.VT_GROUPS):
 # ================================================================== BEÁLLÍTÓOLDALAK
 VT_OPTION_SHORT = {
     "motor_layout": ("Saját motor", "Egy motor"),
-    "motor_driver": ("Csak PWM", "PWM + DIR", "PWM + PWM"),
+    "motor_driver": ("Csak PWM", "PWM + DIR", "PWM + PWM", "Keya CAN"),
+    "keya_unit": ("Kimenet", "Motortengely"),
     "meter_layout": ("Bal / jobb", "Elsõ / hátsó"),
     "drive_type": ("Talaj+kuplung", "El. motor"),
     "clutch_mode": ("Áram: hajt", "Áram: old"),
@@ -1010,7 +1014,7 @@ assert y <= MASK + 2, y
 DM_TUNE_INFO = P.data_mask(1077, SK_TUNE_INFO, ti, name="DM_TUNE_INFO")
 
 # ================================================================== VISSZAFORDÍTÁS PRÓBA
-DRV_TEXTS = ["Csak PWM", "PWM + DIR", "PWM + PWM"]
+DRV_TEXTS = ["Csak PWM", "PWM + DIR", "PWM + PWM", "Keya CAN"]
 STR_DRV = [S(t, 186, 22, F_LABEL, name=f"STR_DRV_{i}") for i, t in enumerate(DRV_TEXTS)]
 STR_JAM_STATE = S(" " * 22, 186, 22, F_LABEL, name="STR_JAM_STATE")
 STR_JAM_MSG = S(" " * 48, 388, 20, F_SMALL, name="STR_JAM_MSG")
