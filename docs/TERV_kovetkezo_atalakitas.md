@@ -49,7 +49,15 @@ Hajtás típusa
   Így 2 motorhoz sem kell újabb GPIO, és a vissza irány is megvan.
 - Beállítás: PWM-frekvencia (pl. 1–20 kHz), irány megfordítása.
 
-### 1.4 Beszorulás-kezelés (visszafordítás)
+### 1.4 Terhelés becslése (első körben PWM-alapú, árammérés nélkül)
+- Önhangolás egyszer (motor- és hajtásjellemzők), magfajtától függetlenül.
+- Terhelési mutató: az aktuális PWM-hez tartozó várt fordulat (önhangolási görbe) és a mért fordulat viszonya.
+- Alapszint növényenként automatikusan tanulva (egyenletes vetés közben), a kiválasztott növényhez mentve;
+  100 % = az adott magnál szokásos terhelés.
+- Beszorulás-felismerés változásalapú (hirtelen eltérés az utolsó ~30 s átlagától, vagy nagy PWM mellett nincs impulzus).
+- Később (nem most): valódi árammérés – IBT-2 R_IS/L_IS → ADS1115, INA226, vagy Keya CAN; tápfeszültség-mérés.
+
+### 1.5 Beszorulás-kezelés (visszafordítás)
 - Felismerés: nagy PWM mellett a fordulat leesik / nincs impulzus (pl. 0,5 s), opcionálisan motoráram
   (ADS1115 A1–A2) vagy Keya motoráram.
 - Teendő: motor áll → **visszafordítás néhány fokkal** (pl. 1/16 fordulat, a jeladó impulzusaiból számolva –
