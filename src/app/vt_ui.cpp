@@ -706,6 +706,18 @@ void VtUi::update_calib(const Snapshot &s) {
     num(vt::OP_CAL_METER, vt::STR_METER[cr.meter == 1 ? 1 : 0]);
     num(vt::VT_IN_CAL_CROP_DEF.id, cr.crop);
     num(vt::VT_IN_CAL_TURNS_DEF.id, cr.turn_option);
+    {
+        static const std::uint16_t TURN_STR[3] = {vt::STR_TURN_0, vt::STR_TURN_1, vt::STR_TURN_2};
+        for (int k = 0; k < 3; ++k) {
+            char tb[16];
+            const double t = seeder::chart::turns(k, set.crank_turns_10);
+            if (std::fabs(t - std::round(t)) < 0.05) std::snprintf(tb, sizeof tb, "%.0f", t);
+            else std::snprintf(tb, sizeof tb, "%.1f", t);
+            for (char *q = tb; *q; ++q)
+                if (*q == '.') *q = ',';
+            text(TURN_STR[k], tb);
+        }
+    }
     num(vt::VT_IN_CAL_RATE_DEF.id, custom_raw(vt::VT_IN_CAL_RATE_DEF, seeder::rate_setting(set, cr.meter)));
     num(vt::VT_IN_CAL_TSCALE_DEF.id, custom_raw(vt::VT_IN_CAL_TSCALE_DEF, cr.test_scale));
     num(vt::VT_IN_CAL_MEAS_DEF.id, custom_raw(vt::VT_IN_CAL_MEAS_DEF, cr.measured_kg));
@@ -715,7 +727,7 @@ void VtUi::update_calib(const Snapshot &s) {
     num(vt::OUT_CAL_EXPECT, std::lround(r.expected_kg * 1000.0));
     num(vt::OUT_CAL_NEW, r.corrected_valid ? std::lround(r.corrected_scale * 10.0) : 0);
     num(vt::OUT_CAL_REVS, std::lround(cr.counted_revs * 10.0f));
-    num(vt::OUT_CAL_TARGET, std::lround(seeder::chart::turns(cr.turn_option) * 10.0));
+    num(vt::OUT_CAL_TARGET, std::lround(seeder::chart::turns(cr.turn_option, s.set.crank_turns_10) * 10.0));
     num(vt::OUT_CAL_NW, cr.weight_count);
     num(vt::OUT_CAL_KGREV, std::lround((r.kg_per_rev > 0.0 ? r.kg_per_rev : seeder::cal_kg_rev(set, cr.meter)) * 10000.0));
     const auto note = seeder::chart::note(r, cr.measured_kg > 0.0f);

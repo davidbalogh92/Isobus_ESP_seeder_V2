@@ -5,8 +5,8 @@
 namespace vt {
 constexpr std::uint32_t DESIGN_MASK_PX = 400;
 constexpr std::uint32_t DESIGN_SOFTKEY_PX = 80;
-constexpr std::uint32_t POOL_SIZE = 164306;
-constexpr const char *POOL_VERSION = "SD9E8F0"; // a VT ez alapján cache-el
+constexpr std::uint32_t POOL_SIZE = 165653;
+constexpr const char *POOL_VERSION = "SD16BCD"; // a VT ez alapján cache-el
 constexpr std::uint16_t VT_INPUT_BASE = 9000;
 
 constexpr std::uint16_t WORKING_SET = 0;
@@ -16,17 +16,18 @@ constexpr std::uint16_t DM_MENU = 1030;
 constexpr std::uint16_t DM_PAGE_MACHINE = 1040;
 constexpr std::uint16_t DM_PAGE_RATE = 1041;
 constexpr std::uint16_t DM_PAGE_DRIVE = 1042;
-constexpr std::uint16_t DM_PAGE_FAN = 1043;
-constexpr std::uint16_t DM_PAGE_SPEED = 1044;
-constexpr std::uint16_t DM_PAGE_SWITCHES = 1045;
-constexpr std::uint16_t DM_PAGE_EXTRAS = 1046;
-constexpr std::uint16_t DM_PAGE_PRESSURE = 1047;
-constexpr std::uint16_t DM_PAGE_COOLING = 1048;
-constexpr std::uint16_t DM_PAGE_SCALE = 1049;
-constexpr std::uint16_t DM_PAGE_TC = 1050;
-constexpr std::uint16_t DM_PAGE_AOG = 1051;
-constexpr std::uint16_t DM_PAGE_GEOMETRY = 1052;
-constexpr std::uint16_t DM_PAGE_DIAG = 1053;
+constexpr std::uint16_t DM_PAGE_MOTOR = 1043;
+constexpr std::uint16_t DM_PAGE_FAN = 1044;
+constexpr std::uint16_t DM_PAGE_SPEED = 1045;
+constexpr std::uint16_t DM_PAGE_SWITCHES = 1046;
+constexpr std::uint16_t DM_PAGE_EXTRAS = 1047;
+constexpr std::uint16_t DM_PAGE_PRESSURE = 1048;
+constexpr std::uint16_t DM_PAGE_COOLING = 1049;
+constexpr std::uint16_t DM_PAGE_SCALE = 1050;
+constexpr std::uint16_t DM_PAGE_TC = 1051;
+constexpr std::uint16_t DM_PAGE_AOG = 1052;
+constexpr std::uint16_t DM_PAGE_GEOMETRY = 1053;
+constexpr std::uint16_t DM_PAGE_DIAG = 1054;
 constexpr std::uint16_t DM_CALIB = 1060;
 constexpr std::uint16_t DM_DIAGNOSE = 1070;
 constexpr std::uint16_t DM_TUNE = 1075;
@@ -121,36 +122,38 @@ constexpr std::uint16_t K_TUNE_DISCARD = 5043;
 constexpr std::uint16_t K_PG_MACHINE = 5044;
 constexpr std::uint16_t K_PG_RATE = 5045;
 constexpr std::uint16_t K_PG_DRIVE = 5046;
-constexpr std::uint16_t K_PG_FAN = 5047;
-constexpr std::uint16_t K_PG_SPEED = 5048;
-constexpr std::uint16_t K_PG_SWITCHES = 5049;
-constexpr std::uint16_t K_PG_EXTRAS = 5050;
-constexpr std::uint16_t K_PG_PRESSURE = 5051;
-constexpr std::uint16_t K_PG_COOLING = 5052;
-constexpr std::uint16_t K_PG_SCALE = 5053;
-constexpr std::uint16_t K_PG_TC = 5054;
-constexpr std::uint16_t K_PG_AOG = 5055;
-constexpr std::uint16_t K_PG_GEOMETRY = 5056;
-constexpr std::uint16_t K_PG_DIAG = 5057;
-constexpr std::uint16_t K_PG_CALIB = 5058;
-constexpr std::uint16_t K_PG_INFO = 5059;
+constexpr std::uint16_t K_PG_MOTOR = 5047;
+constexpr std::uint16_t K_PG_FAN = 5048;
+constexpr std::uint16_t K_PG_SPEED = 5049;
+constexpr std::uint16_t K_PG_SWITCHES = 5050;
+constexpr std::uint16_t K_PG_EXTRAS = 5051;
+constexpr std::uint16_t K_PG_PRESSURE = 5052;
+constexpr std::uint16_t K_PG_COOLING = 5053;
+constexpr std::uint16_t K_PG_SCALE = 5054;
+constexpr std::uint16_t K_PG_TC = 5055;
+constexpr std::uint16_t K_PG_AOG = 5056;
+constexpr std::uint16_t K_PG_GEOMETRY = 5057;
+constexpr std::uint16_t K_PG_DIAG = 5058;
+constexpr std::uint16_t K_PG_CALIB = 5059;
+constexpr std::uint16_t K_PG_INFO = 5060;
 constexpr std::uint16_t BTN_CALIB = 6000;
 constexpr std::uint16_t BTN_INFO = 6001;
 constexpr std::uint16_t BTN_DIAGNOSE = 6002;
 constexpr std::uint16_t BTN_MACHINE = 6003;
 constexpr std::uint16_t BTN_RATE = 6004;
 constexpr std::uint16_t BTN_DRIVE = 6005;
-constexpr std::uint16_t BTN_FAN = 6006;
-constexpr std::uint16_t BTN_SPEED = 6007;
-constexpr std::uint16_t BTN_SWITCHES = 6008;
-constexpr std::uint16_t BTN_EXTRAS = 6009;
-constexpr std::uint16_t BTN_PRESSURE = 6010;
-constexpr std::uint16_t BTN_COOLING = 6011;
-constexpr std::uint16_t BTN_SCALE = 6012;
-constexpr std::uint16_t BTN_TC = 6013;
-constexpr std::uint16_t BTN_AOG = 6014;
-constexpr std::uint16_t BTN_GEOMETRY = 6015;
-constexpr std::uint16_t BTN_DIAG = 6016;
+constexpr std::uint16_t BTN_MOTOR = 6006;
+constexpr std::uint16_t BTN_FAN = 6007;
+constexpr std::uint16_t BTN_SPEED = 6008;
+constexpr std::uint16_t BTN_SWITCHES = 6009;
+constexpr std::uint16_t BTN_EXTRAS = 6010;
+constexpr std::uint16_t BTN_PRESSURE = 6011;
+constexpr std::uint16_t BTN_COOLING = 6012;
+constexpr std::uint16_t BTN_SCALE = 6013;
+constexpr std::uint16_t BTN_TC = 6014;
+constexpr std::uint16_t BTN_AOG = 6015;
+constexpr std::uint16_t BTN_GEOMETRY = 6016;
+constexpr std::uint16_t BTN_DIAG = 6017;
 constexpr std::uint16_t VT_IN_WCAL_DIST = 9500;
 constexpr std::uint16_t VT_IN_WCAL_PULSES = 9501;
 constexpr std::uint16_t VT_IN_PRESS_REF = 9502;
@@ -255,13 +258,16 @@ constexpr std::uint16_t STR_NOTE_3 = 11091;
 constexpr std::uint16_t STR_NOTE_4 = 11092;
 constexpr std::uint16_t STR_NOTE_5 = 11093;
 constexpr std::uint16_t STR_NOTE_6 = 11094;
-constexpr std::uint16_t STR_TUNE_0 = 11466;
-constexpr std::uint16_t STR_TUNE_1 = 11467;
-constexpr std::uint16_t STR_TUNE_2 = 11468;
-constexpr std::uint16_t STR_TUNE_3 = 11469;
-constexpr std::uint16_t STR_TUNE_4 = 11470;
-constexpr std::uint16_t STR_TUNE_5 = 11471;
-constexpr std::uint16_t STR_TUNE_MSG = 11472;
+constexpr std::uint16_t STR_TURN_0 = 11456;
+constexpr std::uint16_t STR_TURN_1 = 11457;
+constexpr std::uint16_t STR_TURN_2 = 11458;
+constexpr std::uint16_t STR_TUNE_0 = 11484;
+constexpr std::uint16_t STR_TUNE_1 = 11485;
+constexpr std::uint16_t STR_TUNE_2 = 11486;
+constexpr std::uint16_t STR_TUNE_3 = 11487;
+constexpr std::uint16_t STR_TUNE_4 = 11488;
+constexpr std::uint16_t STR_TUNE_5 = 11489;
+constexpr std::uint16_t STR_TUNE_MSG = 11490;
 constexpr std::uint16_t OUT_ACT1 = 12000;
 constexpr std::uint16_t OUT_TGT1 = 12001;
 constexpr std::uint16_t OUT_ACT2 = 12002;
@@ -507,24 +513,25 @@ constexpr std::uint16_t PIC_MN_DIAGNOSE_29 = 30082;
 constexpr std::uint16_t PIC_MN_MACHINE_29 = 30083;
 constexpr std::uint16_t PIC_SK_DOSING_29 = 30084;
 constexpr std::uint16_t PIC_MN_DRIVE_29 = 30085;
-constexpr std::uint16_t PIC_SK_FAN_29 = 30086;
-constexpr std::uint16_t PIC_M_SPEED_29 = 30087;
-constexpr std::uint16_t PIC_SK_SWITCH_29 = 30088;
-constexpr std::uint16_t PIC_MN_EXTRAS_29 = 30089;
-constexpr std::uint16_t PIC_M_PRESSURE_29 = 30090;
-constexpr std::uint16_t PIC_M_TEMP_29 = 30091;
-constexpr std::uint16_t PIC_SK_CALIB_29 = 30092;
-constexpr std::uint16_t PIC_SK_TC_29 = 30093;
-constexpr std::uint16_t PIC_MN_AOG_29 = 30094;
-constexpr std::uint16_t PIC_SK_GEOM_29 = 30095;
-constexpr std::uint16_t PIC_MN_DIAG_29 = 30096;
-constexpr std::uint16_t PIC_GEO_MOUNTED_380_C = 30097;
-constexpr std::uint16_t PIC_GEO_STEER_FRONT_380_C = 30098;
-constexpr std::uint16_t PIC_GEO_STEER_REAR_380_C = 30099;
-constexpr std::uint16_t PIC_GEO_TRAILED_FRONT_380_C = 30100;
-constexpr std::uint16_t PIC_GEO_TRAILED_REAR_380_C = 30101;
-constexpr std::uint16_t PIC_M_ALARM_120_W = 30102;
-constexpr std::uint16_t PIC_M_ESC_LOGO_SMALL_60_K = 30103;
+constexpr std::uint16_t PIC_SK_TUNE_29 = 30086;
+constexpr std::uint16_t PIC_SK_FAN_29 = 30087;
+constexpr std::uint16_t PIC_M_SPEED_29 = 30088;
+constexpr std::uint16_t PIC_SK_SWITCH_29 = 30089;
+constexpr std::uint16_t PIC_MN_EXTRAS_29 = 30090;
+constexpr std::uint16_t PIC_M_PRESSURE_29 = 30091;
+constexpr std::uint16_t PIC_M_TEMP_29 = 30092;
+constexpr std::uint16_t PIC_SK_CALIB_29 = 30093;
+constexpr std::uint16_t PIC_SK_TC_29 = 30094;
+constexpr std::uint16_t PIC_MN_AOG_29 = 30095;
+constexpr std::uint16_t PIC_SK_GEOM_29 = 30096;
+constexpr std::uint16_t PIC_MN_DIAG_29 = 30097;
+constexpr std::uint16_t PIC_GEO_MOUNTED_380_C = 30098;
+constexpr std::uint16_t PIC_GEO_STEER_FRONT_380_C = 30099;
+constexpr std::uint16_t PIC_GEO_STEER_REAR_380_C = 30100;
+constexpr std::uint16_t PIC_GEO_TRAILED_FRONT_380_C = 30101;
+constexpr std::uint16_t PIC_GEO_TRAILED_REAR_380_C = 30102;
+constexpr std::uint16_t PIC_M_ALARM_120_W = 30103;
+constexpr std::uint16_t PIC_M_ESC_LOGO_SMALL_60_K = 30104;
 
 constexpr std::uint16_t PIC_TANK_L[2] = {30055, 30056};
 constexpr std::uint16_t PIC_TANK_R[2] = {30057, 30058};
@@ -535,7 +542,7 @@ constexpr std::uint16_t PIC_LAMP_S[2] = {30070, 30071};
 constexpr std::uint16_t PIC_VALVE_S[2] = {30072, 30073};
 constexpr std::uint16_t PIC_COOLER_S[2] = {30074, 30075};
 constexpr std::uint16_t PIC_SEC_S[2] = {30076, 30077};
-constexpr std::uint16_t PIC_GEO[5] = {30097, 30098, 30099, 30100, 30101};
+constexpr std::uint16_t PIC_GEO[5] = {30098, 30099, 30100, 30101, 30102};
 constexpr std::uint16_t PIC_K_MASTER[2] = {30000, 30001};
 constexpr std::uint16_t PIC_K_METER1[2] = {30002, 30003};
 constexpr std::uint16_t PIC_K_METER2[2] = {30004, 30005};
@@ -555,7 +562,7 @@ constexpr std::uint16_t STR_ALARM[19] = {11024, 11025, 11026, 11027, 11028, 1102
 constexpr std::uint16_t STR_ALARMBIG[19] = {11043, 11044, 11045, 11046, 11047, 11048, 11049, 11050, 11051, 11052, 11053, 11054, 11055, 11056, 11057, 11058, 11059, 11060, 11061};
 constexpr std::uint16_t STR_CAL[3] = {11062, 11063, 11064};
 constexpr std::uint16_t STR_METER[2] = {11083, 11084};
-constexpr std::uint16_t STR_TUNE[6] = {11466, 11467, 11468, 11469, 11470, 11471};
+constexpr std::uint16_t STR_TUNE[6] = {11484, 11485, 11486, 11487, 11488, 11489};
 constexpr std::uint16_t PIC_K_TUNE_METER[2] = {30003, 30005};
 constexpr std::uint16_t STR_SETUP[3] = {11085, 11086, 11087};
 constexpr std::uint16_t STR_NOTE[7] = {11088, 11089, 11090, 11091, 11092, 11093, 11094};
@@ -564,21 +571,22 @@ constexpr std::uint16_t K_BLANK[3] = {5016, 5017, 5018};
 constexpr std::uint16_t SK_MAIN[2][2] = {{4000, 4001}, {4002, 4003}};
 
 struct PageInfo { const char *id; std::uint16_t mask; std::uint16_t button; std::uint16_t key; };
-constexpr PageInfo PAGES[14] = {
+constexpr PageInfo PAGES[15] = {
     {"machine", 1040, 6003, 5044},
     {"rate", 1041, 6004, 5045},
     {"drive", 1042, 6005, 5046},
-    {"fan", 1043, 6006, 5047},
-    {"speed", 1044, 6007, 5048},
-    {"switches", 1045, 6008, 5049},
-    {"extras", 1046, 6009, 5050},
-    {"pressure", 1047, 6010, 5051},
-    {"cooling", 1048, 6011, 5052},
-    {"scale", 1049, 6012, 5053},
-    {"tc", 1050, 6013, 5054},
-    {"aog", 1051, 6014, 5055},
-    {"geometry", 1052, 6015, 5056},
-    {"diag", 1053, 6016, 5057},
+    {"motor", 1043, 6006, 5047},
+    {"fan", 1044, 6007, 5048},
+    {"speed", 1045, 6008, 5049},
+    {"switches", 1046, 6009, 5050},
+    {"extras", 1047, 6010, 5051},
+    {"pressure", 1048, 6011, 5052},
+    {"cooling", 1049, 6012, 5053},
+    {"scale", 1050, 6013, 5054},
+    {"tc", 1051, 6014, 5055},
+    {"aog", 1052, 6015, 5056},
+    {"geometry", 1053, 6016, 5057},
+    {"diag", 1054, 6017, 5058},
 };
 constexpr std::uint16_t BTN_PAGE_CALIB = 6000;
 constexpr std::uint16_t BTN_PAGE_INFO = 6001;

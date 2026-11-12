@@ -371,6 +371,73 @@ TEST(electric_drive_master_still_needed) {
     CHECK(s.status().state == SowState::Sowing);
 }
 
+TEST(shared_motor_drives_both_meters_with_clutches) {
+    // egy motor + két adagoló kuplunggal: a motor a haladással arányosan forog, a kuplungok kapcsolnak
+    Seeder s = make([](Settings &st) {
+        st.drive_type = 1; st.motor_layout = 1; st.meter_count = 2; st.width_m = 6.0f; st.crank_turns_10 = 85.0f;
+        st.sim_speed = 8.0f; st.prefill_auto = 0; st.motor_max_rpm = 120.0f; st.clutch_mode = 0;
+    });
+    CHECK(shared_motor(s.settings()));
+    Machine m = down_machine();
+    s.set_master(true);
+    m.run(s, 5.0f);
+    const float want = 8.0f * 6.0f * 85.0f / 60.0f;   // 68 1/min
+    CHECK(std::fabs(s.status().meter[0].target_rpm - want) < 0.5f);
+    CHECK(std::fabs(s.status().meter[1].target_rpm - want) < 0.5f);
+    CHECK(s.outputs().clutch_drive[0] && s.outputs().clutch_drive[1]);
+    CHECK(s.outputs().clutch_level[0] && s.outputs().clutch_level[1]);   // áram alatt hajt
+    CHECK(s.outputs().motor_pwm_pct[0] > 1.0f);
+    CHECK(s.outputs().motor_pwm_pct[1] < 0.01f);                           // a 2. motorkimenet nem kell
+    CHECK(std::fabs(s.status().meter[0].rpm - want) < want * 0.15f);       // szabályoz az 1. enkóderre
+    // a 2. adagoló kikapcsolva: a kuplungja old, a motor forog tovább
+    s.set_meter(1, false);
+    m.run(s, 1.0f);
+    CHECK(s.outputs().clutch_drive[0] && !s.outputs().clutch_drive[1]);
+    CHECK(s.outputs().motor_pwm_pct[0] > 1.0f);
+    // kiemelés: motor áll, kuplungok oldanak
+    m.in.work_contact = false;
+    m.run(s, 2.0f);
+    CHECK(!s.outputs().clutch_drive[0] && !s.outputs().clutch_drive[1]);
+    CHECK(s.outputs().motor_pwm_pct[0] < 0.5f);
+}
+
+TEST(shared_motor_crank_closes_only_selected_clutch) {
+    Seeder s = make([](Settings &st) {
+        st.drive_type = 1; st.motor_layout = 1; st.meter_count = 2; st.sim_speed = 0.0f; st.prefill_auto = 0;
+    });
+    Machine m = down_machine();
+    m.run(s, 0.5f);
+    s.crank_set_meter(1);
+    CHECK(s.crank_hold(true, 5.0f));
+    m.run(s, 2.0f);
+    CHECK(!s.outputs().clutch_drive[0] && s.outputs().clutch_drive[1]);
+    CHECK(s.outputs().motor_pwm_pct[0] > 1.0f);
+    CHECK(s.status().crank.counted_revs > 0.1f);   // a 2. adagoló leforgatása az 1. enkóderből számol
+    s.crank_hold(false);
+    m.run(s, 1.0f);
+    CHECK(s.outputs().motor_pwm_pct[0] < 0.5f);
+}
+
+TEST(crank_turns_follow_machine_constant) {
+    Seeder s = make([](Settings &st) { st.crank_turns_10 = 120.0f; });
+    CHECK(std::fabs(chart::turns(0, 120.0) - 120.0) < 1e-9);
+    CHECK(std::fabs(chart::turns(1, 120.0) - 60.0) < 1e-9);
+    CHECK(std::fabs(chart::turns(2, 120.0) - 24.0) < 1e-9);
+    CHECK(std::fabs(chart::turns(0) - 85.0) < 1e-9);
+    // 120 fordulat 3 kg → 1/10 ha → 30 kg/ha
+    const auto r = chart::calculate(0, 200.0, 0, 3.0, 1.0, 0, 120.0, 120.0);
+    CHECK(std::fabs(r.actual_rate - 30.0) < 1e-6);
+    CHECK(s.status_json().find("\"turns\":120") != std::string::npos);
+}
+
+TEST(motor_direction_one_way_driver_never_reverses) {
+    Seeder s = make([](Settings &st) { st.drive_type = 1; st.motor_driver = 0; st.sim_speed = 8.0f; st.prefill_auto = 0; });
+    Machine m = down_machine();
+    s.set_master(true);
+    m.run(s, 2.0f);
+    CHECK(!s.outputs().motor_rev[0] && !s.outputs().motor_rev[1]);
+}
+
 TEST(electric_drive_work_switch_lift_and_lower) {
     // elektromos hajtás + NO munkakapcsoló: kiemelve a motor áll, leengedve hajt (vetés BE mellett)
     Seeder s = make([](Settings &st) { st.drive_type = 1; st.prefill_auto = 0; });

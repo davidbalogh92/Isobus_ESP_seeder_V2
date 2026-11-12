@@ -324,8 +324,10 @@ bool ds_read(const std::uint8_t *rom, float &c) {
 // ============================================================== kimenetek
 std::atomic<bool> gpio_out_ready{false};
 std::atomic<float> pwm_now[2];
+std::atomic<float> pwm_aux_now[2];
 std::atomic<int> pwm_freq{0};
 bool pwm_ready[2] = {false, false};
+int aux_mode = -1;   ///< a második jel (GPIO21 / 45) módja: 0 nincs, 1 DIR (digitális), 2 LPWM (LEDC)
 
 void set_out(const Pin &p, bool level, std::uint8_t &exp_bits) {
     if (p.kind == PinKind::Gpio) gpio_set_level(static_cast<gpio_num_t>(p.num), level ? 1 : 0);
@@ -367,6 +369,38 @@ void pwm_setup(int freq) {
         }
     }
     pwm_freq = freq;
+}
+
+// második motorjel (GPIO21 / GPIO45): 0 = nincs használva (bemenet), 1 = DIR kimenet, 2 = LPWM (LEDC 3 / 4)
+void aux_setup(int mode) {
+    if (mode == aux_mode) return;
+    for (int i = 0; i < 2; ++i) {
+        const int g = board::MOTOR_AUX_GPIO[i];
+        if (g < 0) continue;
+        if (aux_mode == 2) ledc_stop(LEDC_LOW_SPEED_MODE, static_cast<ledc_channel_t>(LEDC_CHANNEL_3 + i), 0);
+        gpio_reset_pin(static_cast<gpio_num_t>(g));
+        if (mode == 1) {
+            gpio_set_direction(static_cast<gpio_num_t>(g), GPIO_MODE_OUTPUT);
+            gpio_set_level(static_cast<gpio_num_t>(g), 0);
+        } else if (mode == 2) {
+            ledc_channel_config_t c{};
+            c.gpio_num = g;
+            c.speed_mode = LEDC_LOW_SPEED_MODE;
+            c.channel = static_cast<ledc_channel_t>(LEDC_CHANNEL_3 + i);
+            c.timer_sel = LEDC_TIMER_0;   // ugyanaz a frekvencia, mint az előre-PWM
+            c.duty = 0;
+            c.hpoint = 0;
+            ledc_channel_config(&c);
+        }
+        pwm_aux_now[i] = 0.0f;
+    }
+    aux_mode = mode;
+}
+
+void ledc_put(int channel, float pct) {
+    const auto duty = static_cast<std::uint32_t>(std::lround(std::max(0.0f, std::min(100.0f, pct)) / 100.0f * 1023.0f));
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, static_cast<ledc_channel_t>(channel), duty);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, static_cast<ledc_channel_t>(channel));
 }
 
 // hangjelző: passzív zümmer LEDC-vel (külön időzítő, hogy a motor-PWM frekvenciája ne hasson rá)
@@ -639,14 +673,26 @@ void apply(const seeder::Outputs &o, const seeder::Settings &s) {
     // adagolómotorok
     const int freq = std::max<int>(100, std::min<int>(20000, s.pwm_freq_hz));
     if (board::MOTOR_PWM_GPIO[0] >= 0 && pwm_freq.load() != freq) pwm_setup(freq);
+    // motorvezérlő bekötése: 0 csak PWM, 1 PWM + DIR, 2 PWM + PWM (IBT-2)
+    const int drv = seeder::electric_drive(s) ? std::max<int>(0, std::min<int>(2, s.motor_driver)) : 0;
+    if (pwm_ready[0] || pwm_ready[1]) aux_setup(drv);
     for (int i = 0; i < 2; ++i) {
         if (!pwm_ready[i]) continue;
         const float pct = std::max(0.0f, std::min(100.0f, o.motor_pwm_pct[i]));
-        if (std::fabs(pct - pwm_now[i].load()) < 0.05f) continue;
-        const auto duty = static_cast<std::uint32_t>(std::lround(pct / 100.0f * 1023.0f));
-        ledc_set_duty(LEDC_LOW_SPEED_MODE, static_cast<ledc_channel_t>(LEDC_CHANNEL_0 + i), duty);
-        ledc_update_duty(LEDC_LOW_SPEED_MODE, static_cast<ledc_channel_t>(LEDC_CHANNEL_0 + i));
-        pwm_now[i] = pct;
+        // a mag már a holtidőt (irányváltáskor 0) is kezeli; itt csak a logikai irányt képezzük le
+        const bool rev = drv != 0 && (o.motor_rev[i] != (s.motor_invert != 0));
+        const float fwd_pct = drv == 2 && rev ? 0.0f : pct;
+        const float aux_pct = drv == 2 && rev ? pct : 0.0f;
+        if (drv == 1 && board::MOTOR_AUX_GPIO[i] >= 0)
+            gpio_set_level(static_cast<gpio_num_t>(board::MOTOR_AUX_GPIO[i]), rev ? 1 : 0);
+        if (std::fabs(fwd_pct - pwm_now[i].load()) >= 0.05f) {
+            ledc_put(LEDC_CHANNEL_0 + i, fwd_pct);
+            pwm_now[i] = fwd_pct;
+        }
+        if (drv == 2 && board::MOTOR_AUX_GPIO[i] >= 0 && std::fabs(aux_pct - pwm_aux_now[i].load()) >= 0.05f) {
+            ledc_put(LEDC_CHANNEL_3 + i, aux_pct);
+            pwm_aux_now[i] = aux_pct;
+        }
     }
 }
 

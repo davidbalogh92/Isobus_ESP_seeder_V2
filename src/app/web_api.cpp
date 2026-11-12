@@ -53,6 +53,11 @@ ApiResult handle_api(Shared &shared, SeederApp *isobus, const std::string &metho
         // a leforgatási segéd növénylistája, fordulatszám-opciói és beállítási táblázata (skála → kg/ha)
         std::string o = "{\"crops\":[";
         char b[32];
+        float turns10;
+        {
+            std::lock_guard<std::mutex> g(shared.lock);
+            turns10 = shared.core.settings().crank_turns_10;
+        }
         auto arr = [&o, &b](const float *v, int n) {
             o += '[';
             for (int i = 0; i < n; ++i) {
@@ -82,7 +87,7 @@ ApiResult handle_api(Shared &shared, SeederApp *isobus, const std::string &metho
         }
         o += "],\"turns\":[";
         for (int i = 0; i < seeder::chart::TURN_OPTIONS; ++i) {
-            std::snprintf(b, sizeof(b), "%s%.1f", i ? "," : "", seeder::chart::turns(i));
+            std::snprintf(b, sizeof(b), "%s%.1f", i ? "," : "", seeder::chart::turns(i, turns10));
             o += b;
         }
         return ok(o + "]}");

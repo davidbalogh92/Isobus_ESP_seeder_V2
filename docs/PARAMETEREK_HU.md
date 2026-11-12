@@ -23,6 +23,7 @@ _Generált fájl (tools/gen_params.py). Minden paraméter a webes felületen (Be
 | `cal2_kg_rev` | 2. adagoló kg / adagolófordulat (leforgatásból) | 0.2353 kg | 0.0001 – 20 kg | ADAGOLÁS, FELTÖLTÉS |  |
 | `rate_step_pct` | Léptetés (+/− gomb) | 5.0 % | 1 – 50 % | ADAGOLÁS, FELTÖLTÉS |  |
 | `rate_tol_pct` | Eltérés riasztás (elektromos hajtás) | 10.0 % | 2 – 50 % | ADAGOLÁS, FELTÖLTÉS |  |
+| `crank_turns_10` | Leforgatás: adagoló-fordulat 1/10 ha-ra | 85.0 ford | 5 – 2000 ford | ADAGOLÁS, FELTÖLTÉS | Gépállandó: ennyi adagolófordulat felel meg 1/10 hektárnak (Accord: 85). Ebből számolódik a leforgatás 1/10, 1/20 és 1/50 ha-os célja, és egymotoros elektromos hajtásnál a motor fordulata. |
 | `crank_autostop` | Leforgatás megáll a célfordulatnál | Igen | Nem / Igen | ADAGOLÁS, FELTÖLTÉS | Elektromos hajtásnál a motor a célfordulatnál (85 / 42,5 / 17) magától megáll, akkor is, ha a gombot még nyomod. 'Nem': amíg nyomod, forog. |
 | `prefill_auto` | Automatikus feltöltés induláskor (sarkokban) | Igen | Nem / Igen | ADAGOLÁS, FELTÖLTÉS | Csak elektromos hajtásnál. Ha álló gépnél leengeded a gépet (munkakapcsoló) vagy elindítod a vetést, az adagolók a 'feltöltési sebességhez' tartozó fordulattal előre feltöltik a csöveket, majd az indulás után még az utánfutási ideig így forognak. |
 | `prefill_speed_kmh` | Feltöltési (elméleti) sebesség | 8.0 km/h | 1 – 20 km/h | ADAGOLÁS, FELTÖLTÉS |  |
@@ -45,7 +46,11 @@ _Generált fájl (tools/gen_params.py). Minden paraméter a webes felületen (Be
 | `ramp_up_s` | Felfutás (0 → 100%) | 1.0 s | 0 – 10 s | ADAGOLÓHAJTÁS |  |
 | `ramp_down_s` | Lefutás (100% → 0) | 0.5 s | 0 – 10 s | ADAGOLÓHAJTÁS |  |
 | `reg_gain` | Szabályzási állandó (1 lassú – 10 gyors) | 5 | 1 – 10 | ADAGOLÓHAJTÁS |  |
-| `pwm_freq_hz` | PWM frekvencia | 1000 Hz | 100 – 20000 Hz | – |  |
+| `pwm_freq_hz` | PWM frekvencia | 1000 Hz | 100 – 20000 Hz | MOTORVEZÉRLÕ | Cytron / Pololu / IBT-2: 16000–20000 Hz csendes (nem sípol). Alacsonyabb frekvencián a motor jobban indul kis PWM-nél, de hallhatóan sípol. |
+| `motor_layout` | Motorok (elektromos hajtás) | Adagolónként saját motor | Adagolónként saját motor / Egy motor hajtja mindkét adagolót (kuplungokkal) | MOTORVEZÉRLÕ | Egy motornál a motor a talajkereket helyettesíti: a haladással arányosan forog (fordulat 1/10 ha-ra alapján), a kg/ha-t adagolónként a skála adja, a kuplungok adagolónként kapcsolnak (mint talajhajtásnál). Az 1. motor kimenetét használja, a fordulatot az 1. adagoló enkódere (IN3) méri. |
+| `motor_driver` | Motorvezérlő bekötése | Csak PWM (egy irány) | Csak PWM (egy irány) / PWM + DIR (Cytron, Pololu) / PWM + PWM (IBT-2) | MOTORVEZÉRLÕ | Csak PWM: GPIO47 / GPIO48 a PWM, a motor csak előre forog. PWM + DIR: GPIO47 / 48 a PWM, GPIO21 / 45 az irány (DIR). PWM + PWM (IBT-2): előre GPIO47 / 48 (RPWM), hátra GPIO21 / 45 (LPWM), R_EN és L_EN 5 V-on. Az 1. motor 47 + 21, a 2. motor 48 + 45. A visszafordításhoz (beszorulás) irányváltós bekötés kell. |
+| `motor_invert` | Forgásirány megfordítása | Nem | Nem / Igen | MOTORVEZÉRLÕ | Ha a motor 'előre' parancsra visszafelé forog (irányváltós bekötésnél). |
+| `motor_deadband_pct` | Indulási PWM (holtsáv) | 0.0 % | 0 – 60 % | MOTORVEZÉRLÕ | Ennél kisebb PWM-nél a motor nem forog. Az önhangolás méri és menti; a terhelési mutató és az előrecsatolás pontosításához. |
 
 ## Turbina
 

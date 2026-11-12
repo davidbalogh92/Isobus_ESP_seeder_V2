@@ -111,10 +111,10 @@ inline int choose_drive(int c, double rate) {
     return rate <= m.rate[m.n - 1] + 1e-4 ? DRIVE_MIKRO : DRIVE_NORMAL;
 }
 
-/// Leforgatás: 85 fordulat = 1/10 ha.
+/// Leforgatás: base fordulat = 1/10 ha (gépállandó, Accord: 85). Opciók: 1/10, 1/20, 1/50 ha.
 static constexpr int TURN_OPTIONS = 3;
-inline double turns(int option) { return option == 1 ? 42.5 : option == 2 ? 17.0 : 85.0; }
-inline double test_area_ha(int option) { return turns(option) / 850.0; }
+inline double test_area_ha(int option) { return option == 1 ? 0.05 : option == 2 ? 0.02 : 0.1; }
+inline double turns(int option, double base = 85.0) { return (base > 0.1 ? base : 85.0) * 10.0 * test_area_ha(option); }
 
 struct Result {
     int drive = DRIVE_NONE;      // aprómag: N vagy M
@@ -136,7 +136,7 @@ struct Result {
 /// revs > 0: a ténylegesen megszámolt fordulat (pl. 84,5 vagy megszakított leforgatás) – a kg/fordulat és a
 /// kg/ha ebből számolódik; 0 = a kiválasztott opció (85 / 42,5 / 17).
 inline Result calculate(int crop, double wanted_kg_ha, int turn_option, double measured_kg, double hectares,
-                        double test_scale = 0, double revs = 0) {
+                        double test_scale = 0, double revs = 0, double base = 85.0) {
     Result r;
     r.drive = choose_drive(crop, wanted_kg_ha);
     r.flap = is_fine(crop) ? 'Z' : 'A';
@@ -149,8 +149,8 @@ inline Result calculate(int crop, double wanted_kg_ha, int turn_option, double m
     r.expected_kg = chart_test * test_area_ha(turn_option);
     r.seed_kg = wanted_kg_ha * (hectares > 0 ? hectares : 0);
     if (measured_kg > 0) {
-        const double n = revs > 0.05 ? revs : turns(turn_option);
-        r.actual_rate = measured_kg / (n / 850.0);
+        const double n = revs > 0.05 ? revs : turns(turn_option, base);
+        r.actual_rate = measured_kg / (n / ((base > 0.1 ? base : 85.0) * 10.0));
         r.kg_per_rev = measured_kg / n;
         if (chart_test > 0 && r.test_range == 0) {
             const double factor = r.actual_rate / chart_test;          // ez a vetőmagtétel a táblázathoz képest

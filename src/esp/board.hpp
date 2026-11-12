@@ -44,7 +44,10 @@ constexpr int BUZZER_GPIO = 46;                     // a panel hangjelzője (pas
 // beépített W5500 Ethernet (SPI) – AgOpenGPS / AgIO hálózat
 constexpr bool HAS_ETH = true;
 constexpr int ETH_SCLK = 15, ETH_MOSI = 13, ETH_MISO = 14, ETH_CS = 16, ETH_INT = 12;
-constexpr int MOTOR_PWM_GPIO[2] = {47, 48};         // motorvezérlő PWM (Cytron MD13S / IBT-2, egy irány)
+constexpr int MOTOR_PWM_GPIO[2] = {47, 48};         // motorvezérlő PWM (előre / IBT-2 RPWM)
+// második motorvezérlő-jel: PWM + DIR módban a DIR, IBT-2 módban az LPWM (hátra). Csak irányváltós
+// bekötésnél kapcsoljuk be (a GPIO45 indításkori „strapping” láb: indításkor nem húzhatja fel semmi).
+constexpr int MOTOR_AUX_GPIO[2] = {21, 45};
 constexpr int HX711_DATA = 1, HX711_CLOCK = 2;
 constexpr int ONEWIRE_GPIO = 3;                     // 2 db DS18B20, 4,7 kΩ felhúzó a 3,3 V-ra
 
@@ -72,8 +75,10 @@ constexpr PinInfo PINMAP[] = {
     {"Relé 6", "Hűtőventilátor", "TCA9554 P5"},
     {"Relé 7", "Hűtőventilátor irányváltó (visszafúvás)", "TCA9554 P6 – motor polaritásváltó / hidraulika"},
     {"Relé 8", "Tartalék", "TCA9554 P7"},
-    {"GPIO47", "1. adagolómotor PWM", "motorvezérlő (Cytron MD13S / IBT-2), egy irány"},
-    {"GPIO48", "2. adagolómotor PWM", "motorvezérlő, egy irány"},
+    {"GPIO47", "1. adagolómotor PWM (IBT-2: RPWM)", "Cytron / Pololu: PWM · IBT-2: RPWM, R_EN+L_EN 5 V-ra"},
+    {"GPIO48", "2. adagolómotor PWM (IBT-2: RPWM)", "mint fent, 2. motor"},
+    {"GPIO21", "1. motor DIR (PWM+DIR) / LPWM (IBT-2)", "csak irányváltós bekötésnél"},
+    {"GPIO45", "2. motor DIR (PWM+DIR) / LPWM (IBT-2)", "indításkor nem húzhatja fel semmi (strapping láb)"},
     {"GPIO1 / GPIO2", "HX711 DATA / CLOCK (leforgatási mérleg)", "3,3 V táp"},
     {"GPIO3", "DS18B20 hőmérők (1-Wire)", "4,7 kΩ felhúzó a 3,3 V-ra"},
     {"I2C SDA42 / SCL41", "TCA9554 relék (0x20), ADS1115 (0x48)", "ADS1115: külső modul szintillesztővel"},

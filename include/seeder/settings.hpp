@@ -32,6 +32,10 @@ int meter_count(const Settings &s);
 int section_count(const Settings &s);
 int tank_count(const Settings &s);
 bool electric_drive(const Settings &s);
+/// Egy motor hajtja mindkét adagolót (kuplungokkal): elektromos hajtás, 2 adagoló, "egy motor" elrendezés.
+bool shared_motor(const Settings &s);
+/// A motorvezérlő tud-e hátrafelé forgatni (PWM+DIR vagy IBT-2 bekötés).
+bool motor_reversible(const Settings &s);
 /// Az i. adagoló által vetett szélesség (m). Bal/jobb elrendezésnél a félszélesség, első/hátsó
 /// soros gépnél és 1 adagolónál a teljes munkaszélesség.
 float meter_width(const Settings &s, int meter);

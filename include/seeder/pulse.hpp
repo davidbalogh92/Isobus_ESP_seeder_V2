@@ -16,8 +16,11 @@ struct PulseSample {
 
 class PulseRate {
 public:
-    explicit PulseRate(float window_s = 1.0f, float smoothing_tau_s = 0.25f)
-        : window_s_(window_s), tau_s_(smoothing_tau_s) {}
+    /// @param min_pulses ha > 0: az ablak rövidebb is lehet (legalább min_window_s), ha már ennyi impulzus van
+    ///                   benne – sűrű jelnél (motorenkóder) gyorsabb mérés, ritka jelnél marad a hosszú ablak
+    explicit PulseRate(float window_s = 1.0f, float smoothing_tau_s = 0.25f, std::uint32_t min_pulses = 0,
+                       float min_window_s = 0.3f)
+        : window_s_(window_s), tau_s_(smoothing_tau_s), min_pulses_(min_pulses), min_window_s_(min_window_s) {}
 
     void reset() {
         head_ = 0;
@@ -37,6 +40,7 @@ public:
         float t = 0.0f;
         std::uint32_t c = 0;
         for (std::size_t i = 0; i < filled_ && t < window_s_; ++i) {
+            if (min_pulses_ > 0 && c >= min_pulses_ && t >= min_window_s_) break;
             const std::size_t k = (head_ + N - 1 - i) % N;
             t += dt_[k];
             c += cnt_[k];
@@ -73,6 +77,8 @@ private:
     std::array<std::uint32_t, N> cnt_{};
     std::size_t head_ = 0, filled_ = 0;
     float window_s_, tau_s_;
+    std::uint32_t min_pulses_;
+    float min_window_s_;
     float hz_ = 0.0f, raw_hz_ = 0.0f;
 };
 

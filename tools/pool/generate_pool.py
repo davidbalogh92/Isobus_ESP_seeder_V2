@@ -393,6 +393,7 @@ PAGE_INFO = {
     "machine": ("Gép", "menu/menu_machine"),
     "rate": ("Adagolás", "softkeys/softkey_dosing"),
     "drive": ("Hajtás", "menu/menu_drive"),
+    "motor": ("Motorvezérlõ", "softkeys/softkey_tune"),
     "fan": ("Turbina", "softkeys/softkey_fan"),
     "speed": ("Sebesség", "main/main_speed"),
     "switches": ("Kapcsolók", "softkeys/softkey_switch"),
@@ -515,7 +516,7 @@ NOTE_TEXTS = ["", "Kívánt menny. a táblázat felett!", "Kívánt menny. a tá
 STR_NOTE = [S(t, 388, 18, F_LABEL_R if 0 < i < 6 else F_LABEL, name=f"STR_NOTE_{i}") for i, t in enumerate(NOTE_TEXTS)]
 CROPS = ["Búza", "Rozs", "Árpa", "Zab", "Lóbab", "Borsó", "Csillagfürt", "Bükköny", "Kukorica", "Fû",
          "Repce", "Vöröshere", "Fû aprómag", "Tarlórépa"]
-TURNS = ["85", "42,5", "17"]
+TURNS = ["85      ", "42,5    ", "17      "]   # futás közben átírva (fordulat 1/10 ha-ra)
 
 # ================================================================== FŐKÉPERNYŐ
 TANK_SIZE = 140
@@ -647,6 +648,8 @@ DM_MENU = P.data_mask(1030, SK_MENU, menu, name="DM_MENU")
 
 # ================================================================== BEÁLLÍTÓOLDALAK
 VT_OPTION_SHORT = {
+    "motor_layout": ("Saját motor", "Egy motor"),
+    "motor_driver": ("Csak PWM", "PWM + DIR", "PWM + PWM"),
     "meter_layout": ("Bal / jobb", "Elsõ / hátsó"),
     "drive_type": ("Talaj+kuplung", "El. motor"),
     "clutch_mode": ("Áram: hajt", "Áram: old"),
@@ -713,10 +716,12 @@ def custom_row(text, name, step, vmin, vmax, decimals, unit, h, value=0.0):
     return kids
 
 
-def custom_list(text, name, items, h):
+def custom_list(text, name, items, h, item_names=None):
     ident = P.new_id(9500)
     CUSTOM_INPUTS[name] = (ident, 1, 0, len(items) - 1, 0)
-    P.in_list(ident, ROW_W_LIST, h - 6, [S(o, ROW_W_LIST - 18, 18, F_INPUT_S) for o in items], 0, name=name)
+    P.in_list(ident, ROW_W_LIST, h - 6, [S(o, ROW_W_LIST - 18, 18, F_INPUT_S,
+                                          name=item_names[k] if item_names else None) for k, o in enumerate(items)],
+              0, name=name)
     return [label(text, h), (ident, ROW_X_INPUT, 3)]
 
 
@@ -838,7 +843,7 @@ cal_rows = [
     lambda: output_row("Táblázati skála", C(186, 28, [(N("OUT_CAL_SCALE", 64, F_VALUE_N, 1, 0.1), 0, 0),
                                                       (P.obj_ptr(27141, STR_SETUP[0], "OP_CAL_SETUP"), 70, 6)]),
                        "", h),
-    lambda: custom_list("Fordulat", "VT_IN_CAL_TURNS", TURNS, h),
+    lambda: custom_list("Fordulat", "VT_IN_CAL_TURNS", TURNS, h, [f"STR_TURN_{k}" for k in range(3)]),
     lambda: custom_row("Próbaskála", "VT_IN_CAL_TSCALE", 0.1, 0, 200, 1, "", h),
     # megszámolt fordulat / cél (nyomva tartásos leforgatás: megszakítható, folytatható)
     lambda: output_row("Megszámolt ford.", C(186, 28, [(N("OUT_CAL_REVS", 92, F_VALUE_N, 1, 0.1), 0, 0),

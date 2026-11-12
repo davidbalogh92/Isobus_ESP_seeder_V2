@@ -207,6 +207,7 @@ struct Outputs {
     bool clutch_level[MAX_METERS] = {false, false};
     bool clutch_drive[MAX_METERS] = {false, false};   ///< logikai: az adagoló hajtva
     float motor_pwm_pct[MAX_METERS] = {0.0f, 0.0f};
+    bool motor_rev[MAX_METERS] = {false, false};     ///< logikai irány: hátra (visszafordítás)
     bool lamp_level[2] = {false, false};
     bool valve_level = false;
     bool cooler_level = false;
@@ -429,7 +430,8 @@ private:
     MotorTuner tuner_;
     PulseRate wheel_rate_{1.5f, 0.3f};
     PulseRate fan_rate_{1.0f, 0.4f};
-    PulseRate meter_rate_[MAX_METERS] = {PulseRate{2.0f, 0.3f}, PulseRate{2.0f, 0.3f}};
+    // sűrű enkóderjelnél rövidebb ablak (≥ 30 impulzus, ≥ 0,3 s) → gyorsabb motorszabályzás, kisebb túllövés
+    PulseRate meter_rate_[MAX_METERS] = {PulseRate{2.0f, 0.15f, 30, 0.3f}, PulseRate{2.0f, 0.15f, 30, 0.3f}};
 
     bool master_ = false;
     bool meter_enable_[MAX_METERS] = {true, true};
@@ -475,6 +477,13 @@ private:
 
     // figyelés
     float since_pulse_[MAX_METERS] = {0.0f, 0.0f};
+    // irányváltás holtidővel (a H-híd ne kapjon keresztáramot)
+    bool dir_rev_[MAX_METERS] = {false, false};
+    float dir_dead_s_[MAX_METERS] = {0.0f, 0.0f};
+    void drive_motor(int i, float pwm, bool rev, float dt);
+    // egymotoros (kuplungos) elektromos hajtás
+    float shared_target_rpm_ = 0.0f;
+    float shared_pwm_ = 0.0f;
     float meter_run_time_[MAX_METERS] = {0.0f, 0.0f};
     float rate_dev_timer_[MAX_METERS] = {0.0f, 0.0f};
     float fan_low_timer_ = 0.0f, fan_high_timer_ = 0.0f;

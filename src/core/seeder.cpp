@@ -299,6 +299,23 @@ MotorOutput MotorController::step(const Settings &s, float dt, float target_rpm,
 }
 
 // ------------------------------------------------------------------------- vezérlő
+void Seeder::drive_motor(int i, float pwm, bool rev, float dt) {
+    if (!motor_reversible(settings_)) rev = false;
+    if (rev != dir_rev_[i]) {
+        // irányváltás: előbb 0, 100 ms holtidő, utána az új irány
+        outputs_.motor_pwm_pct[i] = 0.0f;
+        dir_dead_s_[i] += dt;
+        if (dir_dead_s_[i] >= 0.1f) {
+            dir_rev_[i] = rev;
+            dir_dead_s_[i] = 0.0f;
+        }
+    } else {
+        dir_dead_s_[i] = 0.0f;
+        outputs_.motor_pwm_pct[i] = pwm;
+    }
+    outputs_.motor_rev[i] = dir_rev_[i];
+}
+
 Seeder::Seeder() : settings_(default_settings()) { update_crank_result(); }
 
 void Seeder::load(const Settings &settings, const Persistent &persistent) {
@@ -569,7 +586,7 @@ double Seeder::crank_effective_revs() const {
     const Settings &S = settings_;
     const int ppr = electric_drive(S) ? S.encoder_ppr : S.meter_ppr;
     // fél fordulatos cél (42,5) kevés impulzusos jeladóval: a 42 egész után a felet a kezelő kézzel teszi rá
-    const double target = chart::turns(crank_.turn_option);
+    const double target = chart::turns(crank_.turn_option, settings_.crank_turns_10);
     const double whole = std::floor(target);
     if (ppr < 2 && target - whole > 0.25 && std::fabs(n - whole) < 0.01) n += 0.5;
     return n;
@@ -581,7 +598,8 @@ void Seeder::update_crank_result() {
     crank_.measured_kg = sum;
     crank_.motor_revs_done = crank_.counted_revs;
     crank_result_ = chart::calculate(crank_.crop, rate_setting(settings_, m), crank_.turn_option, crank_.measured_kg,
-                                     crank_.hectares, crank_.test_scale, crank_effective_revs());
+                                     crank_.hectares, crank_.test_scale, crank_effective_revs(),
+                                     settings_.crank_turns_10);
     status_.crank = crank_;
     status_.crank_result = crank_result_;
 }
@@ -596,7 +614,7 @@ void Seeder::crank_set_crop(int crop) {
 }
 void Seeder::crank_set_turns(int option) {
     if (option >= 0 && option < chart::TURN_OPTIONS) crank_.turn_option = option;
-    crank_.target_reached = crank_.counted_revs >= chart::turns(crank_.turn_option) - 0.01;
+    crank_.target_reached = crank_.counted_revs >= chart::turns(crank_.turn_option, settings_.crank_turns_10) - 0.01;
     update_crank_result();
 }
 void Seeder::crank_set_test_scale(float scale) {
@@ -844,6 +862,7 @@ void Seeder::tick(const TickInputs &input) {
     const int n_sec = section_count(S);
     const int n_tank = tank_count(S);
     const bool elec = electric_drive(S);
+    const bool shared = shared_motor(S);   // egy motor + kuplungok
     if (!elec) {
         manual_ = false;   // talajhajtásnál nincs kézi mód
         master_ = false;   // és nincs vetés BE/KI gomb: a munkakapcsoló indít
@@ -1007,7 +1026,8 @@ void Seeder::tick(const TickInputs &input) {
         MeterStatus &m = st.meter[i];
         const bool exists = i < n_met;
         const float ppr = static_cast<float>(elec ? S.encoder_ppr : S.meter_ppr);
-        const PulseSample &mp = in.meter[i];
+        // egymotoros hajtásnál mindkét adagoló a motor enkóderét (IN3) látja
+        const PulseSample &mp = in.meter[shared ? 0 : i];
         const float timeout = maxf(2.0f, S.meter_timeout_s);
         const float hz = meter_rate_[i].update(dt, mp, timeout);
         m.rpm = ppr > 0.0f ? hz * 60.0f / ppr : 0.0f;
@@ -1035,19 +1055,59 @@ void Seeder::tick(const TickInputs &input) {
 
         float target_rpm = 0.0f;
         const bool crank_this = elec && crank_.hold && crank_.meter == i && exists;
-        const bool tune_this = elec && tuner_.active() && tuner_.meter() == i && exists;
+        const bool tune_this = elec && tuner_.active() && (shared ? i == 0 : tuner_.meter() == i) && exists;
         if (elec && (tune_this || tuner_.active())) {
             // önhangolás: a mért adagolót a hangoló vezérli közvetlenül, a másik áll
+            // (egymotoros hajtásnál a motor forog, és csak a kiválasztott adagoló kuplungja zár)
             const float pwm = tune_this ? tuner_.step(dt, m.rpm, since_pulse_[i], mp.count, ppr) : 0.0f;
             motor_[i].reset();
             outputs_.motor_pwm_pct[i] = pwm;
-            outputs_.clutch_drive[i] = false;
+            outputs_.clutch_drive[i] = shared && exists && tuner_.meter() == i;
             m.running = pwm > 0.5f;
             rate_dev_timer_[i] = 0.0f;
             alarms_.set(METER_RATE[i], false);
+        } else if (shared) {
+            // egy motor hajtja mindkét adagolót: a motor a talajkereket helyettesíti, a kuplungok kapcsolnak
+            if (i == 0) {
+                float t = 0.0f;
+                const bool any_drive = run_cond && (meter_on[0] || meter_on[1]);
+                if (crank_.hold && crank_.meter < n_met) {
+                    const double left = chart::turns(crank_.turn_option, S.crank_turns_10) - crank_.counted_revs;
+                    const float crank_rpm = S.motor_max_rpm * 0.5f < 40.0f ? S.motor_max_rpm * 0.5f : 40.0f;
+                    if (S.crank_autostop && left <= 0.005) {
+                        crank_.hold = false;
+                    } else {
+                        t = (S.crank_autostop && left < 1.5) ? crank_rpm * 0.3f : crank_rpm;
+                        crank_drive = true;
+                    }
+                } else if (any_drive && manual_ && !prefill_active) {
+                    t = manual_pct_ / 100.0f * S.motor_max_rpm;
+                } else if (any_drive) {
+                    // adagoló-fordulat / perc = km/h · m / 10 (ha/h) · fordulat/ha / 60
+                    t = v_eff * S.width_m * S.crank_turns_10 / 60.0f;
+                }
+                const MotorOutput mo = motor_[0].step(S, dt, t, m.rpm);
+                shared_target_rpm_ = t;
+                shared_pwm_ = mo.pwm_pct;
+                outputs_.motor_pwm_pct[0] = mo.pwm_pct;
+                const bool dev = t > 0.5f && !crank_.hold && !manual_ && motor_[0].running_for() > 3.0f &&
+                                 (std::fabs(mo.error_pct) > S.rate_tol_pct || mo.saturated);
+                rate_dev_timer_[0] = dev ? rate_dev_timer_[0] + dt : 0.0f;
+                alarms_.set(METER_RATE[0], rate_dev_timer_[0] >= 5.0f);
+                persistent_.motor_integral[0] = motor_[0].integral();
+            } else {
+                motor_[i].reset();
+                outputs_.motor_pwm_pct[i] = 0.0f;
+                rate_dev_timer_[i] = 0.0f;
+                alarms_.set(METER_RATE[i], false);
+            }
+            const bool clutch = exists && (crank_.hold ? crank_.meter == i : (meter_on[i] && shared_target_rpm_ > 0.0f));
+            outputs_.clutch_drive[i] = clutch;
+            target_rpm = clutch ? shared_target_rpm_ : 0.0f;
+            m.running = clutch && shared_pwm_ > 0.5f;
         } else if (elec) {
             if (crank_this) {
-                const double left = chart::turns(crank_.turn_option) - crank_.counted_revs;
+                const double left = chart::turns(crank_.turn_option, settings_.crank_turns_10) - crank_.counted_revs;
                 const float crank_rpm = S.motor_max_rpm * 0.5f < 40.0f ? S.motor_max_rpm * 0.5f : 40.0f;
                 if (S.crank_autostop && left <= 0.005) {
                     crank_.hold = false;
@@ -1111,10 +1171,12 @@ void Seeder::tick(const TickInputs &input) {
         else m.view = master ? MeterView::Ready : MeterView::Idle;
     }
     crank_.motor_running = crank_drive;
+    // motorirány (holtidővel): egyelőre mindig előre; a visszafordítás a beszorulás-kezelésből jön
+    for (int i = 0; i < MAX_METERS; ++i) drive_motor(i, outputs_.motor_pwm_pct[i], false, dt);
 
     // --- leforgatás visszajelzés (munkalámpa, hangjelző), cél elérése
     {
-        const double target = chart::turns(crank_.turn_option);
+        const double target = chart::turns(crank_.turn_option, settings_.crank_turns_10);
         crank_.target_reached = crank_.counted_revs > 0.0f && crank_effective_revs() >= target - 0.01;
         if (crank_.target_reached && !crank_last_reached_) {
             if (crank_.session) {
@@ -1298,7 +1360,9 @@ void Seeder::tick(const TickInputs &input) {
 
     // --- kimenetek (fizikai szint)
     for (int i = 0; i < MAX_METERS; ++i) {
-        const bool energized = elec ? false : (S.clutch_mode == 0 ? outputs_.clutch_drive[i] : !outputs_.clutch_drive[i]);
+        const bool clutched = !elec || shared;   // talajhajtás vagy egy motor + kuplungok
+        const bool energized =
+            !clutched ? false : (S.clutch_mode == 0 ? outputs_.clutch_drive[i] : !outputs_.clutch_drive[i]);
         outputs_.clutch_level[i] = energized != invert;
     }
     // leforgatás közben a munkalámpa fordulatonként felvillan (bekapcsolt lámpánál kialszik), a célnál villog
@@ -1558,7 +1622,7 @@ std::string Seeder::status_json() const {
     append_kv(o, "crop", static_cast<double>(c.crop), 0);
     append_kv(o, "crop_name", chart::crop_name(c.crop));
     append_kv(o, "turn_option", static_cast<double>(c.turn_option), 0);
-    append_kv(o, "turns", chart::turns(c.turn_option), 1);
+    append_kv(o, "turns", chart::turns(c.turn_option, settings_.crank_turns_10), 1);
     append_kv(o, "wanted", rate_setting(settings_, c.meter), 1);
     append_kv(o, "test_scale", c.test_scale, 1);
     append_kv(o, "measured", c.measured_kg, 3);

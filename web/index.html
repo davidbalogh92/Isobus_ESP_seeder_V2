@@ -588,7 +588,7 @@ function render(){
   const cr=st.crank;
   if(document.activeElement!==$('crMeter'))$('crMeter').value=cr.meter;show('crMeterRow',st.meters>1);
   if(document.activeElement!==$('crCrop'))$('crCrop').value=cr.crop;
-  setIfIdle('crWanted',cr.wanted);if(document.activeElement!==$('crTurns'))$('crTurns').value=cr.turn_option;
+  setIfIdle('crWanted',cr.wanted);if(document.activeElement!==$('crTurns')){const b=CFG.crank_turns_10||85,o=$('crTurns').options;['1/10','1/20','1/50'].forEach((a,k)=>o[k].textContent=fmt(b*[1,.5,.2][k],b*[1,.5,.2][k]%1?1:0)+' ('+a+' ha)');$('crTurns').value=cr.turn_option;}
   setIfIdle('crTest',cr.test_scale||0);setIfIdle('crHa',cr.hectares||'');
   $('crScale').textContent=`${fmt(cr.scale,1)} · ${cr.setup}`;$('crExpect').textContent=fmt(cr.expected_kg,3)+' kg';
   // nagy számláló: a célnál piros + hang (a telefon a gép mellett)
