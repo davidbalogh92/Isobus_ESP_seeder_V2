@@ -101,6 +101,8 @@ _Generált fájl (tools/gen_params.py). Minden paraméter a webes felületen (Be
 | Kulcs | Megnevezés | Alapérték | Tartomány | VT oldal | Megjegyzés |
 |---|---|---|---|---|---|
 | `lights_enable` | Munkalámpák (2 db) | Nem | Nem / Igen | KIEGÉSZÍTÕK |  |
+| `lamp1_relay` | 1. munkalámpa kimenete | Relé 4 | Relé 1 (kuplung 1) / Relé 2 (kuplung 2) / Relé 3 (szelep) / Relé 4 / Relé 5 / Relé 6 (hűtő) / Relé 7 (visszafúvás) / Relé 8 (szabad) | – | Melyik relé kapcsolja az 1. munkalámpát (alap: relé 4). Ha más funkció reléjét választod, mindkettő kapcsolja (VAGY kapcsolat) – csak szabad relét válassz. |
+| `lamp2_relay` | 2. munkalámpa kimenete | Relé 5 | Relé 1 (kuplung 1) / Relé 2 (kuplung 2) / Relé 3 (szelep) / Relé 4 / Relé 5 / Relé 6 (hűtő) / Relé 7 (visszafúvás) / Relé 8 (szabad) | – | Melyik relé kapcsolja a 2. munkalámpát (alap: relé 5). |
 | `crank_lamp` | Munkalámpa villan leforgatásnál | Igen | Nem / Igen | KIEGÉSZÍTÕK | Minden megszámolt fordulatnál röviden (0,15 s) felvillan; a célfordulatnál 5 s-ig gyorsan villog, utána a mentésig folyamatosan világít (a gép mögött is látszik). Csak ha a munkalámpák engedélyezve vannak. |
 | `valve_enable` | Nyitás / nyomjelző váltószelep | Nem | Nem / Igen | KIEGÉSZÍTÕK | Alapban a hidraulikakör a gépet nyitja/csukja; a szelep bekapcsolva a nyomjelzőre tereli. |
 | `pressure_enable` | Nyomásmérés (lenyomatás, ADS1115) | Nem | Nem / Igen | KIEGÉSZÍTÕK |  |
@@ -179,6 +181,7 @@ _Generált fájl (tools/gen_params.py). Minden paraméter a webes felületen (Be
 | Kulcs | Megnevezés | Alapérték | Tartomány | VT oldal | Megjegyzés |
 |---|---|---|---|---|---|
 | `wifi_pass` | Wi-Fi jelszó (8–32 karakter) | `12345678` | 8–32 karakter | – |  |
+| `wifi_timeout_min` | WiFi szerviz mód: kikapcsol tétlenség után | 20 perc | 5 – 60 perc | – | A WiFi alapból KI van kapcsolva; bekapcsolás a VT menüjéből (WiFi), a külső kijelzőről vagy a leforgató gomb (IN8) bekapcsoláskori 3 s-os nyomva tartásával. Ennyi perc tétlenség után magától lekapcsol (kliens csatlakozása vagy OTA alatt nem). Aktív munkakapcsolónál nem kapcsolható be. Az Etherneten át a web mindig elérhető. |
 | `ecu_instance` | ECU példány (több gép egy buszon) | 0 | 0 – 7 | – |  |
 | `isobus_delay_s` | ISOBUS indulás késleltetése (terminál lassabban indul) **[ISOBUS]** | 0 s | 0 – 60 s | – | Ennyi másodperccel később jelentkezik be a CAN buszra. Ha a terminál (pl. Müller) a később induló gépet nem találja, állíts be 10–20 s-ot. |
 | `isobus_retry_s` | Újracsatlakozás, ha nincs terminál (0 = ki) **[ISOBUS]** | 30 s | 0 – 600 s | – | Ha ennyi ideig nincs VT kapcsolat, a vezérlő újra bejelentkezik (címigénylés), és a VT/TC kapcsolatot újrakezdi. |

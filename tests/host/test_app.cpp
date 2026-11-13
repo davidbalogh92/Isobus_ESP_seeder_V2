@@ -1,6 +1,8 @@
 // Az ISOBUS alkalmazásréteg tiszta függvényeinek unit tesztjei: TC geometria, kondenzált
 // munkaállapot, DDOP felépítés minden gépváltozatra, VT szövegkódolás, geometria-vázlat választás.
 #include "aux_n.hpp"
+#include "ext_display.hpp"
+#include "wifi_service.hpp"
 #include "keya.hpp"
 #include "pool_scaler.hpp"
 #include "seeder_app.hpp"
@@ -13,6 +15,7 @@
 #include "seeder/vt_scale.hpp"
 
 #include <algorithm>
+#include <array>
 #include <fstream>
 #include <iterator>
 
@@ -648,6 +651,57 @@ TEST(virtual_terminal_settings_groups) {
     CHECK(vis(vt::CONT_PG_KEYA) && vis(vt::CONT_PG_JAM));
 }
 
+TEST(virtual_terminal_wifi_service_button_and_icon) {
+    app::Shared shared;
+    app::SeederApp a(shared);
+    std::vector<bool> radio;
+    a.wifi().set_driver([&](bool on) { radio.push_back(on); });
+    {
+        std::lock_guard<std::mutex> g(shared.lock);
+        shared.core.set_param(seeder::P_work_sw, 1);   // NO munkakapcsoló, érintkező nyitva: gép FENT
+    }
+    run_app(a, 0.3f);
+    auto hidden = [&](std::uint16_t id) { return has(vt_json(a), "\"" + std::to_string(id) + "\":1"); };
+    const auto str_is = [&](std::uint16_t id, const std::string &v) {
+        return has(vt_json(a), "\"" + std::to_string(id) + "\":\"" + v + "\"");
+    };
+    CHECK(!a.wifi().on() && radio.empty());                 // alapból KI
+    CHECK(hidden(vt::CONT_WIFI) && str_is(vt::STR_MENU_WIFI, "WiFi: KI"));
+    a.virtual_vt_event("key", vt::K_MENU, 0, 0);
+    run_app(a, 0.3f);
+    a.virtual_vt_event("button", vt::BTN_WIFI, 0, 0);       // menü → WiFi
+    run_app(a, 0.3f);
+    CHECK(a.wifi().on() && radio.size() == 1 && radio[0]);
+    CHECK(has(vt_json(a), "\"mask\":" + std::to_string(vt::DM_MENU)));   // a menüben marad
+    CHECK(str_is(vt::STR_MENU_WIFI, "WiFi: BE 20p"));
+    CHECK(!hidden(vt::CONT_WIFI) && has(vt_json(a), "\"" + std::to_string(vt::OUT_WIFI_MIN) + "\":20"));
+    {
+        std::lock_guard<std::mutex> g(shared.lock);
+        CHECK(std::string(shared.core.status().message) == "WiFi szerviz mód BE");
+    }
+    // a gép leengedése (aktív munkakapcsoló) lekapcsolja, és utána nem kapcsolható be
+    app::HwInputs hw;
+    hw.work_contact = true;
+    for (int k = 0; k < 20; ++k) a.update(0.05f, hw);
+    CHECK(!a.wifi().on() && radio.size() == 2 && !radio[1]);
+    a.virtual_vt_event("button", vt::BTN_WIFI, 0, 0);
+    for (int k = 0; k < 10; ++k) a.update(0.05f, hw);
+    CHECK(!a.wifi().on());
+    {
+        std::lock_guard<std::mutex> g(shared.lock);
+        CHECK(std::string(shared.core.status().message).find("munkakapcsol") != std::string::npos);
+    }
+    // munkakapcsoló nélkül a "gép lent" nem tiltja
+    {
+        std::lock_guard<std::mutex> g(shared.lock);
+        shared.core.set_param(seeder::P_work_sw, 0);
+    }
+    for (int k = 0; k < 10; ++k) a.update(0.05f, hw);
+    a.virtual_vt_event("button", vt::BTN_WIFI, 0, 0);
+    CHECK(a.wifi().on());
+    CHECK(a.wifi().json().find("\"source\":\"VT\"") != std::string::npos);
+}
+
 TEST(virtual_terminal_tank_page_and_profile_names) {
     app::Shared shared;
     app::SeederApp a(shared);
@@ -864,6 +918,271 @@ TEST(keya_ignores_other_frames) {
     CHECK(!kb.on_frame(0x18FEF100u, d, 4));     // 29 bites ISOBUS
     CHECK(!kb.on_frame((5u << 6) | 0x11, d, 4)); // ismeretlen node
     CHECK(kb.on_frame((1u << 6) | 0x11, d, 4));
+}
+
+// ------------------------------------------------------------------ WiFi szerviz mód
+TEST(wifi_service_rules) {
+    app::WifiService w;
+    std::vector<bool> drv;
+    w.set_driver([&](bool on) { drv.push_back(on); });
+    CHECK(!w.on() && w.state() == app::WifiService::Off && w.minutes_left() == 0);   // alapból KI
+    // aktív munkakapcsolónál nem kapcsolható be
+    w.tick(0.05f, true, 0, false, 20);
+    CHECK(w.request(true, app::WifiService::Source::Vt) == app::WifiService::Result::InhibitedWork);
+    CHECK(!w.on() && drv.empty());
+    w.tick(0.05f, false, 0, false, 20);
+    CHECK(w.request(true, app::WifiService::Source::Display) == app::WifiService::Result::Ok);
+    CHECK(w.on() && drv.size() == 1 && drv[0]);
+    CHECK(w.minutes_left() == 20 && w.state() == app::WifiService::On);
+    // tétlenség: 20 perc után lekapcsol
+    for (int i = 0; i < 19 * 60; ++i) w.tick(1.0f, false, 0, false, 20);
+    CHECK(w.on() && w.minutes_left() == 1);
+    // kliens csatlakozik: nem fogy, és a távozásától újra a teljes idő
+    for (int i = 0; i < 120; ++i) w.tick(1.0f, false, 1, false, 20);
+    CHECK(w.on() && w.state() == app::WifiService::Client);
+    w.tick(1.0f, false, 0, false, 20);
+    CHECK(w.minutes_left() == 20);
+    for (int i = 0; i < 20 * 60 + 2; ++i) w.tick(1.0f, false, 0, false, 20);
+    CHECK(!w.on() && drv.size() == 2 && !drv[1]);
+    CHECK(w.json().find("tétlenség") != std::string::npos);
+    // a munkakapcsoló aktiválódása azonnal lekapcsol – OTA alatt nem, és OTA alatt kézzel sem kapcsolható ki
+    w.request(true, app::WifiService::Source::Web);
+    w.tick(0.05f, false, 0, true, 20);
+    CHECK(w.state() == app::WifiService::Ota);
+    w.tick(0.05f, true, 0, true, 20);
+    CHECK(w.on());
+    CHECK(w.request(false, app::WifiService::Source::Vt) == app::WifiService::Result::BusyOta && w.on());
+    for (int i = 0; i < 61 * 60; ++i) w.tick(1.0f, false, 0, true, 5);   // OTA alatt az időkorlát sem jár le
+    CHECK(w.on());
+    w.tick(0.05f, true, 0, false, 5);
+    CHECK(!w.on());
+    // az időkorlát 5–60 perc közé szorul
+    w.tick(0.05f, false, 0, false, 5);
+    CHECK(w.request(true, app::WifiService::Source::Input) == app::WifiService::Result::Ok);
+    w.tick(0.05f, false, 0, false, 1);
+    CHECK(w.minutes_left() == 5);
+    w.tick(0.05f, false, 0, false, 500);
+    CHECK(w.minutes_left() == 60);
+    CHECK(w.toggle(app::WifiService::Source::Vt) == app::WifiService::Result::Ok && !w.on());
+}
+
+// ------------------------------------------------------------------ külső kijelző (protokoll logika)
+namespace {
+struct FakeDisplay {
+    std::vector<std::array<std::uint8_t, 8>> tx;
+    app::ExtDisplay d;
+    int light_calls = 0, wifi_calls = 0;
+    app::ExtAck wifi_answer{};
+    FakeDisplay() {
+        d.set_sender([this](const std::uint8_t *f) {
+            std::array<std::uint8_t, 8> a{};
+            std::memcpy(a.data(), f, 8);
+            tx.push_back(a);
+            return true;
+        });
+        app::ExtDisplay::Handlers h;
+        h.light = [this](const extdisp_light_command_t &c) {
+            ++light_calls;
+            return c.light == 2 ? app::ExtAck{EXTDISP_ACK_INHIBITED, EXTDISP_INHIBIT_NO_SUCH_UNIT} : app::ExtAck{};
+        };
+        h.wifi = [this](const extdisp_wifi_command_t &) {
+            ++wifi_calls;
+            return wifi_answer;
+        };
+        d.set_handlers(h);
+    }
+    int count(std::uint8_t id) const {
+        int n = 0;
+        for (const auto &f : tx) n += f[0] == id;
+        return n;
+    }
+    const std::array<std::uint8_t, 8> *last(std::uint8_t id) const {
+        for (auto it = tx.rbegin(); it != tx.rend(); ++it)
+            if ((*it)[0] == id) return &*it;
+        return nullptr;
+    }
+};
+app::ExtDisplayMachine machine() {
+    app::ExtDisplayMachine m;
+    m.caps.machine_type = EXTDISP_MACHINE_SEEDER;
+    m.caps.protocol_version = EXTDISP_PROTOCOL_VERSION;
+    m.caps.tank_count = 2;
+    m.caps.tank_mode = EXTDISP_TANK_MODE_SHARED;
+    m.caps.feeder_count = 2;
+    m.caps.light_count = 2;
+    m.caps.features = EXTDISP_FEATURE_LIGHTS | EXTDISP_FEATURE_WIFI_SERVICE;
+    m.caps.fw_major = 2;
+    m.flags = EXTDISP_ST_FLAG_MOVING | EXTDISP_ST_FLAG_LIGHT2;
+    m.speed_ckmh = 812;
+    return m;
+}
+void hb(app::ExtDisplay &d, std::uint8_t counter, std::uint8_t flags) {
+    extdisp_heartbeat_t h{counter, flags, EXTDISP_SCREEN_MAIN};
+    std::uint8_t f[8];
+    extdisp_encode_heartbeat(&h, f);
+    d.on_frame(f, 8);
+}
+} // namespace
+
+TEST(ext_display_capabilities_and_status) {
+    FakeDisplay fd;
+    auto m = machine();
+    fd.d.tick(1000, false, m);   // nincs kijelző a buszon: semmit nem küld
+    CHECK(fd.tx.empty());
+    fd.d.tick(1020, true, m);    // megjelent: képességek + gépállapot azonnal
+    CHECK(fd.count(EXTDISP_ID_CAPABILITIES) == 1 && fd.count(EXTDISP_ID_MACHINE_STATUS) == 1);
+    extdisp_capabilities_t c{};
+    CHECK(extdisp_decode_capabilities(fd.last(EXTDISP_ID_CAPABILITIES)->data(), 8, &c) == EXTDISP_OK);
+    CHECK(c.machine_type == EXTDISP_MACHINE_SEEDER && c.protocol_version == 1 && c.feeder_count == 2 &&
+          c.tank_count == 2 && c.light_count == 2 && c.fw_major == 2);
+    CHECK((c.features & EXTDISP_FEATURE_MACHINE_CALIB) == 0);   // a leforgatás gomb rejtve (2. kör)
+    CHECK((*fd.last(EXTDISP_ID_CAPABILITIES))[4] == 0x20);       // adagolók a bit4–5-ben, közös tartály
+    extdisp_machine_status_t st{};
+    CHECK(extdisp_decode_machine_status(fd.last(EXTDISP_ID_MACHINE_STATUS)->data(), 8, &st) == EXTDISP_OK);
+    CHECK(st.counter == 0 && st.speed_ckmh == 812 && st.flags == (EXTDISP_ST_FLAG_MOVING | EXTDISP_ST_FLAG_LIGHT2));
+    CHECK((*fd.last(EXTDISP_ID_MACHINE_STATUS))[5] == 0xFF);    // tartalék bájt
+    // 200 ms-onként gépállapot (számláló nő), 5 s-onként képességek
+    for (std::uint32_t t = 1040; t <= 6020; t += 20) fd.d.tick(t, true, m);
+    CHECK(fd.count(EXTDISP_ID_MACHINE_STATUS) >= 25 && fd.count(EXTDISP_ID_MACHINE_STATUS) <= 27);
+    CHECK(fd.count(EXTDISP_ID_CAPABILITIES) == 2);
+    CHECK(extdisp_decode_machine_status(fd.last(EXTDISP_ID_MACHINE_STATUS)->data(), 8, &st) == EXTDISP_OK && st.counter >= 24);
+    CHECK(fd.count(EXTDISP_ID_WIFI_STATUS) == 0 && fd.count(EXTDISP_ID_TANK_STATUS) == 0);
+    // eltűnik, majd újra megjelenik: azonnal újra képességek
+    fd.d.tick(6040, false, m);
+    fd.d.tick(6060, true, m);
+    CHECK(fd.count(EXTDISP_ID_CAPABILITIES) == 3);
+    // WiFi állapot 1 s-onként, amíg be van; kikapcsoláskor még egyszer KI
+    m.wifi_state = EXTDISP_WIFI_ON;
+    m.wifi_minutes = 20;
+    for (std::uint32_t t = 6080; t <= 8080; t += 20) fd.d.tick(t, true, m);
+    CHECK(fd.count(EXTDISP_ID_WIFI_STATUS) == 3);
+    extdisp_wifi_status_t w{};
+    CHECK(extdisp_decode_wifi_status(fd.last(EXTDISP_ID_WIFI_STATUS)->data(), 8, &w) == EXTDISP_OK && w.state == 1 && w.minutes_left == 20);
+    m.wifi_state = EXTDISP_WIFI_OFF;
+    fd.d.tick(8100, true, m);
+    fd.d.tick(9500, true, m);
+    CHECK(fd.count(EXTDISP_ID_WIFI_STATUS) == 4);
+    CHECK(extdisp_decode_wifi_status(fd.last(EXTDISP_ID_WIFI_STATUS)->data(), 8, &w) == EXTDISP_OK && w.state == 0);
+    // tartály: csak ha a funkció be van jelentve
+    m.tank_n = 1;
+    m.tanks[0] = {EXTDISP_TANK_SHARED, 8505, 64};
+    fd.d.tick(11000, true, m);
+    CHECK(fd.count(EXTDISP_ID_TANK_STATUS) == 0);
+    m.caps.features |= EXTDISP_FEATURE_TANK;
+    fd.d.tick(12000, true, m);
+    extdisp_tank_status_t ts{};
+    CHECK(fd.count(EXTDISP_ID_TANK_STATUS) == 1 &&
+          extdisp_decode_tank_status(fd.last(EXTDISP_ID_TANK_STATUS)->data(), 8, &ts) == EXTDISP_OK &&
+          ts.remaining_hg == 8505 && ts.fill_percent == 64);
+}
+
+TEST(ext_display_heartbeat_timeout_and_stop) {
+    FakeDisplay fd;
+    const auto m = machine();
+    fd.d.tick(100, true, m);
+    CHECK(!fd.d.connected());
+    hb(fd.d, 1, 0);
+    fd.d.tick(120, true, m);
+    CHECK(fd.d.connected() && !fd.d.stop_held());
+    const std::size_t before = fd.tx.size();
+    hb(fd.d, 2, EXTDISP_HB_FLAG_STOP);   // STOP: szívverésre nincs nyugta
+    fd.d.tick(140, true, m);
+    CHECK(fd.d.stop_held() && fd.d.stop_edges() == 1);
+    CHECK(fd.count(EXTDISP_ID_ACK) == 0 && fd.tx.size() == before);
+    hb(fd.d, 3, EXTDISP_HB_FLAG_STOP);   // nyomva tartva: nem új él
+    hb(fd.d, 4, EXTDISP_HB_FLAG_START);
+    fd.d.tick(160, true, m);
+    CHECK(fd.d.stop_edges() == 1 && !fd.d.stop_held() && fd.d.start_held());
+    // 1 s kimaradás: a kapcsolat elveszett, a gombok elengedettnek számítanak
+    fd.d.tick(1100, true, m);
+    CHECK(fd.d.connected());
+    fd.d.tick(1170, true, m);
+    CHECK(!fd.d.connected() && !fd.d.start_held());
+    hb(fd.d, 5, EXTDISP_HB_FLAG_STOP);
+    fd.d.tick(1180, true, m);
+    CHECK(fd.d.connected() && fd.d.stop_held() && fd.d.stop_edges() == 2);
+    fd.d.tick(1200, false, m);           // a kijelző eltűnt a buszról
+    CHECK(!fd.d.connected() && !fd.d.stop_held());
+}
+
+TEST(ext_display_commands_and_acks) {
+    FakeDisplay fd;
+    const auto m = machine();
+    fd.d.tick(0, true, m);
+    auto ack = [&](std::uint8_t id) {
+        extdisp_ack_t a{};
+        const auto *f = fd.last(EXTDISP_ID_ACK);
+        if (!f || extdisp_decode_ack(f->data(), 8, &a) != EXTDISP_OK || a.command_id != id) a.result = 0xEE;
+        return a;
+    };
+    std::uint8_t f[8];
+    // lámpa 1 vált → OK
+    extdisp_light_command_t lc{1, EXTDISP_LIGHT_TOGGLE};
+    extdisp_encode_light_command(&lc, f);
+    fd.d.on_frame(f, 8);
+    CHECK(fd.light_calls == 0);   // a fogadó szálon nem hajt végre
+    fd.d.tick(20, true, m);
+    CHECK(fd.light_calls == 1 && ack(EXTDISP_ID_LIGHT_COMMAND).result == EXTDISP_ACK_OK);
+    CHECK((*fd.last(EXTDISP_ID_ACK))[3] == 0 && (*fd.last(EXTDISP_ID_ACK))[4] == 0xFF);
+    // lámpa 2: a handler tiltja (nincs ilyen) → tiltva, ok 7
+    lc.light = 2;
+    extdisp_encode_light_command(&lc, f);
+    fd.d.on_frame(f, 8);
+    fd.d.tick(40, true, m);
+    CHECK(ack(EXTDISP_ID_LIGHT_COMMAND).result == EXTDISP_ACK_INHIBITED && ack(EXTDISP_ID_LIGHT_COMMAND).inhibit_reason == 7);
+    // hibás mező (3. lámpa, ERR_VALUE) → hibás adat, a handler nem hívódik
+    const std::uint8_t bad_light[8] = {EXTDISP_ID_LIGHT_COMMAND, 3, 1, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    fd.d.on_frame(bad_light, 8);
+    fd.d.tick(60, true, m);
+    CHECK(fd.light_calls == 2 && ack(EXTDISP_ID_LIGHT_COMMAND).result == EXTDISP_ACK_BAD_DATA);
+    // rövid keret → hibás adat
+    fd.d.on_frame(bad_light, 5);
+    fd.d.tick(80, true, m);
+    CHECK(ack(EXTDISP_ID_LIGHT_COMMAND).result == EXTDISP_ACK_BAD_DATA);
+    // WiFi: a handler válasza megy vissza (tiltva: munkakapcsoló)
+    fd.wifi_answer = {EXTDISP_ACK_INHIBITED, EXTDISP_INHIBIT_WORK_SWITCH};
+    extdisp_wifi_command_t wc{EXTDISP_WIFI_CMD_ON};
+    extdisp_encode_wifi_command(&wc, f);
+    fd.d.on_frame(f, 8);
+    fd.d.tick(100, true, m);
+    CHECK(fd.wifi_calls == 1 && ack(EXTDISP_ID_WIFI_COMMAND).result == EXTDISP_ACK_INHIBITED &&
+          ack(EXTDISP_ID_WIFI_COMMAND).inhibit_reason == EXTDISP_INHIBIT_WORK_SWITCH);
+    const std::uint8_t bad_wifi[8] = {EXTDISP_ID_WIFI_COMMAND, 7, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    fd.d.on_frame(bad_wifi, 8);
+    fd.d.tick(120, true, m);
+    CHECK(fd.wifi_calls == 1 && ack(EXTDISP_ID_WIFI_COMMAND).result == EXTDISP_ACK_BAD_DATA);
+    // leforgatás (0x10–0x12): tiltva, ok 8 (a funkció ezen a gépen még nincs)
+    extdisp_calib_command_t cc{EXTDISP_CALIB_ACT_PREPARE, 1, 85};
+    extdisp_encode_calib_command(&cc, f);
+    fd.d.on_frame(f, 8);
+    fd.d.tick(140, true, m);
+    CHECK(ack(EXTDISP_ID_CALIB_COMMAND).result == EXTDISP_ACK_INHIBITED && ack(EXTDISP_ID_CALIB_COMMAND).inhibit_reason == 8);
+    extdisp_calib_weight_t cw{1, 1234};
+    extdisp_encode_calib_weight(&cw, f);
+    fd.d.on_frame(f, 8);
+    fd.d.tick(160, true, m);
+    CHECK(ack(EXTDISP_ID_CALIB_WEIGHT).inhibit_reason == 8);
+    // tartály: nincs handler → tiltva, ok 8; ismeretlen parancs → tiltva, ok 8
+    extdisp_tank_command_t tc{0, EXTDISP_TANK_ACT_ADD, 2500};
+    extdisp_encode_tank_command(&tc, f);
+    fd.d.on_frame(f, 8);
+    const std::uint8_t unknown[8] = {0x05, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    fd.d.on_frame(unknown, 8);
+    fd.d.tick(180, true, m);
+    CHECK(fd.count(EXTDISP_ID_ACK) == 10);
+    CHECK(ack(0x05).result == EXTDISP_ACK_INHIBITED && ack(0x05).inhibit_reason == 8);
+    // állapot-azonosító a kijelzőtől: nem parancs, nincs nyugta
+    const std::uint8_t status_id[8] = {EXTDISP_ID_MACHINE_STATUS, 0, 0, 0, 0, 0xFF, 0xFF, 0xFF};
+    fd.d.on_frame(status_id, 8);
+    fd.d.tick(200, true, m);
+    CHECK(fd.count(EXTDISP_ID_ACK) == 10);
+    CHECK(fd.d.json().find("\"acks\":10") != std::string::npos);
+    // kapcsolat nélkül a sorban álló parancs elvész (nincs kinek nyugtázni)
+    extdisp_encode_light_command(&lc, f);
+    fd.d.on_frame(f, 8);
+    fd.d.tick(220, false, m);
+    fd.d.tick(240, true, m);
+    CHECK(fd.count(EXTDISP_ID_ACK) == 10);
 }
 
 int main() {

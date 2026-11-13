@@ -55,6 +55,14 @@ std::atomic<app::SeederApp *> isobus{nullptr};
 httpd_handle_t server = nullptr;
 char ssid[33] = "VETOGEP";
 std::atomic<bool> factory_flag{false};
+// WiFi szerviz mód: a rádió alapból KI, a webszerver (Ethernet) mindig fut
+std::atomic<bool> wifi_ready{false};   // esp_wifi_init + AP konfiguráció kész
+std::atomic<bool> wifi_running{false};
+std::atomic<bool> ota_flag{false};
+struct OtaGuard {
+    OtaGuard() { ota_flag = true; }
+    ~OtaGuard() { ota_flag = false; }
+};
 
 std::string esc(const char *s) { return seeder::json_escape(s); }
 
@@ -208,6 +216,7 @@ esp_err_t api_ota(httpd_req_t *req) {
         if (st.moving) return send_error(req, "Frissítés csak álló gépnél!");
         if (elec && st.master) return send_error(req, "Frissítés előtt kapcsold KI a vetést!");
     }
+    OtaGuard ota_guard;   // a WiFi szerviz mód OTA alatt nem kapcsol le
     const esp_partition_t *target = esp_ota_get_next_update_partition(nullptr);
     if (!target || req->content_len < 4096 || static_cast<std::size_t>(req->content_len) > target->size)
         return send_error(req, "Érvénytelen OTA fájlméret");
@@ -304,20 +313,24 @@ bool start(app::Shared *sh, app::SeederApp *ia, const char *wifi_password) {
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) return false;
     err = esp_event_loop_create_default();
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) return false;
-    if (!esp_netif_create_default_wifi_ap()) return false;
+    // WiFi AP előkészítése, de a rádió KI marad (WiFi szerviz mód: wifi_set()); hiba esetén a web Etherneten megy
+    bool wok = esp_netif_create_default_wifi_ap() != nullptr;
     wifi_init_config_t wi = WIFI_INIT_CONFIG_DEFAULT();
-    if (esp_wifi_init(&wi) != ESP_OK) return false;
-    wifi_config_t conf{};
-    const std::size_t ssid_len = std::strlen(ssid);
-    std::memcpy(conf.ap.ssid, ssid, ssid_len);
-    conf.ap.ssid_len = ssid_len;
-    std::snprintf(reinterpret_cast<char *>(conf.ap.password), sizeof(conf.ap.password), "%s", wifi_password);
-    conf.ap.channel = 6;
-    conf.ap.max_connection = 3;
-    conf.ap.authmode = WIFI_AUTH_WPA2_PSK;
-    if (esp_wifi_set_mode(WIFI_MODE_AP) != ESP_OK || esp_wifi_set_config(WIFI_IF_AP, &conf) != ESP_OK ||
-        esp_wifi_start() != ESP_OK)
-        return false;
+    wok = wok && esp_wifi_init(&wi) == ESP_OK;
+    if (wok) {
+        wifi_config_t conf{};
+        const std::size_t ssid_len = std::strlen(ssid);
+        std::memcpy(conf.ap.ssid, ssid, ssid_len);
+        conf.ap.ssid_len = ssid_len;
+        std::snprintf(reinterpret_cast<char *>(conf.ap.password), sizeof(conf.ap.password), "%s", wifi_password);
+        conf.ap.channel = 6;
+        conf.ap.max_connection = 3;
+        conf.ap.authmode = WIFI_AUTH_WPA2_PSK;
+        wok = esp_wifi_set_storage(WIFI_STORAGE_RAM) == ESP_OK && esp_wifi_set_mode(WIFI_MODE_AP) == ESP_OK &&
+              esp_wifi_set_config(WIFI_IF_AP, &conf) == ESP_OK;
+    }
+    wifi_ready = wok;
+    if (!wok) log("ERROR", "WiFi előkészítés sikertelen (a web Etherneten elérhető)");
 
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.stack_size = 10240;
@@ -358,10 +371,27 @@ bool start(app::Shared *sh, app::SeederApp *ia, const char *wifi_password) {
         u.handler = r.fn;
         if (httpd_register_uri_handler(server, &u) != ESP_OK) return false;
     }
-    ESP_LOGW(TAG, "Wi-Fi AP: %s  jelszó: %s  cím: http://192.168.4.1", ssid, wifi_password);
-    log("INFO", "Wi-Fi AP és webszerver kész: %s", ssid);
+    ESP_LOGW(TAG, "Wi-Fi AP (szerviz mód, alapból KI): %s  jelszó: %s  cím: http://192.168.4.1", ssid, wifi_password);
+    log("INFO", "Webszerver kész; WiFi szerviz mód KI (AP: %s)", ssid);
     return true;
 }
+
+bool wifi_set(bool on) {
+    if (!wifi_ready) return false;
+    if (on == wifi_running.load()) return true;
+    const esp_err_t e = on ? esp_wifi_start() : esp_wifi_stop();
+    if (e == ESP_OK) wifi_running = on;
+    log(e == ESP_OK ? "INFO" : "ERROR", "WiFi szerviz mód %s%s (AP: %s)", on ? "BE" : "KI", e == ESP_OK ? "" : " – HIBA", ssid);
+    return e == ESP_OK;
+}
+
+int wifi_clients() {
+    if (!wifi_running) return 0;
+    wifi_sta_list_t list{};
+    return esp_wifi_ap_get_sta_list(&list) == ESP_OK ? list.num : 0;
+}
+
+bool ota_running() { return ota_flag.load(); }
 
 void confirm_running_firmware() {
     const esp_partition_t *running = esp_ota_get_running_partition();

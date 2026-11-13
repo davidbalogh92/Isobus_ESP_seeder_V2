@@ -384,6 +384,15 @@ public:
     bool copy_meter(int from);
     void rate_offset_reset() { rate_offset_steps_ = 0; }
     void toggle_lamp(int i);
+    /// munkalámpa: 0 ki, 1 be, 2 vált. false: nincs lámpa funkció / érvénytelen lámpa.
+    bool set_lamp(int i, int state);
+    /// külső kijelző STOP gombja (szívverésből): a felfutó él leállítja a leforgatás-motort, az
+    /// önhangolást és a beszorulás-próbát; nyomva tartva motoros leforgatás nem indulhat.
+    void set_external_stop(bool held);
+    /// rövid tájékoztató az állapotsorba (statikus szöveg!), pl. a WiFi szerviz mód visszajelzése
+    void notify(const char *text) { say(text); }
+    bool external_stop() const { return ext_stop_; }
+    unsigned external_stop_count() const { return ext_stop_count_; }
     void toggle_valve();
     void toggle_cooler_mode();
     void toggle_cooler();
@@ -495,6 +504,8 @@ private:
     bool manual_ = false;
     float manual_pct_ = 30.0f;
     bool lamp_[2] = {false, false};
+    bool ext_stop_ = false;
+    unsigned ext_stop_count_ = 0;
     bool valve_ = false;
     bool cooler_manual_on_ = false;
     bool cooler_on_ = false;

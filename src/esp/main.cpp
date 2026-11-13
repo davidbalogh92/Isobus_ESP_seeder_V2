@@ -218,6 +218,8 @@ extern "C" void app_main() {
         return ok;
     });
     keya_sink = isobus_app.get();
+    // WiFi szerviz mód: alapból KI; a rádiót a szolgáltatás kapcsolja
+    isobus_app->wifi().set_driver([](bool on) { web::wifi_set(on); });
     isobus_app->set_aux_storage([] { return storage::load_aux(); },
                                 [](const std::vector<std::uint8_t> &b) {
                                     const bool ok = storage::save_aux(b);
@@ -236,9 +238,30 @@ extern "C" void app_main() {
     unsigned tick = 0;
     seeder::Settings cur = settings;
     seeder::aog::PaintState paint;
+    // vészbekapcsolás: a leforgató gomb (IN8) bekapcsoláskor 3 s-ig nyomva tartva → WiFi szerviz mód BE.
+    // Amíg a gombot az indulás után egyszer el nem engedték, a magnak elengedettnek jelezzük (ne induljon
+    // motoros leforgatás a nyomva tartás alatt).
+    bool boot_hold = true;          // a gomb az indulás óta folyamatosan nyomva (vagy még nem néztük)
+    bool boot_hold_done = false;
+    float boot_hold_s = 0.0f;
     for (;;) {
         vTaskDelayUntil(&wake, pdMS_TO_TICKS(static_cast<int>(CYCLE_S * 1000.0f)));
         app::HwInputs hw = io::read(cur);
+        if (boot_hold) {
+            if (!hw.crank_button) {
+                boot_hold = false;   // elengedték (vagy nem is nyomták): normál működés
+            } else {
+                boot_hold_s += CYCLE_S;
+                if (!boot_hold_done && boot_hold_s >= 3.0f) {
+                    boot_hold_done = true;
+                    web::log("WARN", "Leforgató gomb (IN8) bekapcsoláskor nyomva tartva: WiFi szerviz mód");
+                    isobus_app->wifi_request(true, app::WifiService::Source::Input);
+                }
+                hw.crank_button = false;
+            }
+        }
+        if (tick % 25 == 0) isobus_app->set_wifi_clients(web::wifi_clients());
+        isobus_app->set_ota_running(web::ota_running());
         if (board::HAS_ETH) aognet::exchange(cur, paint, hw);
         isobus_app->update(CYCLE_S, hw);
 

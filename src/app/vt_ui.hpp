@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -34,6 +35,8 @@ public:
     unsigned failed() const { return failed_; }
     const char *page_name() const;
     VtSink &sink() { return *sink_; }
+    /// a menü WiFi gombja (a WiFi szerviz mód az alkalmazásrétegben él)
+    void set_wifi_toggle(std::function<void()> f) { wifi_toggle_ = std::move(f); }
 
     // kezelői események (VT eseményszál vagy web); activation: 0 elengedve, 1 lenyomva, 2 nyomva tartva,
     // 3 megszakítva (ISO 11783-6)
@@ -45,6 +48,7 @@ public:
     void attach(isobus::VirtualTerminalClient &client);
 
 private:
+    std::function<void()> wifi_toggle_;
     enum class Page : std::uint8_t { Main, Func, Info, Menu, Settings, Calib, Diagnose, Tune, Jam, Group, TuneInfo, Tank };
 
     void go(Page page, std::uint16_t mask = 0);

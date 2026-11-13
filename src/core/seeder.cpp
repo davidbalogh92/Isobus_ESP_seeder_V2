@@ -513,6 +513,23 @@ void Seeder::rate_step(int dir) {
 void Seeder::toggle_lamp(int i) {
     if (i >= 0 && i < 2 && settings_.lights_enable) lamp_[i] = !lamp_[i];
 }
+bool Seeder::set_lamp(int i, int state) {
+    if (i < 0 || i >= 2 || !settings_.lights_enable) return false;
+    if (state == 2) lamp_[i] = !lamp_[i];
+    else lamp_[i] = state != 0;
+    return true;
+}
+void Seeder::set_external_stop(bool held) {
+    if (held && !ext_stop_) {   // felfutó él: minden motoros műveletet azonnal leállít
+        ++ext_stop_count_;
+        const bool busy = crank_.hold || tuner_.active() || jam_[0].testing() || jam_[1].testing();
+        crank_hold(false);
+        motor_tune_stop();
+        jam_test_stop();
+        if (busy) say("STOP (külső kijelző)");
+    }
+    ext_stop_ = held;
+}
 void Seeder::toggle_valve() {
     if (settings_.valve_enable) valve_ = !valve_;
 }
@@ -760,6 +777,10 @@ bool Seeder::crank_hold(bool pressed, float timeout_s) {
     }
     if (!electric_drive(settings_)) {
         say("Motoros leforgatás csak elektromos hajtással (talajhajtásnál kézzel tekerj)");
+        return false;
+    }
+    if (ext_stop_) {   // a külső kijelző STOP gombja nyomva: nem indulhat
+        say("A külső kijelző STOP gombja nyomva");
         return false;
     }
     if (master_ || status_.moving) {

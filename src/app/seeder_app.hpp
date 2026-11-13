@@ -3,6 +3,7 @@
 // a Task Controllerrel (TC-BAS/SEC/GEO) és az ISOBUS sebességüzenetekkel.
 // Hordozható: ESP32-n (TWAI) és PC-n (virtuális CAN, szimuláció) is ugyanez a kód fut.
 #include "seeder/seeder.hpp"
+#include "wifi_service.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -36,6 +37,10 @@ struct Snapshot {
     seeder::Settings set;
     seeder::Persistent per;
     seeder::Outputs out;
+    // WiFi szerviz mód és külső kijelző (alkalmazásszintű állapot)
+    std::uint8_t wifi_state = 0;          ///< 0 ki, 1 be, 2 kliens csatlakozva, 3 OTA fut
+    std::uint16_t wifi_minutes = 0;       ///< a tétlenségi lekapcsolásig hátralévő perc
+    bool ext_connected = false;           ///< a külső kijelző szívverése él
 };
 
 struct IsobusDiag {
@@ -78,6 +83,7 @@ class TcLink;
 class VirtualScreen;
 class AuxN;
 class KeyaBus;
+class ExtDisplay;
 
 class SeederApp {
 public:
@@ -95,6 +101,16 @@ public:
     bool on_can_frame(std::uint32_t id, const std::uint8_t *data, std::uint8_t len);
     std::string keya_json() const;
     KeyaBus &keya() { return *keya_; }
+    /// WiFi szerviz mód (alapból KI). A rádiót az ESP réteg kapcsolja a set_driver()-rel.
+    WifiService &wifi() { return *wifi_; }
+    /// kezelői WiFi kérés (VT, kijelző, web, bemenet): visszajelzés az állapotsorba
+    WifiService::Result wifi_request(bool on, WifiService::Source src);
+    /// az ESP réteg jelenti: csatlakozott WiFi kliensek száma, fut-e OTA (szálbiztos)
+    void set_wifi_clients(int n) { wifi_clients_ = n; }
+    void set_ota_running(bool on) { ota_running_ = on; }
+    /// külső kijelző diagnosztika (JSON objektum)
+    std::string ext_display_json() const;
+    ExtDisplay &ext_display() { return *ext_; }
     /// AUX-N bemenet közvetlenül (teszt / szimuláció): funkció objektum, value1.
     bool aux_input(std::uint16_t function, std::uint16_t value1);
 
@@ -130,6 +146,12 @@ private:
     std::unique_ptr<VtUi> vui_;            ///< virtuális terminál (CAN nélkül is fut)
     std::unique_ptr<AuxN> aux_;            ///< AUX-N funkciók (joystick)
     std::unique_ptr<KeyaBus> keya_;        ///< Keya CAN-motorok
+    std::unique_ptr<WifiService> wifi_;    ///< WiFi szerviz mód
+    std::unique_ptr<ExtDisplay> ext_;      ///< külső kijelző (Proprietary A)
+    std::shared_ptr<isobus::PartneredControlFunction> display_partner_;
+    std::atomic<int> wifi_clients_{0};
+    std::atomic<bool> ota_running_{false};
+    void update_ext_display(const Snapshot &snap);
     VirtualScreen *vscreen_ = nullptr;     ///< vui_ kimenete
     float vui_timer_ = 0.0f;
     std::unique_ptr<TcLink> tc_;

@@ -143,6 +143,7 @@ def render_all(gen, outdir: Path):
         ("hidden", n["CONT_PRESSURE"]): False, ("hidden", n["CONT_TEMP"]): False,
         ("hidden", n["CONT_COOLER"]): False, ("hidden", n["CONT_LAMPS"]): False, ("hidden", n["CONT_VALVE"]): False,
         ("hidden", n["CONT_TANK_L"]): False, ("hidden", n["CONT_TANK_R"]): False,
+        ("hidden", n["CONT_WIFI"]): False, n["OUT_WIFI_MIN"]: 18,
         ("str", n["STR_TANK_L"]): "850 kg", ("str", n["STR_TANK_R"]): "420 kg",
         n["OUT_DAY_AREA"]: 1234, n["OUT_TOT_AREA"]: 45678, n["OUT_DAY_DIST"]: 3856, n["OUT_TOT_DIST"]: 142730,
         n["OUT_DAY_TIME"]: 31, n["OUT_TOT_TIME"]: 1102, n["OUT_DAY_KG1"]: 2470, n["OUT_TOT_KG1"]: 91350,

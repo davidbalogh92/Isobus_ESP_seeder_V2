@@ -1,4 +1,5 @@
 #include "web_api.hpp"
+#include "ext_display.hpp"
 #include "keya.hpp"
 
 #include <cstdio>
@@ -49,7 +50,9 @@ ApiResult handle_api(Shared &shared, SeederApp *isobus, const std::string &metho
         return ok("{\"status\":" + st + ",\"isobus\":" + isobus_diag_json(d) +
                   ",\"aux\":" + (isobus ? isobus->aux_json() : std::string("{}")) +
                   ",\"keya\":" + (isobus ? isobus->keya_json() : std::string("[]")) +
-                  ",\"keya_setup\":" + (isobus ? isobus->keya().setup_json() : std::string("{}")) + ",\"hw\":" +
+                  ",\"keya_setup\":" + (isobus ? isobus->keya().setup_json() : std::string("{}")) +
+                  ",\"wifi\":" + (isobus ? isobus->wifi().json() : std::string("{}")) +
+                  ",\"ext_display\":" + (isobus ? isobus->ext_display_json() : std::string("{}")) + ",\"hw\":" +
                   (hw_json.empty() ? std::string("{}") : hw_json) + ",\"fw\":\"" + seeder::json_escape(fw_version) +
                   "\",\"ssid\":\"" + seeder::json_escape(ssid) + "\"}");
     }
@@ -149,6 +152,16 @@ ApiResult handle_api(Shared &shared, SeederApp *isobus, const std::string &metho
             if (!isobus) return error("Az ISOBUS nem fut");
             isobus->request_reconnect();
             return ok("{\"ok\":true}");
+        }
+        if (cmd == "wifi") {   // {"cmd":"wifi","value":1} – WiFi szerviz mód (Etherneten át is)
+            if (!isobus) return error("Nem érhető el");
+            double v = 0;
+            seeder::json_get_number(body.c_str(), "value", v);
+            switch (isobus->wifi_request(v != 0, app::WifiService::Source::Web)) {
+            case app::WifiService::Result::InhibitedWork: return error("Aktív munkakapcsolónál a WiFi nem kapcsolható be");
+            case app::WifiService::Result::BusyOta: return error("Frissítés (OTA) fut – a WiFi most nem kapcsolható ki");
+            default: return ok("{\"ok\":true}");
+            }
         }
         if (cmd == "keya_setup") {   // {"cmd":"keya_setup","from_node":0,"from_kbps":500,"new_node":1}
             if (!isobus) return error("Az ISOBUS nem fut");

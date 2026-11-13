@@ -376,6 +376,10 @@ void VtUi::on_button(std::uint16_t id, std::uint8_t activation) {
         go(Page::Tank);
         return;
     }
+    if (id == vt::BTN_WIFI) {   // WiFi szerviz mód ki/be (a menüben marad)
+        if (wifi_toggle_) wifi_toggle_();
+        return;
+    }
     if (id == vt::BTN_PAGE_CALIB) {
         std::lock_guard<std::mutex> g(shared_.lock);
         if (!shared_.core.status().crank.session) shared_.core.crank_reset_count();
@@ -587,6 +591,17 @@ void VtUi::update_tank(const Snapshot &s) {
 
 void VtUi::update_main(const Snapshot &s) {
     const auto &st = s.st;
+    // WiFi szerviz mód: ikon + hátralévő perc a főképernyőn, állapot a menügombon
+    shown(vt::CONT_WIFI, s.wifi_state != 0);
+    if (s.wifi_state != 0) num(vt::OUT_WIFI_MIN, s.wifi_minutes);
+    {
+        char b[24];
+        // a gombon 12 karakter fér el
+        if (s.wifi_state == 0) std::snprintf(b, sizeof b, "WiFi: KI");
+        else if (s.wifi_state == 3) std::snprintf(b, sizeof b, "WiFi: OTA");
+        else std::snprintf(b, sizeof b, "WiFi: BE %up", static_cast<unsigned>(s.wifi_minutes > 99 ? 99 : s.wifi_minutes));
+        text(vt::STR_MENU_WIFI, b);
+    }
     const auto &set = s.set;
     const int meters = st.meter_count;
     const bool elec = seeder::electric_drive(set);

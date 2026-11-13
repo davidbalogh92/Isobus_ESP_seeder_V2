@@ -5,6 +5,8 @@
 // softkey és beviteli események, DDOP feltöltés, TC-SEC szakaszparancs, TC-GEO előírt érték (kg/ha).
 //
 // Használat: isobus_sim <object_pool.iop> [vt_szélesség=400] [softkey_szélesség=120]
+#include "ext_display.hpp"
+#include "ext_display_protocol.h"
 #include "seeder_app.hpp"
 
 #include "seeder/vt_ids.hpp"
@@ -27,6 +29,7 @@
 #include <functional>
 #include <iostream>
 #include <iterator>
+#include <mutex>
 #include <thread>
 
 using namespace std::chrono_literals;
@@ -203,6 +206,58 @@ public:
     int values = 0;
 };
 
+// ------------------------------------------------------------------ külső kijelző (Isobus_ExtDisplay_esp32 szerep)
+struct SimDisplay {
+    std::shared_ptr<isobus::InternalControlFunction> cf;
+    std::shared_ptr<isobus::PartneredControlFunction> partner;
+    std::mutex m;
+    std::vector<std::array<std::uint8_t, 8>> rx;
+    std::uint8_t counter = 0;
+    static void on_msg(const isobus::CANMessage &msg, void *self) {
+        auto *d = static_cast<SimDisplay *>(self);
+        const auto &v = msg.get_data();
+        if (v.size() != 8) return;
+        std::array<std::uint8_t, 8> a{};
+        std::copy(v.begin(), v.end(), a.begin());
+        std::lock_guard<std::mutex> g(d->m);
+        d->rx.push_back(a);
+    }
+    bool send(const std::uint8_t *f) {
+        return isobus::CANNetworkManager::CANNetwork.send_can_message(EXTDISP_PGN, f, 8, cf, partner);
+    }
+    bool heartbeat(std::uint8_t flags) {
+        extdisp_heartbeat_t h{counter++, flags, EXTDISP_SCREEN_MAIN};
+        std::uint8_t f[8];
+        extdisp_encode_heartbeat(&h, f);
+        return send(f);
+    }
+    int count(std::uint8_t id) {
+        std::lock_guard<std::mutex> g(m);
+        int n = 0;
+        for (const auto &f : rx) n += f[0] == id;
+        return n;
+    }
+    bool last(std::uint8_t id, std::array<std::uint8_t, 8> &out) {
+        std::lock_guard<std::mutex> g(m);
+        for (auto it = rx.rbegin(); it != rx.rend(); ++it)
+            if ((*it)[0] == id) {
+                out = *it;
+                return true;
+            }
+        return false;
+    }
+    bool ack_for(std::uint8_t cmd, extdisp_ack_t &a) {
+        std::lock_guard<std::mutex> g(m);
+        for (auto it = rx.rbegin(); it != rx.rend(); ++it)
+            if ((*it)[0] == EXTDISP_ID_ACK && (*it)[1] == cmd) return extdisp_decode_ack(it->data(), 8, &a) == EXTDISP_OK;
+        return false;
+    }
+    void clear() {
+        std::lock_guard<std::mutex> g(m);
+        rx.clear();
+    }
+};
+
 bool wait_for(const std::function<bool()> &cond, const std::function<void()> &step, int seconds) {
     for (int i = 0; i < seconds * 20; ++i) {
         step();
@@ -253,6 +308,24 @@ int main(int argc, char **argv) {
     vt.initialize();
     SimTC tc(tc_cf);
     tc.initialize();
+    // külső kijelző: saját NAME (mezőgazdaság, funkciókód 135, gyártókód 0), a vetőgépet NAME-szűrővel keresi
+    SimDisplay disp;
+    {
+        isobus::NAME n(0);
+        n.set_arbitrary_address_capable(true);
+        n.set_industry_group(2);
+        n.set_device_class(0);
+        n.set_function_code(135);
+        n.set_identity_number(0x0A1B2C);
+        n.set_manufacturer_code(0);
+        disp.cf = isobus::CANNetworkManager::CANNetwork.create_internal_control_function(n, 1, 0x50);
+        disp.partner = isobus::CANNetworkManager::CANNetwork.create_partnered_control_function(
+            1, {isobus::NAMEFilter(isobus::NAME::NAMEParameters::IndustryGroup, 2),
+                isobus::NAMEFilter(isobus::NAME::NAMEParameters::FunctionCode,
+                                   static_cast<std::uint8_t>(isobus::NAME::Function::RateControl)),
+                isobus::NAMEFilter(isobus::NAME::NAMEParameters::ManufacturerCode, 0)});
+        disp.partner->add_parameter_group_number_callback(EXTDISP_PGN, &SimDisplay::on_msg, &disp, disp.cf);
+    }
 
     // --- saját ECU a 0. csatornán (szimulált sebesség és bemenetek: turbina, adagolók, munkakapcsoló)
     app::Shared shared;
@@ -359,6 +432,108 @@ int main(int argc, char **argv) {
           "adagolószám változás után a DDOP újratöltődött");
     wait_for([] { return false; }, step, 2);
     check(vt.hidden(vt::CONT_METER2), "VT: 1 adagolónál a 2. rejtve");
+
+    // --- külső kijelző (Proprietary A): képességek, gépállapot, szívverés, nyugták, lámpa, WiFi
+    {
+        std::array<std::uint8_t, 8> f{};
+        check(wait_for([&] { return disp.count(EXTDISP_ID_CAPABILITIES) > 0 && disp.count(EXTDISP_ID_MACHINE_STATUS) > 2; },
+                       step, 10),
+              "kijelző: képességek és 200 ms-os gépállapot megérkezik");
+        extdisp_capabilities_t caps{};
+        check(disp.last(EXTDISP_ID_CAPABILITIES, f) && extdisp_decode_capabilities(f.data(), 8, &caps) == EXTDISP_OK &&
+                  caps.machine_type == EXTDISP_MACHINE_SEEDER && caps.protocol_version == EXTDISP_PROTOCOL_VERSION &&
+                  caps.feeder_count == 1 && (caps.features & EXTDISP_FEATURE_WIFI_SERVICE) &&
+                  !(caps.features & EXTDISP_FEATURE_MACHINE_CALIB) && caps.fw_major == 2,
+              "kijelző: képességek = vetőgép, v1, 1 adagoló, WiFi szerviz, leforgatás nélkül");
+        // szívverés 200 ms-onként (a step 50 ms)
+        int hb_div = 0;
+        std::uint8_t hb_flags = 0;
+        bool hb_on = true;
+        auto dstep = [&] {
+            if (hb_on && hb_div++ % 4 == 0) disp.heartbeat(hb_flags);
+            step();
+        };
+        check(wait_for([&] { return seeder_app.ext_display().connected(); }, dstep, 5), "kijelző: a szívverés él");
+        {
+            std::lock_guard<std::mutex> g(shared.lock);
+            shared.core.set_param(seeder::P_lights_enable, 1);
+            shared.core.set_param(seeder::P_work_sw, 1);
+        }
+        wait_for([] { return false; }, dstep, 1);   // új képességek (lámpák) legkésőbb 5 s múlva; itt nem várjuk ki
+        extdisp_light_command_t lc{1, EXTDISP_LIGHT_TOGGLE};
+        std::uint8_t cmd[8];
+        extdisp_encode_light_command(&lc, cmd);
+        disp.clear();
+        disp.send(cmd);
+        extdisp_ack_t a{};
+        check(wait_for([&] { return disp.ack_for(EXTDISP_ID_LIGHT_COMMAND, a); }, dstep, 3) && a.result == EXTDISP_ACK_OK,
+              "kijelző: 1. lámpa kapcsolás → nyugta rendben");
+        {
+            std::lock_guard<std::mutex> g(shared.lock);
+            check(shared.core.status().lamp[0] && shared.core.outputs().lamp_level[0], "kijelző: az 1. lámpa kimenete BE");
+        }
+        check(wait_for([&] {
+                  extdisp_machine_status_t ms{};
+                  return disp.last(EXTDISP_ID_MACHINE_STATUS, f) && extdisp_decode_machine_status(f.data(), 8, &ms) == EXTDISP_OK &&
+                         (ms.flags & EXTDISP_ST_FLAG_LIGHT1);
+              }, dstep, 2),
+              "kijelző: a gépállapot jelzi a lámpát");
+        check(wait_for([&] { return vt.pointer(vt::OP_LAMP1) == vt::PIC_LAMP_S[1]; }, dstep, 2), "VT: a lámpa a VT-n is BE");
+        // hibás adat: 3. lámpa
+        const std::uint8_t bad[8] = {EXTDISP_ID_LIGHT_COMMAND, 3, 1, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+        disp.clear();
+        disp.send(bad);
+        check(wait_for([&] { return disp.ack_for(EXTDISP_ID_LIGHT_COMMAND, a); }, dstep, 3) && a.result == EXTDISP_ACK_BAD_DATA,
+              "kijelző: érvénytelen lámpa → hibás adat");
+        // WiFi: a szimulált gép lent van (munkakapcsoló aktív) → tiltva, ok 2
+        extdisp_wifi_command_t wc{EXTDISP_WIFI_CMD_ON};
+        extdisp_encode_wifi_command(&wc, cmd);
+        disp.clear();
+        disp.send(cmd);
+        check(wait_for([&] { return disp.ack_for(EXTDISP_ID_WIFI_COMMAND, a); }, dstep, 3) && a.result == EXTDISP_ACK_INHIBITED &&
+                  a.inhibit_reason == EXTDISP_INHIBIT_WORK_SWITCH,
+              "kijelző: WiFi aktív munkakapcsolónál → tiltva (ok 2)");
+        {
+            std::lock_guard<std::mutex> g(shared.lock);
+            shared.core.set_param(seeder::P_work_sw, 0);
+        }
+        wait_for([] { return false; }, dstep, 1);
+        disp.clear();
+        disp.send(cmd);
+        check(wait_for([&] { return disp.ack_for(EXTDISP_ID_WIFI_COMMAND, a); }, dstep, 3) && a.result == EXTDISP_ACK_OK &&
+                  seeder_app.wifi().on(),
+              "kijelző: WiFi BE → nyugta rendben");
+        extdisp_wifi_status_t ws{};
+        check(wait_for([&] { return disp.last(EXTDISP_ID_WIFI_STATUS, f) && extdisp_decode_wifi_status(f.data(), 8, &ws) == EXTDISP_OK &&
+                                    ws.state == EXTDISP_WIFI_ON && ws.minutes_left == 20; }, dstep, 3),
+              "kijelző: WiFi állapot (0xC0) 20 perccel");
+        wait_for([] { return false; }, dstep, 1);
+        check(!vt.hidden(vt::CONT_WIFI), "VT: WiFi ikon a főképernyőn");
+        // leforgatás még tiltva (ok 8)
+        extdisp_calib_command_t cc{EXTDISP_CALIB_ACT_PREPARE, 1, 85};
+        extdisp_encode_calib_command(&cc, cmd);
+        disp.clear();
+        disp.send(cmd);
+        check(wait_for([&] { return disp.ack_for(EXTDISP_ID_CALIB_COMMAND, a); }, dstep, 3) && a.result == EXTDISP_ACK_INHIBITED &&
+                  a.inhibit_reason == EXTDISP_INHIBIT_NOT_SUPPORTED,
+              "kijelző: leforgatás parancs → tiltva (ok 8)");
+        // STOP gomb a szívverésben
+        hb_flags = EXTDISP_HB_FLAG_STOP;
+        check(wait_for([&] {
+                  std::lock_guard<std::mutex> g(shared.lock);
+                  return shared.core.external_stop();
+              }, dstep, 3),
+              "kijelző: a STOP gomb eljut a vezérlőmagig");
+        hb_flags = 0;
+        // a szívverés kimarad: 1 s után a kapcsolat elveszett, a STOP elengedettnek számít
+        hb_on = false;
+        check(wait_for([&] { return !seeder_app.ext_display().connected(); }, dstep, 3), "kijelző: 1 s szívverés-kimaradás észlelve");
+        check(wait_for([&] {
+                  std::lock_guard<std::mutex> g(shared.lock);
+                  return !shared.core.external_stop();
+              }, dstep, 1),
+              "kijelző: kapcsolat nélkül nincs STOP");
+    }
 
     const auto d = seeder_app.diag();
     std::printf("\nVT parancsok: %u elküldve, %u sikertelen\n", d.vt_cmd_sent, d.vt_cmd_failed);

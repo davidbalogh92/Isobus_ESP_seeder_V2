@@ -5,7 +5,7 @@ file(GLOB SEEDER_SRCS
     "${CMAKE_CURRENT_LIST_DIR}/core/*.cpp")
 idf_component_register(
     SRCS ${SEEDER_SRCS}
-    INCLUDE_DIRS "." "app" "esp" "../include"
+    INCLUDE_DIRS "." "app" "esp" "../include" "../protocol"
     REQUIRES esp_wifi esp_event esp_netif esp_eth nvs_flash esp_http_server app_update
              driver esp_timer esp_partition esp_system esp_rom mbedtls)
 # ISO 11783-6 object pool (bináris) és a webes felület (szöveg, lezáró \0-val)

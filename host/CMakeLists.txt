@@ -45,7 +45,7 @@ if(SEEDER_WITH_ISOBUS)
 
   file(GLOB APP_SRC ${ROOT}/src/app/*.cpp)
   add_library(seeder_app STATIC ${APP_SRC})
-  target_include_directories(seeder_app PUBLIC ${ROOT}/include ${ROOT}/src/app ${ROOT}/generated)
+  target_include_directories(seeder_app PUBLIC ${ROOT}/include ${ROOT}/src/app ${ROOT}/generated ${ROOT}/protocol)
   target_link_libraries(seeder_app PUBLIC seeder_core isobus::Isobus isobus::HardwareIntegration isobus::Utility)
 
   add_executable(test_app ${ROOT}/tests/host/test_app.cpp)

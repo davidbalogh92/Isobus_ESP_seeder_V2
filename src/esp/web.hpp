@@ -25,6 +25,12 @@ bool start(app::Shared *shared, app::SeederApp *isobus_app, const char *wifi_pas
 void attach_isobus(app::SeederApp *isobus_app);
 void update_hw(const HwDiag &d);
 void confirm_running_firmware();
+/// WiFi szerviz mód: a hozzáférési pont rádiójának ki-/bekapcsolása (a webszerver Etherneten mindig fut)
+bool wifi_set(bool on);
+/// a WiFi AP-hoz csatlakozott kliensek száma (KI állapotban 0)
+int wifi_clients();
+/// fut-e OTA feltöltés
+bool ota_running();
 /// a web felületről kért gyári visszaállítás / újraindítás jelzése a fő ciklusnak
 bool factory_reset_requested();
 

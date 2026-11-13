@@ -663,8 +663,11 @@ void apply(const seeder::Outputs &o, const seeder::Settings &s) {
     set_out(board::CLUTCH[0], o.clutch_level[0], bits);
     set_out(board::CLUTCH[1], o.clutch_level[1], bits);
     set_out(board::VALVE, o.valve_level, bits);
-    set_out(board::LAMP[0], o.lamp_level[0], bits);
-    set_out(board::LAMP[1], o.lamp_level[1], bits);
+    // munkalámpák: a relé beállítható (alap: relé 4 / 5); ugyanarra a relére kötött funkciók VAGY kapcsolatban
+    for (int i = 0; i < 2; ++i) {
+        const int r = i == 0 ? s.lamp1_relay : s.lamp2_relay;
+        set_out(r >= 0 && r < 8 ? board::X(r) : board::LAMP[i], o.lamp_level[i], bits);
+    }
     set_out(board::COOLER, o.cooler_level, bits);
     set_out(board::COOLER_REV, o.cooler_rev_level, bits);
     exp_out_wanted = bits;

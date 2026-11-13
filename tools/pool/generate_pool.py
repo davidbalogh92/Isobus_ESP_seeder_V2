@@ -597,6 +597,9 @@ add((C(64, 22, [(N("OUT_OFFSET", 44, F_LABEL, offset=-100, value=100, align=2), 
 PREFILL_CONT = C(80, 22, [(N("OUT_PREFILL", 50, F_LABEL, decimals=1, scale=0.1, align=2), 0, 0),
                           (S("s", 14, 16, F_LABEL), 52, 0)], hidden=True, name="CONT_PREFILL")
 add((PREFILL_CONT, 160, VY + 26))
+# WiFi szerviz mód: bal felső sarok (a tartály mellett), ikon + hátralévő perc; KI állapotban rejtett
+add((C(76, 44, [(PIC("main/main_wifi_on", SMALL), 0, 0), (N("OUT_WIFI_MIN", 24, F_LABEL, align=2), 40, 10),
+                (S("p", 10, 14, F_SMALL), 65, 14)], hidden=True, name="CONT_WIFI"), 2, 4))
 # állapotsor
 SY = 244
 add((R(MASK - 8, 34, FL_MSG, L_BLACK), 4, SY))
@@ -654,15 +657,16 @@ DM_INFO = P.data_mask(1020, SK_INFO, info, name="DM_INFO")
 menu = title_bar("BEÁLLÍTÁSOK")
 # elöl a napi használat (leforgatás, számlálók, diagnosztika), utána a beállítás-csoportok
 # (egyoldalas csoport közvetlenül az oldalt nyitja, több oldalasnál a csoport almenüje jön)
-menu_items = ["calib", "info", "tank", "diagnose"] + ["gr_" + g for g in GROUP_IDS]
+menu_items = ["calib", "info", "tank", "diagnose", "wifi"] + ["gr_" + g for g in GROUP_IDS]
 MENU_LABEL = {"calib": "Leforgatás", "info": "Számlálók", "diagnose": "Diagnosztika", "tank": "Tartálytölt.",
+              "wifi": "WiFi: KI    ",
               **{"gr_" + g: lab for g, lab, _ic, _p in pd.VT_GROUPS}}
 # a menügombon legfeljebb 12 karakter fér el
 MENU_LABEL.update({"gr_machine": "Gép, geom.", "gr_drive": "Hajtás", "gr_fan": "Turbina, hût.",
                    "gr_tc": "Szakaszolás"})
 MENU_LABEL["gr_fan"] = "Turbina"
 MENU_ICON = {"calib": "softkeys/softkey_crank", "info": "menu/menu_counters", "diagnose": "menu/menu_diagnose",
-             "tank": "main/main_tank_left_full",
+             "tank": "main/main_tank_left_full", "wifi": "main/main_wifi_on",
              **{"gr_" + g: ic for g, _l, ic, _p in pd.VT_GROUPS}}
 BTN = {}
 rows_n = (len(menu_items) + 1) // 2
@@ -672,7 +676,9 @@ for i, pid in enumerate(menu_items):
     ps = min(36, bh - 10)
     pic = PIC(MENU_ICON[pid], ps)
     b = P.button(6000 + i, 192, bh - 4, 100 + i, [(pic, 4, (bh - 4 - ps) // 2 - 2),
-                                                 (S(MENU_LABEL[pid], 146, 20, F_LABEL), 42, (bh - 4 - 16) // 2 - 3)],
+                                                 (S(MENU_LABEL[pid], 146, 20, F_LABEL,
+                                                    name="STR_MENU_WIFI" if pid == "wifi" else None),
+                                                  42, (bh - 4 - 16) // 2 - 3)],
                  name="BTN_" + pid.upper())
     BTN[pid] = b
     menu.append((b, 4 + col * 198, 42 + row * bh))

@@ -38,7 +38,10 @@ ikonok az ESC vetőgép-monitorból jönnek.
 | Task Controller | DDOP a beállításokból: csatlakozó (függesztett, kormányzott vonórúd csuklóponttal, vonórúd, horog, gömbfej), A/B/C/D geometria, szakaszok, adagolónként termék (bin) kg/ha előírttal; változáskor automatikus újratöltés |
 | AUX-N (joystick) | VT3+ terminálon a joystick / gombdoboz gombjai a terminál **AUX hozzárendelés** menüjében köthetők: Vetés BE/KI · Adagoló 1 · Adagoló 2 · Automata szakaszolás · Előírt + · Előírt − · Előírt 100% · Leforgatás (nyomva tartva) · Lámpa 1 · Lámpa 2 · Szétnyitás/nyomjelző · Visszafúvás · Nyugtázás. A gomb lenyomása ugyanazt teszi, mint a VT-n az azonos softkey; a hozzárendelés eszközönként megmarad (újraindítás, OTA után is). VT2 terminálon a funkciók nem jelennek meg |
 | Windows-program | **SeederVT** (`VETOGEP_WINDOWS_vXXX.exe`, telepítés nélkül fut): a **Terminál** fül pontosan a VT képét adja (ugyanabból a poolból, egérrel / érintéssel / F1–F10), mellette Diagnosztika (teljes élő állapot, változások kiemelve, AUX-N próbagombok), Napló, Felvétel (CSV, trend, riasztáskor pillanatkép) és Rendszer (OTA, beállítás export / import, lábkiosztás). ISOBUS terminál nélkül is teljes értékű kezelés |
-| Kezelés | VT (softkey + gombos menü + beviteli mezők, ESC stílusú ikonok, szürke háttér) és Wi-Fi web (telefon / tablet), OTA frissítés |
+| Kezelés | VT (softkey + gombos menü + beviteli mezők, ESC stílusú ikonok, szürke háttér), web (Etherneten mindig, WiFi-n szerviz módban: telefon / tablet), OTA frissítés, **külső kijelző** (CAN) |
+| Külső kijelző | a gép mellé szerelt 5"-os kijelző ([Isobus_ExtDisplay_esp32](https://github.com/davidbalogh92/Isobus_ExtDisplay_esp32)) ugyanazon az ISOBUS-on, Proprietary A üzenetekkel (`docs/ext_display_spec.md`, protokoll: `protocol/ext_display_protocol.h` – a kijelző repó változatlan másolata). 1. kör: képességek (5 s), gépállapot / szívverés (200 ms: munkakapcsoló, mozog, adagolás, WiFi, lámpák, sebesség), a kijelző szívverésének figyelése (1 s időkorlát, STOP gomb → a motoros leforgatás / önhangolás / beszorulás-próba azonnal leáll), nyugta minden parancsra, **munkalámpák** (ki / be / vált), **WiFi szerviz mód**, **tartálytöltet** (beállít / hozzátankol / nulláz, 0xA0 állapot). A leforgatás üzenetekre egyelőre „tiltva, a funkció nincs” a válasz (2. kör). Ha a kijelző nincs a buszon, minden úgy működik, mint eddig |
+| WiFi szerviz mód | a WiFi (AP) **alapból KI**; bekapcsolás: VT menü → **WiFi**, külső kijelző, web (Etherneten), vagy az IN8 gomb bekapcsoláskori 3 s-os nyomva tartása. Magától kikapcsol a beállított tétlenség után (alap 20 perc, 5–60, Beállítások → Rendszer), kliens csatlakozása vagy OTA alatt nem. Aktív munkakapcsolónál nem kapcsolható be, és a gép leengedésekor lekapcsol. A főképernyő bal felső sarkában ikon a hátralévő perccel. A web Etherneten (192.168.5.130) mindig elérhető |
+| Munkalámpák | 2 db, VT softkey / külső kijelző / web; **a relé beállítható** (alap relé 4 / 5, Beállítások → Kiegészítők, csak weben) |
 
 ## A terminál képernyői
 
@@ -101,7 +104,7 @@ A firmware a **Waveshare ESP32-S3-ETH-8DI-8RO-C** panelre készül (a korábbi A
 | IN5 – GPIO8 | Munkakapcsoló (gép lent) | NO / NC beállítás |
 | IN6 – GPIO9 | 1. tartály leürülésgátló | NO / NC |
 | IN7 – GPIO10 | 2. tartály leürülésgátló | NO / NC |
-| IN8 – GPIO11 | **Leforgató nyomógomb a gépen** | NO gomb, Beállítások → Kapcsolók |
+| IN8 – GPIO11 | **Leforgató nyomógomb a gépen** | NO gomb, Beállítások → Kapcsolók. **Bekapcsoláskor 3 s-ig nyomva tartva: WiFi szerviz mód BE** (vészmegoldás) |
 | Relé 1 / 2 | 1. / 2. adagoló kuplung | TCA9554 P0 / P1 (I2C 0x20, SDA 42 / SCL 41) |
 | Relé 3 | Nyitás / nyomjelző terelőszelep | P2 |
 | Relé 4 / 5 | 1. / 2. munkalámpa | P3 / P4 |
@@ -134,14 +137,15 @@ A GitHub Actions minden `main` ágra küldött változásnál lefordítja a firm
 **Első telepítés USB-n:** https://espressif.github.io/esptool-js/ → Connect → a `FULL_0x0.bin`
 fájl **0x0** címre → Program.
 
-**Frissítés Wi-Fi-n:** csatlakozz a `VETOGEP-xxxx` hálózathoz (jelszó alapból `12345678`),
-nyisd meg a http://192.168.4.1 címet → Rendszer → Firmware frissítés → `…_OTA.bin`. A FULL fájlt
+**Frissítés:** Etherneten a http://192.168.5.130, vagy WiFi-n: kapcsold be a WiFi szerviz módot (VT menü →
+WiFi), csatlakozz a `VETOGEP-xxxx` hálózathoz (jelszó alapból `12345678`), nyisd meg a http://192.168.4.1
+címet → Rendszer → Firmware frissítés → `…_OTA.bin`. A FULL fájlt
 az OTA oldal elutasítja. Hibás új firmware esetén a bootloader visszaáll az előzőre.
 
 ## Windows-program (SeederVT)
 
 A kiadásban: `VETOGEP_WINDOWS_vXXX.exe` – egyetlen fájl, telepítés és .NET nélkül fut (Windows 10/11, 64 bit).
-Kapcsolódás: Ethernet (AgIO hálózat) **192.168.5.130**, vagy a vezérlő Wi-Fi-jén (`VETOGEP-xxxx`) **192.168.4.1**.
+Kapcsolódás: Ethernet (AgIO hálózat) **192.168.5.130**, vagy a vezérlő Wi-Fi-jén (`VETOGEP-xxxx`, szerviz módban) **192.168.4.1**.
 
 * **Terminál** – ugyanaz a felület, mint az ISOBUS terminálon: a program a vezérlőtől tölti le az object poolt,
   és a vezérlőben futó második („virtuális”) VT-felület állapotát rajzolja ki. Saját lapállása van, így a
@@ -159,8 +163,8 @@ Szürke téma, hat fül: **Munka** (vetés, adagolók, sebesség, turbina, kieg�
 **Beállítások** (a paraméterek csoportokban, a kikapcsolt kiegészítők és a nem releváns mezők
 rejtve; az ISOBUS-ra, ill. az AgOpenGPS-re vonatkozók címkével jelölve) · **Kalibrálás** (leforgatás
 nagy számlálóval, nyomva tartásos gombbal és részmérésekkel; beállítási táblázat, mérleg, kerékjeladó,
-nyomás) · **Számlálók** · **Diagnosztika** (ISOBUS + újracsatlakozás, AgOpenGPS / Ethernet, sebesség és
-csúszás, bemenetek / kimenetek) · **Rendszer** (hardver, lábkiosztás, export/import, OTA, napló).
+nyomás) · **Számlálók** · **Diagnosztika** (ISOBUS + újracsatlakozás, AgOpenGPS / Ethernet, **WiFi szerviz
+mód** ki/be, **külső kijelző** kapcsolat és számlálók, sebesség és csúszás, bemenetek / kimenetek) · **Rendszer** (hardver, lábkiosztás, export/import, OTA, napló).
 Ethernetes panelen a web a kábelen is elérhető (pl. http://192.168.5.130).
 
 ## Fejlesztés

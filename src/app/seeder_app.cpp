@@ -4,7 +4,9 @@
 #include <vector>
 
 #include "aux_n.hpp"
+#include "ext_display.hpp"
 #include "keya.hpp"
+#include "wifi_service.hpp"
 #include "pool_scaler.hpp"
 #include "tc_link.hpp"
 #include "vt_sink.hpp"
@@ -20,6 +22,13 @@
 #include "isobus/isobus/isobus_virtual_terminal_client.hpp"
 #include "isobus/isobus/nmea2000_message_interface.hpp"
 #include "isobus/utility/system_timing.hpp"
+
+#include <cmath>
+#include <cstdlib>
+
+#ifndef SEEDER_FW_VERSION
+#define SEEDER_FW_VERSION "2.3.0"
+#endif
 
 namespace app {
 
@@ -86,6 +95,43 @@ SeederApp::SeederApp(Shared &shared) : shared_(shared) {
     vscreen_ = screen.get();
     vui_ = std::make_unique<VtUi>(shared_, std::move(screen));
     keya_ = std::make_unique<KeyaBus>();
+    wifi_ = std::make_unique<WifiService>();
+    ext_ = std::make_unique<ExtDisplay>();
+    vui_->set_wifi_toggle([this] { wifi_request(!wifi_->on(), WifiService::Source::Vt); });
+    // a külső kijelző parancsai (a vezérlési ciklusból, a mag zárja nélkül hívva → itt zárolunk)
+    ExtDisplay::Handlers h;
+    h.light = [this](const extdisp_light_command_t &c) -> ExtAck {
+        std::lock_guard<std::mutex> g(shared_.lock);
+        const seeder::Settings &s = shared_.core.settings();
+        if (!s.lights_enable) return {EXTDISP_ACK_INHIBITED, EXTDISP_INHIBIT_NOT_SUPPORTED};
+        if (c.light > 2) return {EXTDISP_ACK_INHIBITED, EXTDISP_INHIBIT_NO_SUCH_UNIT};
+        shared_.core.set_lamp(c.light - 1, c.state);
+        return {};
+    };
+    h.wifi = [this](const extdisp_wifi_command_t &c) -> ExtAck {
+        switch (wifi_request(c.on == EXTDISP_WIFI_CMD_ON, WifiService::Source::Display)) {
+        case WifiService::Result::InhibitedWork: return {EXTDISP_ACK_INHIBITED, EXTDISP_INHIBIT_WORK_SWITCH};
+        case WifiService::Result::BusyOta: return {EXTDISP_ACK_BUSY, EXTDISP_INHIBIT_NONE};
+        default: return {};
+        }
+    };
+    h.tank = [this](const extdisp_tank_command_t &c) -> ExtAck {
+        std::lock_guard<std::mutex> g(shared_.lock);
+        const int n = seeder::Seeder::tank_fill_count(shared_.core.settings());
+        if (n == 0) return {EXTDISP_ACK_INHIBITED, EXTDISP_INHIBIT_NOT_SUPPORTED};
+        // közös mennyiségnél a 0. (közös) tartály, tartályonkéntinél az 1. és 2.
+        int i = -1;
+        if (n == 1 && c.tank == EXTDISP_TANK_SHARED) i = 0;
+        if (n == 2 && (c.tank == 1 || c.tank == 2)) i = c.tank - 1;
+        if (i < 0) return {EXTDISP_ACK_INHIBITED, EXTDISP_INHIBIT_NO_SUCH_UNIT};
+        const float kg = static_cast<float>(c.amount_hg) / 10.0f;
+        bool ok = false;
+        if (c.action == EXTDISP_TANK_ACT_SET) ok = shared_.core.tank_set(i, kg);
+        else if (c.action == EXTDISP_TANK_ACT_ADD) ok = shared_.core.tank_add(i, kg);
+        else ok = shared_.core.tank_set(i, 0.0f);
+        return ok ? ExtAck{} : ExtAck{EXTDISP_ACK_BAD_DATA, EXTDISP_INHIBIT_NONE};
+    };
+    ext_->set_handlers(std::move(h));
     // AUX gomb → az azonos softkey művelete a valódi VT felületen (ha még nincs, a virtuálison)
     aux_ = std::make_unique<AuxN>([this](std::uint16_t key, std::uint8_t act) {
         VtUi *ui = ui_ ? ui_.get() : vui_.get();
@@ -176,6 +222,26 @@ bool SeederApp::do_start() {
         isobus::NAMEFilter(isobus::NAME::NAMEParameters::FunctionInstance, 0)};
     vt_partner_ = isobus::CANNetworkManager::CANNetwork.create_partnered_control_function(can_channel, vt_filter);
     tc_partner_ = isobus::CANNetworkManager::CANNetwork.create_partnered_control_function(can_channel, tc_filter);
+    // külső kijelző: saját NAME-mel jelentkezik (mezőgazdaság, funkciókód 135 „Operator Controls – Machine
+    // Specific”, gyártókód 0); a hiánya semmit nem befolyásol
+    const std::vector<isobus::NAMEFilter> disp_filter = {
+        isobus::NAMEFilter(isobus::NAME::NAMEParameters::IndustryGroup, 2),
+        isobus::NAMEFilter(isobus::NAME::NAMEParameters::FunctionCode, 135),
+        isobus::NAMEFilter(isobus::NAME::NAMEParameters::ManufacturerCode, 0)};
+    display_partner_ = isobus::CANNetworkManager::CANNetwork.create_partnered_control_function(can_channel, disp_filter);
+    if (display_partner_ && ecu_) {
+        display_partner_->add_parameter_group_number_callback(
+            EXTDISP_PGN,
+            [](const isobus::CANMessage &m, void *self) {
+                const auto &d = m.get_data();
+                static_cast<SeederApp *>(self)->ext_->on_frame(d.data(), d.size());
+            },
+            this, ecu_);
+        ext_->set_sender([this](const std::uint8_t *f) {
+            return isobus::CANNetworkManager::CANNetwork.send_can_message(
+                EXTDISP_PGN, f, EXTDISP_FRAME_LEN, ecu_, display_partner_, isobus::CANIdentifier::CANPriority::PriorityDefault6);
+        });
+    }
     if (!ecu_ || !vt_partner_ || !tc_partner_ || !pool || pool_size < 256) return false;
 
     vt_ = std::make_shared<isobus::VirtualTerminalClient>(vt_partner_, ecu_);
@@ -186,6 +252,7 @@ bool SeederApp::do_start() {
     // maszkjához, a softkey-képek a gomb valódi méretéhez igazodnak
     vt_->register_object_pool_data_chunk_callback(0, pool_size, &pool_chunk, vt::POOL_VERSION);
     ui_ = std::make_unique<VtUi>(shared_, make_real_vt_sink(vt_));
+    ui_->set_wifi_toggle([this] { wifi_request(!wifi_->on(), WifiService::Source::Vt); });
     ui_->attach(*vt_);
     // AUX-N: a terminál AUX menüjében a joystick gombjai a pool AUX funkcióihoz köthetők
     vt_->set_auxiliary_assignment_callbacks(&aux_load, &aux_store, aux_.get());
@@ -265,11 +332,19 @@ void SeederApp::update(float dt_s, const HwInputs &hw) {
         shared_.core.tick(in);
         if (KeyaBus::active(shared_.core.settings()))
             keya_->command(shared_.core.settings(), shared_.core.outputs(), dt_s);
+        // külső kijelző STOP gombja (a szívverés jelzőbitjéből; kapcsolat nélkül elengedettnek számít)
+        shared_.core.set_external_stop(ext_->stop_held());
         snap.st = shared_.core.status();
         snap.set = shared_.core.settings();
         snap.per = shared_.core.persistent();
         snap.out = shared_.core.outputs();
     }
+    // WiFi szerviz mód: munkakapcsoló aktív = van munkakapcsoló ÉS a gép lent van
+    const bool work_active = snap.set.work_sw > 0 && snap.st.work_down;
+    wifi_->tick(dt_s, work_active, wifi_clients_.load(), ota_running_.load(), snap.set.wifi_timeout_min);
+    snap.wifi_state = static_cast<std::uint8_t>(wifi_->state());
+    snap.wifi_minutes = wifi_->minutes_left();
+    snap.ext_connected = ext_->connected();
     vui_timer_ += dt_s;
     if (vui_ && vui_timer_ >= 0.2f) {
         vui_timer_ = 0.0f;
@@ -280,6 +355,7 @@ void SeederApp::update(float dt_s, const HwInputs &hw) {
         if (start_delay_ <= 0.0f) do_start();
     }
     if (!started_) return;
+    update_ext_display(snap);
     watchdog(dt_s, snap.set.isobus_retry_s);
     if (tc_) tc_->update(snap);
     ui_timer_ += dt_s;
@@ -287,6 +363,61 @@ void SeederApp::update(float dt_s, const HwInputs &hw) {
         ui_timer_ = 0.0f;
         ui_->update(snap);
     }
+}
+
+std::string SeederApp::ext_display_json() const { return ext_->json(); }
+
+WifiService::Result SeederApp::wifi_request(bool on, WifiService::Source src) {
+    const bool was = wifi_->on();
+    const WifiService::Result r = wifi_->request(on, src);
+    const char *msg = nullptr;
+    if (r == WifiService::Result::InhibitedWork) msg = "WiFi: aktív munkakapcsolónál nem kapcsolható be";
+    else if (r == WifiService::Result::BusyOta) msg = "WiFi: frissítés (OTA) fut – nem kapcsolható ki";
+    else if (on && !was) msg = "WiFi szerviz mód BE";
+    else if (!on && was) msg = "WiFi szerviz mód KI";
+    if (msg) {
+        std::lock_guard<std::mutex> g(shared_.lock);
+        shared_.core.notify(msg);
+    }
+    return r;
+}
+
+void SeederApp::update_ext_display(const Snapshot &snap) {
+    const seeder::Status &st = snap.st;
+    const seeder::Settings &s = snap.set;
+    ExtDisplayMachine m;
+    m.caps.machine_type = EXTDISP_MACHINE_SEEDER;
+    m.caps.protocol_version = EXTDISP_PROTOCOL_VERSION;
+    m.caps.tank_count = static_cast<std::uint8_t>(st.tank_count < 0 ? 0 : (st.tank_count > 2 ? 2 : st.tank_count));
+    m.caps.tank_mode = st.tank_fill_n == 2 ? EXTDISP_TANK_MODE_SEPARATE : EXTDISP_TANK_MODE_SHARED;
+    m.caps.feeder_count = static_cast<std::uint8_t>(st.meter_count < 0 ? 0 : (st.meter_count > 2 ? 2 : st.meter_count));
+    m.caps.light_count = s.lights_enable ? 2 : 0;
+    m.caps.features = static_cast<std::uint8_t>(EXTDISP_FEATURE_WIFI_SERVICE | (s.lights_enable ? EXTDISP_FEATURE_LIGHTS : 0) |
+                                                (st.tank_fill_n > 0 ? EXTDISP_FEATURE_TANK : 0));
+    // a leforgatás (gépspecifikus kalibrálás) a 2. körben jön: addig a bit 0, a kijelző nem mutatja a gombot
+    m.caps.fw_major = static_cast<std::uint8_t>(std::atoi(SEEDER_FW_VERSION));
+    const bool work_active = s.work_sw > 0 && st.work_down;
+    const bool metering = st.state == seeder::SowState::Sowing || st.state == seeder::SowState::Prefill;
+    m.flags = static_cast<std::uint8_t>((work_active ? EXTDISP_ST_FLAG_WORK_SWITCH : 0) | (st.moving ? EXTDISP_ST_FLAG_MOVING : 0) |
+                                        (metering ? EXTDISP_ST_FLAG_METERING : 0) |
+                                        (snap.wifi_state != 0 ? EXTDISP_ST_FLAG_WIFI_ON : 0) |
+                                        (st.lamp[0] ? EXTDISP_ST_FLAG_LIGHT1 : 0) | (st.lamp[1] ? EXTDISP_ST_FLAG_LIGHT2 : 0));
+    const float ck = std::round(st.speed_kmh * 100.0f);
+    m.speed_ckmh = static_cast<std::uint16_t>(ck < 0.0f ? 0.0f : (ck > 65000.0f ? 65000.0f : ck));
+    m.wifi_state = snap.wifi_state;
+    m.wifi_minutes = snap.wifi_minutes;
+    m.tank_n = static_cast<std::uint8_t>(st.tank_fill_n);
+    for (int i = 0; i < m.tank_n && i < 2; ++i) {
+        extdisp_tank_status_t &t = m.tanks[i];
+        t.tank = static_cast<std::uint8_t>(m.tank_n == 1 ? EXTDISP_TANK_SHARED : i + 1);
+        const float hg = std::round(st.tank_kg[i] * 10.0f);
+        t.remaining_hg = static_cast<std::uint32_t>(hg < 0.0f ? 0.0f : hg);
+        const bool known = snap.per.tank_ref_kg[i] > 0.5f;
+        t.fill_percent = known ? static_cast<std::uint8_t>(std::lround(st.tank_pct[i] > 100.0f ? 100.0f : st.tank_pct[i]))
+                               : static_cast<std::uint8_t>(EXTDISP_FILL_UNKNOWN);
+    }
+    const bool link = ecu_ && display_partner_ && ecu_->get_address_valid() && display_partner_->get_address_valid();
+    ext_->tick(isobus::SystemTiming::get_timestamp_ms(), link, m);
 }
 
 void SeederApp::announce() {

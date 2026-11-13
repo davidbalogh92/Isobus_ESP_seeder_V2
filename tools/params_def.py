@@ -271,6 +271,12 @@ add("out_invert", "switches", "Kimenetek fordított szintje (relémodul)", "Kime
 
 # --------------------------------------------------------------------------- kiegészítők
 add("lights_enable", "extras", "Munkalámpák (2 db)", "Munkalámpák", "bool", 0, options=YES_NO, vt_page="extras")
+add("lamp1_relay", "extras", "1. munkalámpa kimenete", "Lámpa 1 kimenet", "enum", 3,
+    options=("Relé 1 (kuplung 1)", "Relé 2 (kuplung 2)", "Relé 3 (szelep)", "Relé 4", "Relé 5", "Relé 6 (hűtő)", "Relé 7 (visszafúvás)", "Relé 8 (szabad)"),
+    help="Melyik relé kapcsolja az 1. munkalámpát (alap: relé 4). Ha más funkció reléjét választod, mindkettő "
+         "kapcsolja (VAGY kapcsolat) – csak szabad relét válassz.")
+add("lamp2_relay", "extras", "2. munkalámpa kimenete", "Lámpa 2 kimenet", "enum", 4,
+    options=("Relé 1 (kuplung 1)", "Relé 2 (kuplung 2)", "Relé 3 (szelep)", "Relé 4", "Relé 5", "Relé 6 (hűtő)", "Relé 7 (visszafúvás)", "Relé 8 (szabad)"), help="Melyik relé kapcsolja a 2. munkalámpát (alap: relé 5).")
 add("crank_lamp", "extras", "Munkalámpa villan leforgatásnál", "Lámpa leforgatás", "bool", 1, options=YES_NO,
     vt_page="extras", help="Minden megszámolt fordulatnál röviden (0,15 s) felvillan; a célfordulatnál 5 s-ig gyorsan "
                            "villog, utána a mentésig folyamatosan világít (a gép mögött is látszik). Csak ha a munkalámpák engedélyezve vannak.")
@@ -399,6 +405,10 @@ add("sim_wheel", "sim", "Kerékimpulzus szimuláció a szimulált sebességből"
 
 # --------------------------------------------------------------------------- rendszer
 add("wifi_pass", "system", "Wi-Fi jelszó (8–32 karakter)", "", "str", "12345678", 8, 32)
+add("wifi_timeout_min", "system", "WiFi szerviz mód: kikapcsol tétlenség után", "", "int", 20, 5, 60, 1, 0, "perc",
+    help="A WiFi alapból KI van kapcsolva; bekapcsolás a VT menüjéből (WiFi), a külső kijelzőről vagy a leforgató gomb "
+         "(IN8) bekapcsoláskori 3 s-os nyomva tartásával. Ennyi perc tétlenség után magától lekapcsol (kliens "
+         "csatlakozása vagy OTA alatt nem). Aktív munkakapcsolónál nem kapcsolható be. Az Etherneten át a web mindig elérhető.")
 add("ecu_instance", "system", "ECU példány (több gép egy buszon)", "", "int", 0, 0, 7, 1, 0, "")
 add("isobus_delay_s", "system", "ISOBUS indulás késleltetése (terminál lassabban indul)", "", "int", 0, 0, 60, 1,
     0, "s", scope="isobus",

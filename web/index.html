@@ -435,6 +435,13 @@ table.pins td:first-child{font-variant-numeric:tabular-nums;white-space:nowrap;f
       <div class="row" style="margin-top:10px"><button class="btn wide" onclick="if(confirm('ISOBUS újracsatlakozás: bejelentkezés a buszra, a VT és a TC kapcsolat újrakezdése. Folytatod?'))cmd('isobus_reconnect').then(r=>r&&toast('Újracsatlakozás kérve'))">ISOBUS újracsatlakozás</button></div>
       <p class="note">Ha a terminál (pl. Müller) nem találja a gépet, mert később indult: ez a gomb újra bejelentkezteti. Tartós megoldás: Beállítások → Rendszer → ISOBUS indulás késleltetése.</p></div>
     <div class="card"><h2>AgOpenGPS / Ethernet</h2><div id="aogInfo"></div></div>
+    <div class="card"><h2>WiFi szerviz mód</h2><div id="wifiInfo"></div>
+      <div class="row" style="margin-top:10px"><button class="btn wide" id="btnWifi" onclick="wifiToggle()">WiFi</button></div>
+      <p class="note">A WiFi alapból KI van kapcsolva; bekapcsolható a VT menüjéből (WiFi gomb), a külső kijelzőről,
+        innen (Etherneten át), vagy vészmegoldásként a leforgató gomb (IN8) bekapcsoláskori 3 s-os nyomva tartásával.
+        A beállított tétlenségi idő után magától kikapcsol (Beállítások → Rendszer); kliens csatlakozása vagy frissítés
+        alatt nem. Aktív munkakapcsolónál nem kapcsolható be, és ha a gépet leengeded, lekapcsol.</p></div>
+    <div class="card"><h2>Külső kijelző</h2><div id="extInfo"></div></div>
     <div class="card"><h2>Sebesség</h2><div id="spdInfo"></div></div>
     <div class="card"><h2>Bemenetek / kimenetek</h2><div id="ioInfo"></div></div>
   </div>
@@ -504,6 +511,9 @@ async function post(u,body){
   catch(e){toast('Kapcsolati hiba');return null}}
 async function tankCmd(i,op){const v=parseFloat($('tankIn'+i).value);if(!(v>=0)){toast('Adj meg egy mennyiséget (kg)');return}
   const r=await cmd('tank_'+op+(i+1),v);if(r)$('tankIn'+i).value=''}
+async function wifiToggle(){const on=!(S.wifi&&S.wifi.on);
+  if(!on&&!confirm('Kikapcsolod a WiFi-t? Ha WiFi-n keresztül vagy csatlakozva, a kapcsolat megszakad.'))return;
+  const r=await cmd('wifi',on?1:0);if(r)toast(on?'WiFi szerviz mód BE':'WiFi szerviz mód KI');refresh()}
 async function keyaSetup(){
   if(!confirm('Csak a vezérlő és egy motor van a CAN-vezetéken? A beállítás idejére a terminál elveszíti a kapcsolatot.'))return;
   await post('/api/cmd',{cmd:'keya_setup',from_node:+$('kyFrom').value,from_kbps:+$('kyKbps').value,new_node:+$('kyNew').value});refresh()}
@@ -790,6 +800,18 @@ function render(){
       ['Csomagok',`${fmt(ag.rx)} be (${fmt(ag.rejected)} eldobva) · ${fmt(ag.tx_paint)} festés ki`],
       ['Hello / keresés',`${fmt(ag.hello)} / ${fmt(ag.scan)}`],['Utolsó PGN',fmt(ag.last_pgn)],
       ['Leghosszabb szünet / kiesés',`${fmt(ag.max_gap_ms)} ms / ${fmt(ag.outages)}`]]);
+    const wf=S.wifi||{},WST=['KI','BE','kliens csatlakozva','frissítés (OTA) fut'];
+    $('wifiInfo').innerHTML=kv([['Állapot',wf.on?`<span class="badge ok">${WST[wf.state]||'BE'}</span>`:'<span class="badge">KI</span>'],
+      ['Hátralévő idő',wf.on?fmt(wf.minutes_left)+' perc (időkorlát '+fmt(wf.timeout_min)+' perc)':'–'],
+      ['Csatlakozott kliensek',fmt(wf.clients||0)],['Munkakapcsoló aktív',yes(wf.work_active)],
+      ['Utolsó kapcsolás',wf.switches?esc(wf.source||'')+(wf.on?'':' · ok: '+esc(wf.off_reason||'')):'–']]);
+    $('btnWifi').textContent=wf.on?'WiFi kikapcsolása':'WiFi bekapcsolása';$('btnWifi').className='btn wide '+(wf.on?'on':'');
+    const ex=S.ext_display||{},ACK=['rendben','tiltva','hibás adat','foglalt'];
+    $('extInfo').innerHTML=kv([['Kapcsolat',ex.connected?'<span class="badge ok">él (szívverés)</span>':ex.link?'<span class="badge warn">a buszon, nincs szívverés</span>':'<span class="badge">nincs a buszon</span>'],
+      ['Gombok (STOP / START)',(ex.stop?'<span class="badge bad">STOP</span>':'–')+' '+(ex.start?'<span class="badge ok">START</span>':'')],
+      ['Fogadott',`${fmt(ex.rx||0)} keret (${fmt(ex.hb_rx||0)} szívverés, ${fmt(ex.cmd_rx||0)} parancs, ${fmt(ex.rx_bad||0)} hibás)`],
+      ['Küldött',`${fmt(ex.tx||0)} keret (${fmt(ex.tx_fail||0)} sikertelen), ${fmt(ex.caps_sent||0)} képesség, ${fmt(ex.acks||0)} nyugta`],
+      ['Utolsó nyugta',ex.acks?`0x${(ex.last_cmd>>>0).toString(16).toUpperCase().padStart(2,'0')}: ${ACK[ex.last_ack]||'?'}${ex.last_ack===1?' (ok '+ex.last_reason+')':''}`:'–']]);
     $('spdInfo').innerHTML=kv([['Használt forrás',esc(st.speed_valid?st.speed_src:'nincs jel')+(st.speed_fallback?' (tartalék)':'')],
       ['Sebesség',fmt(st.speed,1)+' km/h'],['Kerékjeladó',fmt(st.wheel_kmh,1)+' km/h ('+fmt(st.wheel_hz,1)+' Hz)'],
       ['GPS / ISOBUS referencia',st.ref_kmh>=0?fmt(st.ref_kmh,1)+' km/h':'–'],['Csúszás (kerék – GPS)',st.slip>=0?fmt(st.slip,1)+' %':'–']]);
