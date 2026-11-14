@@ -414,6 +414,38 @@ TEST(pool_scaler_vt2_replaces_aux_objects) {
     CHECK(diff <= vt::AUX_OBJECT_COUNT * 12u);
 }
 
+TEST(pool_scaler_chunks_match_whole_pool) {
+    // a feltöltés darabonként méretez (PSRAM nélkül nincs hely a teljes másolatnak): bármilyen darabolás
+    // pontosan az egészben méretezett poolt adja
+    const auto pool = load_pool();
+    if (pool.size() < 1000) return;
+    const auto size = static_cast<std::uint32_t>(pool.size());
+    std::vector<app::ScaleTarget> targets(3);
+    targets[0].mask_px = 480, targets[0].key_w = 60, targets[0].key_h = 60;
+    targets[1].mask_px = 800, targets[1].key_w = 120, targets[1].key_h = 80, targets[1].aux_objects = false;
+    targets[2].mask_px = 240, targets[2].key_w = 64, targets[2].key_h = 48;
+    targets[2].font_supported = [](std::uint8_t c) { return c <= 4; };
+    for (const auto &t : targets) {
+        const auto whole = app::scale_pool(pool.data(), size, t);
+        CHECK(whole.size() == pool.size());
+        CHECK(whole != pool);   // tényleg méretezett
+        for (std::uint32_t step : {1u, 3u, 7u, 112u, 1785u}) {
+            std::vector<std::uint8_t> got(size), buf(step);
+            bool ok = true;
+            for (std::uint32_t off = 0; off < size; off += step) {
+                const std::uint32_t n = std::min(step, size - off);
+                ok = ok && app::scale_pool_range(pool.data(), size, t, off, n, buf.data());
+                std::memcpy(got.data() + off, buf.data(), n);
+            }
+            CHECK(ok);
+            CHECK(got == whole);
+        }
+    }
+    std::uint8_t b[8];
+    CHECK(!app::scale_pool_range(pool.data(), size, targets[0], size - 4, 8, b));   // a poolon túl
+    CHECK(app::scale_pool_range(pool.data(), size, targets[0], size - 8, 8, b));
+}
+
 TEST(aux_assignments_roundtrip) {
     std::vector<app::AuxDevice> d = {{0xA00086001234ULL, 7, {{vt::AUX_MASTER, 1, 2}, {vt::AUX_CRANK, 5, 2}}},
                                      {0x1122334455667788ULL, 0, {}}};

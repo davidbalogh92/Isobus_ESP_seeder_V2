@@ -21,7 +21,13 @@ struct ScaleTarget {
     bool aux_objects = true;
 };
 
-/// A pool méretezett másolata. Ha a méretezés nem lehetséges (sérült tábla), az eredeti másolatát adja.
+/// A méretezett pool [offset, offset + n) darabja buf-ba, a teljes másolat nélkül (a pool helyben, azonos
+/// hosszal módosul, így darabonként is előállítható). PSRAM nélküli panelen (RCv1.7) nincs hely a ~180 kB-os
+/// másolatnak, ezért a feltöltés ezt használja. Sérült táblánál az eredeti bájtokat adja; false: rossz tartomány.
+bool scale_pool_range(const std::uint8_t *pool, std::uint32_t size, const ScaleTarget &t, std::uint32_t offset,
+                      std::uint32_t n, std::uint8_t *buf);
+
+/// A pool méretezett másolata (tesztekhez / egészben). Sérült táblánál az eredeti másolatát adja.
 std::vector<std::uint8_t> scale_pool(const std::uint8_t *pool, std::uint32_t size, const ScaleTarget &t);
 
 /// A méretezett fontkód (0..14) a tervezési kódból és a maszk-arányból.
