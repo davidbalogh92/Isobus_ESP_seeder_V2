@@ -209,6 +209,7 @@ extern "C" void app_main() {
     web::log("INFO", "Object pool: %lu bájt, verzió %s", static_cast<unsigned long>(hwd.pool_size), vt::POOL_VERSION);
 
     isobus_app = std::make_unique<app::SeederApp>(shared);
+    isobus_app->set_board_has_scale(board::HX711_DATA >= 0);   // RCv1.7: nincs mérleg
     isobus_app->set_can_sender([driver](std::uint32_t id, const std::uint8_t *d, std::uint8_t len) {
         return driver->tx(id, false, d, len, 0);   // a vezérlési ciklus nem várhat
     });

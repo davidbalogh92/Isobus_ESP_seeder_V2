@@ -1,6 +1,7 @@
 #include "seeder/motor_tune.hpp"
 
 #include <cmath>
+#include <cstdio>
 
 namespace seeder {
 
@@ -76,6 +77,7 @@ int MotorTuner::progress_pct() const {
 float MotorTuner::step(float dt, float rpm, float since_pulse_s, std::uint32_t pulses, float ppr) {
     if (!active()) return 0.0f;
     elapsed_ += dt;
+    if (ppr > 0.0f) ppr_ = ppr;
     // rövid ablakos fordulat (~0,25 s)
     fast_dt_[fast_head_] = dt;
     fast_cnt_[fast_head_] = pulses;
@@ -208,7 +210,18 @@ void MotorTuner::finish() {
     const double a = den != 0.0 ? (n * sxy - sx * sy) / den : 0.0;
     const double b = (sy - a * sx) / n;
     if (a <= 0.0) {
-        fail("A fordulat nem nő a PWM-mel (enkóder hiba?)");
+        // a mért pontok és a legnagyobb impulzus-frekvencia a hibaüzenetben: ha a motor láthatóan gyorsul,
+        // de a fordulat nem nő, a bemenet nem számolja a sűrű impulzusokat (enkóder felbontás / jelillesztés)
+        int k = std::snprintf(msg_buf_, sizeof msg_buf_, "A fordulat nem nő a PWM-mel (");
+        float top = 0.0f;
+        for (int i = 0; i < n && k > 0 && k < static_cast<int>(sizeof msg_buf_); ++i) {
+            k += std::snprintf(msg_buf_ + k, sizeof msg_buf_ - k, "%s%.0f%%: %.1f", i ? ", " : "", res_.pwm[i], res_.rpm[i]);
+            top = std::fmax(top, res_.rpm[i]);
+        }
+        if (k > 0 && k < static_cast<int>(sizeof msg_buf_))
+            std::snprintf(msg_buf_ + k, sizeof msg_buf_ - k, " 1/min; %.0f Hz impulzus) – enkóder, imp/ford, bemenet?",
+                          ppr_ > 0.0f ? top * ppr_ / 60.0f : 0.0f);
+        fail(msg_buf_);
         return;
     }
     res_.max_rpm = res_.pwm[n - 1] >= 99.9f ? res_.rpm[n - 1] : static_cast<float>(a * 100.0 + b);

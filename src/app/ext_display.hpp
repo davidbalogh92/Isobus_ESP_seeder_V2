@@ -1,5 +1,5 @@
 #pragma once
-// Külső kijelző (Isobus_ExtDisplay_esp32) kapcsolat – V2 oldal, 1. kör.
+// Külső kijelző (Isobus_ExtDisplay_esp32) kapcsolat – V2 oldal (1. kör: alap, 2. kör: leforgatás, turbina).
 // Specifikáció: docs/ext_display_spec.md; protokoll: protocol/ext_display_protocol.h (változatlan másolat,
 // minden üzenet az ottani extdisp_encode_* / extdisp_decode_* függvényekkel).
 //
@@ -31,6 +31,17 @@ struct ExtDisplayMachine {
     std::uint16_t wifi_minutes = 0;
     std::uint8_t tank_n = 0;           ///< küldendő tartály-állapotok száma (0..2)
     extdisp_tank_status_t tanks[2]{};
+    std::uint16_t fan_rpm = EXTDISP_FAN_RPM_UNKNOWN;
+    // leforgatás (csak ha a képességekben a gépspecifikus kalibrálás bit be van állítva, és a kijelző
+    // aktív képernyője a leforgatás)
+    extdisp_calib_status_t calib{};
+    extdisp_calib_result_t calib_result{};
+    bool scale = false;                ///< van mérleg: 0x92 is megy
+    extdisp_scale_status_t scale_status{};
+    std::uint8_t weight_count = 0;     ///< részmérések (0..10)
+    std::uint32_t weights_g[EXTDISP_CALIB_MAX_WEIGHTS]{};
+    std::uint8_t saved_n = 0;          ///< mentett kalibrációk (adagolónként, 1..2)
+    std::uint32_t saved_mg_per_rev[2]{};
 };
 
 /// Nyugta eredménye (EXTDISP_ACK_*, EXTDISP_INHIBIT_*)
@@ -46,6 +57,7 @@ public:
         std::function<ExtAck(const extdisp_light_command_t &)> light;
         std::function<ExtAck(const extdisp_wifi_command_t &)> wifi;
         std::function<ExtAck(const extdisp_tank_command_t &)> tank;
+        std::function<ExtAck(const extdisp_calib_command_t &)> calib;
     };
 
     void set_sender(Send s) { send_ = std::move(s); }
@@ -62,6 +74,9 @@ public:
     bool stop_held() const;                 ///< STOP gomb (csak élő kapcsolatnál)
     bool start_held() const;
     std::uint8_t screen() const;
+    /// motoros leforgatás „tartás” a kijelzőről: az aktív képernyő a leforgatás, START nyomva, STOP nem,
+    /// és az utolsó szívverés EXTDISP_CALIB_HOLD_TIMEOUT_MS-on belül jött (now_ms: a hívás ideje)
+    bool calib_hold(std::uint32_t now_ms) const;
     /// a STOP lenyomások (felfutó élek) száma – a leforgatás állapotgépe (2. kör) ebből dolgozik
     unsigned stop_edges() const;
 
@@ -92,6 +107,10 @@ private:
     // csak a tick() szálán
     bool link_prev_ = false;
     std::uint32_t last_caps_ = 0, last_status_ = 0, last_wifi_ = 0, last_tank_ = 0;
+    std::uint32_t last_calib_ = 0, last_saved_ = 0;
+    bool calib_prev_ = false;               ///< az előző ciklusban a leforgatás képernyő volt aktív
+    std::uint8_t weight_item_ = 0;          ///< a 0x93 körbejárás következő tétele
+    unsigned calib_sent_ = 0;
     std::uint8_t counter_ = 0;
     std::uint8_t wifi_prev_ = EXTDISP_WIFI_OFF;
     unsigned tx_ = 0, tx_fail_ = 0, acks_ = 0, caps_sent_ = 0;

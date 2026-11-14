@@ -13,11 +13,15 @@
 
 #include "isobus/isobus/isobus_device_descriptor_object_pool.hpp"
 #include "seeder/vt_scale.hpp"
+#include "isobus/utility/system_timing.hpp"
 
 #include <algorithm>
 #include <array>
 #include <fstream>
 #include <iterator>
+#include <chrono>
+#include <memory>
+#include <thread>
 
 #include <cmath>
 #include <cstdio>
@@ -1183,17 +1187,16 @@ TEST(ext_display_commands_and_acks) {
     fd.d.on_frame(bad_wifi, 8);
     fd.d.tick(120, true, m);
     CHECK(fd.wifi_calls == 1 && ack(EXTDISP_ID_WIFI_COMMAND).result == EXTDISP_ACK_BAD_DATA);
-    // leforgatás (0x10–0x12): tiltva, ok 8 (a funkció ezen a gépen még nincs)
-    extdisp_calib_command_t cc{EXTDISP_CALIB_ACT_PREPARE, 1, 85};
+    // leforgatás (0x10): handler nélkül tiltva, ok 8; a régi 0x11 (megszűnt) ismeretlen parancs → ok 8
+    extdisp_calib_command_t cc{EXTDISP_CALIB_ACT_NEW, 0, 0};
     extdisp_encode_calib_command(&cc, f);
     fd.d.on_frame(f, 8);
     fd.d.tick(140, true, m);
     CHECK(ack(EXTDISP_ID_CALIB_COMMAND).result == EXTDISP_ACK_INHIBITED && ack(EXTDISP_ID_CALIB_COMMAND).inhibit_reason == 8);
-    extdisp_calib_weight_t cw{1, 1234};
-    extdisp_encode_calib_weight(&cw, f);
-    fd.d.on_frame(f, 8);
+    const std::uint8_t old_weight[8] = {0x11, 1, 0xD2, 0x04, 0, 0, 0xFF, 0xFF};
+    fd.d.on_frame(old_weight, 8);
     fd.d.tick(160, true, m);
-    CHECK(ack(EXTDISP_ID_CALIB_WEIGHT).inhibit_reason == 8);
+    CHECK(ack(0x11).result == EXTDISP_ACK_INHIBITED && ack(0x11).inhibit_reason == 8);
     // tartály: nincs handler → tiltva, ok 8; ismeretlen parancs → tiltva, ok 8
     extdisp_tank_command_t tc{0, EXTDISP_TANK_ACT_ADD, 2500};
     extdisp_encode_tank_command(&tc, f);
@@ -1215,6 +1218,421 @@ TEST(ext_display_commands_and_acks) {
     fd.d.tick(220, false, m);
     fd.d.tick(240, true, m);
     CHECK(fd.count(EXTDISP_ID_ACK) == 10);
+}
+
+// --------------------------------------------------------------------------- külső kijelző: leforgatás, turbina
+namespace {
+void hb_screen(app::ExtDisplay &d, std::uint8_t counter, std::uint8_t flags, std::uint8_t screen) {
+    extdisp_heartbeat_t h{counter, flags, screen};
+    std::uint8_t f[8];
+    extdisp_encode_heartbeat(&h, f);
+    d.on_frame(f, 8);
+}
+app::ExtDisplayMachine calib_machine() {
+    app::ExtDisplayMachine m = machine();
+    m.caps.features |= EXTDISP_FEATURE_MACHINE_CALIB;
+    m.calib = {EXTDISP_CALIB_FLAG_SESSION, 1, 0, 1234, 850, 3};
+    m.calib_result = {1, 4500, 52941};
+    m.weight_count = 3;
+    m.weights_g[0] = 1500;
+    m.weights_g[1] = 2000;
+    m.weights_g[2] = 1000;
+    m.saved_n = 2;
+    m.saved_mg_per_rev[0] = 235300;
+    m.saved_mg_per_rev[1] = 120000;
+    return m;
+}
+} // namespace
+
+TEST(ext_display_calib_status_only_on_calib_screen) {
+    FakeDisplay fd;
+    auto m = calib_machine();
+    fd.d.tick(0, true, m);
+    hb_screen(fd.d, 1, 0, EXTDISP_SCREEN_MAIN);
+    for (std::uint32_t t = 20; t <= 1000; t += 20) fd.d.tick(t, true, m);
+    CHECK(fd.count(EXTDISP_ID_CALIB_STATUS) == 0 && fd.count(EXTDISP_ID_CALIB_SAVED) == 0);   // főképernyő: semmi
+    // a leforgatás képernyőn: 0x90 / 0x91 / 0x93 200 ms-onként, 0x94 másodpercenként mindkét adagolóra
+    fd.tx.clear();
+    std::uint32_t t = 1000;
+    for (int k = 0; k < 50; ++k) {   // 1 s
+        t += 20;
+        if (k % 10 == 0) hb_screen(fd.d, static_cast<std::uint8_t>(k), 0, EXTDISP_SCREEN_CALIB);
+        fd.d.tick(t, true, m);
+    }
+    CHECK(fd.count(EXTDISP_ID_CALIB_STATUS) >= 5 && fd.count(EXTDISP_ID_CALIB_STATUS) <= 6);
+    CHECK(fd.count(EXTDISP_ID_CALIB_RESULT) == fd.count(EXTDISP_ID_CALIB_STATUS));
+    CHECK(fd.count(EXTDISP_ID_CALIB_WEIGHT_ITEM) == fd.count(EXTDISP_ID_CALIB_STATUS));
+    CHECK(fd.count(EXTDISP_ID_SCALE_STATUS) == 0);                         // nincs mérleg
+    CHECK(fd.count(EXTDISP_ID_CALIB_SAVED) >= 2 && fd.count(EXTDISP_ID_CALIB_SAVED) <= 4);
+    extdisp_calib_status_t cs{};
+    CHECK(extdisp_decode_calib_status(fd.last(EXTDISP_ID_CALIB_STATUS)->data(), 8, &cs) == EXTDISP_OK);
+    CHECK(cs.counted_centirev == 1234 && cs.target_decirev == 850 && cs.weight_count == 3 && cs.feeder == 1);
+    extdisp_calib_result_t cr{};
+    CHECK(extdisp_decode_calib_result(fd.last(EXTDISP_ID_CALIB_RESULT)->data(), 8, &cr) == EXTDISP_OK);
+    CHECK(cr.total_g == 4500 && cr.mg_per_rev == 52941);
+    // a tételek körbejárnak: 0, 1, 2, 0, …
+    std::vector<int> idx;
+    std::uint32_t sum = 0;
+    for (const auto &f : fd.tx)
+        if (f[0] == EXTDISP_ID_CALIB_WEIGHT_ITEM) {
+            extdisp_calib_weight_item_t w{};
+            CHECK(extdisp_decode_calib_weight_item(f.data(), 8, &w) == EXTDISP_OK);
+            CHECK(w.count == 3);
+            if (idx.size() < 3) sum += w.weight_g;
+            idx.push_back(w.index);
+        }
+    CHECK(idx.size() >= 3 && idx[0] == 0 && idx[1] == 1 && idx[2] == 2 && sum == 4500);
+    // mentett értékek: 1. és 2. adagoló
+    bool f1 = false, f2 = false;
+    for (const auto &f : fd.tx)
+        if (f[0] == EXTDISP_ID_CALIB_SAVED) {
+            extdisp_calib_saved_t sv{};
+            CHECK(extdisp_decode_calib_saved(f.data(), 8, &sv) == EXTDISP_OK);
+            f1 |= sv.feeder == 1 && sv.mg_per_rev == 235300;
+            f2 |= sv.feeder == 2 && sv.mg_per_rev == 120000;
+        }
+    CHECK(f1 && f2);
+    // mérleggel a 0x92 is megy
+    m.scale = true;
+    m.scale_status = {EXTDISP_SCALE_FLAG_VALID | EXTDISP_SCALE_FLAG_STABLE, -125};
+    fd.tx.clear();
+    hb_screen(fd.d, 60, 0, EXTDISP_SCREEN_CALIB);
+    fd.d.tick(t + 220, true, m);
+    extdisp_scale_status_t ss{};
+    CHECK(fd.last(EXTDISP_ID_SCALE_STATUS) &&
+          extdisp_decode_scale_status(fd.last(EXTDISP_ID_SCALE_STATUS)->data(), 8, &ss) == EXTDISP_OK &&
+          ss.weight_dg == -125 && ss.flags == 3);
+    // üres lista: egy 0 darabos tétel
+    m.weight_count = 0;
+    fd.tx.clear();
+    hb_screen(fd.d, 61, 0, EXTDISP_SCREEN_CALIB);
+    fd.d.tick(t + 440, true, m);
+    extdisp_calib_weight_item_t w0{};
+    CHECK(fd.last(EXTDISP_ID_CALIB_WEIGHT_ITEM) &&
+          extdisp_decode_calib_weight_item(fd.last(EXTDISP_ID_CALIB_WEIGHT_ITEM)->data(), 8, &w0) == EXTDISP_OK &&
+          w0.count == 0 && w0.weight_g == 0);
+    // a funkció nélkül (képesség bit3 = 0) a leforgatás képernyőn sem megy semmi
+    m.caps.features &= static_cast<std::uint8_t>(~EXTDISP_FEATURE_MACHINE_CALIB);
+    fd.tx.clear();
+    hb_screen(fd.d, 62, 0, EXTDISP_SCREEN_CALIB);
+    fd.d.tick(t + 660, true, m);
+    CHECK(fd.count(EXTDISP_ID_CALIB_STATUS) == 0);
+    // a gépállapotban a turbina fordulat
+    m.fan_rpm = 3520;
+    fd.d.tick(t + 880, true, m);
+    extdisp_machine_status_t ms{};
+    CHECK(extdisp_decode_machine_status(fd.last(EXTDISP_ID_MACHINE_STATUS)->data(), 8, &ms) == EXTDISP_OK && ms.fan_rpm == 3520);
+}
+
+TEST(ext_display_calib_hold_rules) {
+    FakeDisplay fd;
+    const auto m = calib_machine();
+    fd.d.tick(1000, true, m);
+    hb_screen(fd.d, 1, EXTDISP_HB_FLAG_START, EXTDISP_SCREEN_CALIB);
+    CHECK(fd.d.calib_hold(1010));
+    CHECK(fd.d.calib_hold(1599));
+    CHECK(!fd.d.calib_hold(1600));                                   // 600 ms kimaradás
+    fd.d.tick(1200, true, m);
+    hb_screen(fd.d, 2, EXTDISP_HB_FLAG_START, EXTDISP_SCREEN_MAIN);  // más képernyőn a START semmit nem tesz
+    CHECK(!fd.d.calib_hold(1210));
+    hb_screen(fd.d, 3, EXTDISP_HB_FLAG_START | EXTDISP_HB_FLAG_STOP, EXTDISP_SCREEN_CALIB);
+    CHECK(!fd.d.calib_hold(1210));                                   // STOP: nincs tartás
+    hb_screen(fd.d, 4, 0, EXTDISP_SCREEN_CALIB);
+    CHECK(!fd.d.calib_hold(1210));                                   // elengedve
+}
+
+namespace {
+// SeederApp + mag CAN nélkül: a kijelző kereteit közvetlenül adjuk, a nyugtákat elkapjuk
+struct CalibRig {
+    app::Shared shared;
+    std::unique_ptr<app::SeederApp> a;
+    std::vector<std::array<std::uint8_t, 8>> tx;
+    std::uint32_t t0 = 0;
+    explicit CalibRig(const std::function<void(Settings &)> &cfg) {
+        Settings st = default_settings();
+        st.prefill_auto = 0;
+        cfg(st);
+        normalize(st);
+        shared.core.load(st, Persistent{});
+        a = std::make_unique<app::SeederApp>(shared);
+        a->ext_display().set_sender([this](const std::uint8_t *f) {
+            std::array<std::uint8_t, 8> x{};
+            std::memcpy(x.data(), f, 8);
+            tx.push_back(x);
+            return true;
+        });
+    }
+    std::uint32_t now() const { return isobus::SystemTiming::get_timestamp_ms(); }
+    app::ExtDisplayMachine snapshot_machine() {
+        app::Snapshot sn;
+        {
+            std::lock_guard<std::mutex> g(shared.lock);
+            sn.st = shared.core.status();
+            sn.set = shared.core.settings();
+            sn.per = shared.core.persistent();
+        }
+        return a->ext_display_machine(sn, now());
+    }
+    // a kijelző-kapcsolat egy ciklusa (a valódi alkalmazásban a do_start után az update hívja)
+    void link_tick() { a->ext_display().tick(now(), true, snapshot_machine()); }
+    extdisp_ack_t cmd(std::uint8_t action, std::uint8_t param = 0, std::uint32_t value = 0) {
+        extdisp_calib_command_t c{action, param, value};
+        std::array<std::uint8_t, 8> f{};
+        CHECK(extdisp_encode_calib_command(&c, f.data()) == EXTDISP_OK);
+        return raw(f);
+    }
+    extdisp_ack_t raw(const std::array<std::uint8_t, 8> &f) {
+        tx.clear();
+        a->ext_display().on_frame(f.data(), 8);
+        link_tick();
+        extdisp_ack_t r{};
+        r.result = 0xEE;
+        for (const auto &x : tx)
+            if (x[0] == EXTDISP_ID_ACK) extdisp_decode_ack(x.data(), 8, &r);
+        return r;
+    }
+    void run(float s, const app::HwInputs &hw = app::HwInputs{}) {
+        for (int k = 0; k < static_cast<int>(s / 0.05f + 0.5f); ++k) a->update(0.05f, hw);
+    }
+    Status st() {
+        std::lock_guard<std::mutex> g(shared.lock);
+        return shared.core.status();
+    }
+};
+bool inhibited(const extdisp_ack_t &a, std::uint8_t reason) {
+    return a.result == EXTDISP_ACK_INHIBITED && a.inhibit_reason == reason;
+}
+bool ok(const extdisp_ack_t &a) { return a.result == EXTDISP_ACK_OK; }
+} // namespace
+
+TEST(ext_display_calib_commands_on_core) {
+    // talajhajtás, két adagoló, 1 imp/ford tengelyjeladó (kézi tekerés)
+    CalibRig r([](Settings &st) { st.drive_type = 0; st.meter_count = 2; st.meter_ppr = 1; });
+    r.link_tick();
+    CHECK(ok(r.cmd(EXTDISP_CALIB_ACT_NEW)));
+    CHECK(r.st().crank.session && !r.st().crank.armed);
+    CHECK(ok(r.cmd(EXTDISP_CALIB_ACT_SELECT_FEEDER, 2)) && r.st().crank.meter == 1);
+    CHECK(ok(r.cmd(EXTDISP_CALIB_ACT_SELECT_FEEDER, 1)) && r.st().crank.meter == 0);
+    CHECK(ok(r.cmd(EXTDISP_CALIB_ACT_SELECT_TURNS, 2)) && r.st().crank.turn_option == 2);
+    CHECK(ok(r.cmd(EXTDISP_CALIB_ACT_SELECT_TURNS, 0)) && r.st().crank.turn_option == 0);
+    CHECK(r.raw({EXTDISP_ID_CALIB_COMMAND, EXTDISP_CALIB_ACT_SELECT_TURNS, 3, 0, 0, 0, 0, 0xFF}).result ==
+          EXTDISP_ACK_BAD_DATA);   // a protokoll szerint érvénytelen
+    // mentés tömeg nélkül: ok 11
+    CHECK(inhibited(r.cmd(EXTDISP_CALIB_ACT_SAVE), EXTDISP_INHIBIT_NO_WEIGHT));
+    // részmérések (gramm → kg), a VT / web ugyanezt a listát látja
+    CHECK(ok(r.cmd(EXTDISP_CALIB_ACT_ADD_WEIGHT, 0, 1250)));
+    CHECK(ok(r.cmd(EXTDISP_CALIB_ACT_ADD_WEIGHT, 0, 750)));
+    CHECK(r.st().crank.weight_count == 2 && std::fabs(r.st().crank.measured_kg - 2.0f) < 1e-4f);
+    CHECK(r.raw({EXTDISP_ID_CALIB_COMMAND, EXTDISP_CALIB_ACT_ADD_WEIGHT, 0, 0, 0, 0, 0, 0xFF}).result == EXTDISP_ACK_BAD_DATA);
+    CHECK(inhibited(r.cmd(EXTDISP_CALIB_ACT_DELETE_WEIGHT, 5), EXTDISP_INHIBIT_BAD_PARAM));   // nincs ilyen tétel
+    CHECK(ok(r.cmd(EXTDISP_CALIB_ACT_DELETE_WEIGHT, 0)) && r.st().crank.weight_count == 1 &&
+          std::fabs(r.st().crank.weights[0] - 0.75f) < 1e-4f);
+    for (int i = 0; i < 9; ++i) r.cmd(EXTDISP_CALIB_ACT_ADD_WEIGHT, 0, 100);
+    CHECK(r.st().crank.weight_count == 10);
+    CHECK(inhibited(r.cmd(EXTDISP_CALIB_ACT_ADD_WEIGHT, 0, 100), EXTDISP_INHIBIT_LIST_FULL));
+    CHECK(ok(r.cmd(EXTDISP_CALIB_ACT_DELETE_WEIGHT, EXTDISP_CALIB_DELETE_ALL)) && r.st().crank.weight_count == 0);
+    // mérleg: nincs engedélyezve → nem támogatott (8)
+    CHECK(inhibited(r.cmd(EXTDISP_CALIB_ACT_TAKE_SCALE), EXTDISP_INHIBIT_NOT_SUPPORTED));
+    CHECK(inhibited(r.cmd(EXTDISP_CALIB_ACT_TARE_SCALE), EXTDISP_INHIBIT_NOT_SUPPORTED));
+    // tekerés: 1 imp/ford-nál az első impulzus a nullpont, utána számol (85 fordulat)
+    app::HwInputs hw;
+    hw.meter[0].count = 1;
+    r.run(0.05f, hw);
+    CHECK(r.st().crank.armed && r.st().crank.counted_revs < 0.01f);
+    for (int k = 0; k < 85; ++k) r.run(0.05f, hw);
+    CHECK(std::fabs(r.st().crank.counted_revs - 85.0f) < 0.01f && r.st().crank.target_reached);
+    // 1,7 kg / 85 fordulat = 20 g/ford, mentés → a beállításokba (VT / web is ezt látja)
+    CHECK(ok(r.cmd(EXTDISP_CALIB_ACT_ADD_WEIGHT, 0, 1700)));
+    auto mm = r.snapshot_machine();
+    CHECK(mm.calib_result.total_g == 1700 && mm.calib_result.mg_per_rev == 20000);
+    CHECK(mm.calib.counted_centirev == 8500 && mm.calib.target_decirev == 850 &&
+          (mm.calib.flags & EXTDISP_CALIB_FLAG_TARGET_REACHED) && (mm.calib.flags & EXTDISP_CALIB_FLAG_ZERO_FOUND) &&
+          !(mm.calib.flags & EXTDISP_CALIB_FLAG_ELECTRIC));
+    CHECK(ok(r.cmd(EXTDISP_CALIB_ACT_SAVE)));
+    {
+        std::lock_guard<std::mutex> g(r.shared.lock);
+        CHECK(std::fabs(r.shared.core.settings().cal1_kg_rev - 0.02f) < 1e-5f);
+    }
+    mm = r.snapshot_machine();
+    CHECK(mm.saved_n == 2 && mm.saved_mg_per_rev[0] == 20000);
+    // másolás a másik adagolóra
+    CHECK(ok(r.cmd(EXTDISP_CALIB_ACT_COPY_TO_OTHER)));
+    {
+        std::lock_guard<std::mutex> g(r.shared.lock);
+        CHECK(std::fabs(r.shared.core.settings().cal2_kg_rev - 0.02f) < 1e-5f);
+    }
+    // ismeretlen művelet → hibás adat (a dekóder szűri)
+    CHECK(r.raw({EXTDISP_ID_CALIB_COMMAND, 10, 0, 0, 0, 0, 0, 0xFF}).result == EXTDISP_ACK_BAD_DATA);
+}
+
+TEST(ext_display_calib_single_meter_and_scale) {
+    // egy adagoló: a 2. nem választható, a másolás „nincs ilyen egység”; mérleg engedélyezve, adat nélkül: 9
+    CalibRig r([](Settings &st) { st.drive_type = 0; st.meter_count = 1; st.scale_enable = 1; });
+    r.run(0.1f);
+    r.link_tick();
+    CHECK(inhibited(r.cmd(EXTDISP_CALIB_ACT_SELECT_FEEDER, 2), EXTDISP_INHIBIT_NO_SUCH_UNIT));
+    CHECK(inhibited(r.cmd(EXTDISP_CALIB_ACT_COPY_TO_OTHER), EXTDISP_INHIBIT_NO_SUCH_UNIT));
+    CHECK(inhibited(r.cmd(EXTDISP_CALIB_ACT_TAKE_SCALE), EXTDISP_INHIBIT_NO_SCALE_DATA));
+    CHECK(inhibited(r.cmd(EXTDISP_CALIB_ACT_TARE_SCALE), EXTDISP_INHIBIT_NO_SCALE_DATA));
+    auto mm = r.snapshot_machine();
+    CHECK((mm.caps.features & EXTDISP_FEATURE_SCALE) && (mm.caps.features & EXTDISP_FEATURE_MACHINE_CALIB) && mm.scale);
+    CHECK(mm.saved_n == 1);
+    // mérlegadattal: tára, majd üres mérleg (10), rátétel után átvétel
+    app::HwInputs hw;
+    hw.scale_valid = true;
+    hw.scale_raw = 5000.0f;
+    r.run(1.0f, hw);
+    CHECK(ok(r.cmd(EXTDISP_CALIB_ACT_TARE_SCALE)));
+    r.run(0.5f, hw);
+    CHECK(inhibited(r.cmd(EXTDISP_CALIB_ACT_TAKE_SCALE), EXTDISP_INHIBIT_SCALE_EMPTY));
+    float factor;
+    {
+        std::lock_guard<std::mutex> g(r.shared.lock);
+        factor = r.shared.core.settings().scale_factor;
+    }
+    hw.scale_raw = 5000.0f + 2.5f * factor;   // 2,5 kg
+    r.run(3.0f, hw);
+    mm = r.snapshot_machine();
+    for (int k = 0; k < 6; ++k) {   // a stabilitás ~1 s-os mintázás (200 ms-onként)
+        r.run(0.2f, hw);
+        mm = r.snapshot_machine();
+    }
+    CHECK((mm.scale_status.flags & EXTDISP_SCALE_FLAG_VALID) && std::abs(mm.scale_status.weight_dg - 25000) <= 5);
+    CHECK(ok(r.cmd(EXTDISP_CALIB_ACT_TAKE_SCALE)) && r.st().crank.weight_count == 1);
+    // a panelen nincs mérleg (RCv1.7): a funkció nem jelenik meg, a parancs nem támogatott
+    r.a->set_board_has_scale(false);
+    mm = r.snapshot_machine();
+    CHECK(!(mm.caps.features & EXTDISP_FEATURE_SCALE) && !mm.scale);
+    CHECK(inhibited(r.cmd(EXTDISP_CALIB_ACT_TARE_SCALE), EXTDISP_INHIBIT_NOT_SUPPORTED));
+}
+
+TEST(ext_display_calib_half_turn_by_hand) {
+    // 42,5 fordulat 1 imp/ford jeladóval: a jelző él, a 42 egész után a felet kézzel kell rátenni
+    CalibRig r([](Settings &st) { st.drive_type = 0; st.meter_ppr = 1; });
+    r.link_tick();
+    CHECK(ok(r.cmd(EXTDISP_CALIB_ACT_SELECT_TURNS, 1)));
+    CHECK(ok(r.cmd(EXTDISP_CALIB_ACT_NEW)));
+    auto mm = r.snapshot_machine();
+    CHECK((mm.calib.flags & EXTDISP_CALIB_FLAG_HALF_BY_HAND) && mm.calib.target_decirev == 425 && mm.calib.turn_option == 1);
+    CHECK(!(mm.calib.flags & EXTDISP_CALIB_FLAG_ZERO_FOUND));   // nullpontra vár
+    app::HwInputs hw;
+    hw.meter[0].count = 1;
+    for (int k = 0; k < 43; ++k) r.run(0.05f, hw);   // nullpont + 42 fordulat
+    mm = r.snapshot_machine();
+    CHECK(mm.calib.counted_centirev == 4200 && (mm.calib.flags & EXTDISP_CALIB_FLAG_ZERO_FOUND));
+    {
+        std::lock_guard<std::mutex> g(r.shared.lock);
+        CHECK(std::fabs(r.shared.core.crank_effective_revs() - 42.5) < 1e-6);
+    }
+    // enkóderrel (sok impulzus) nincs ilyen jelzés, és nullpont sem kell
+    CalibRig e([](Settings &st) { st.drive_type = 1; st.encoder_ppr = 50; });
+    e.link_tick();
+    e.cmd(EXTDISP_CALIB_ACT_SELECT_TURNS, 1);
+    e.cmd(EXTDISP_CALIB_ACT_NEW);
+    mm = e.snapshot_machine();
+    CHECK(!(mm.calib.flags & EXTDISP_CALIB_FLAG_HALF_BY_HAND) && (mm.calib.flags & EXTDISP_CALIB_FLAG_ZERO_FOUND) &&
+          (mm.calib.flags & EXTDISP_CALIB_FLAG_ELECTRIC));
+}
+
+TEST(ext_display_calib_motor_hold_from_display) {
+    CalibRig r([](Settings &st) { st.drive_type = 1; st.encoder_ppr = 50; st.sim_inputs = 1; st.speed_src = 3; st.sim_speed = 0.0f; });
+    r.link_tick();
+    CHECK(ok(r.cmd(EXTDISP_CALIB_ACT_NEW)));
+    auto& d = r.a->ext_display();
+    auto beat = [&](std::uint8_t flags, std::uint8_t screen, float secs) {
+        for (int k = 0; k < static_cast<int>(secs / 0.05f + 0.5f); ++k) {
+            if (k % 4 == 0) hb_screen(d, static_cast<std::uint8_t>(k), flags, screen);
+            r.link_tick();
+            r.a->update(0.05f, app::HwInputs{});
+        }
+    };
+    auto held = [&] {
+        std::lock_guard<std::mutex> g(r.shared.lock);
+        return r.shared.core.crank_held();
+    };
+    auto pwm = [&] {
+        std::lock_guard<std::mutex> g(r.shared.lock);
+        return r.shared.core.outputs().motor_pwm_pct[0];
+    };
+    // START a főképernyőn: semmi
+    beat(EXTDISP_HB_FLAG_START, EXTDISP_SCREEN_MAIN, 0.5f);
+    CHECK(!held() && pwm() < 0.5f);
+    // START a leforgatás képernyőn: forog, a számláló nő, a jelzők mutatják
+    beat(EXTDISP_HB_FLAG_START, EXTDISP_SCREEN_CALIB, 2.0f);
+    CHECK(held() && pwm() > 1.0f && r.st().crank.counted_revs > 0.1f);
+    auto mm = r.snapshot_machine();
+    CHECK((mm.calib.flags & EXTDISP_CALIB_FLAG_MOTOR_RUNNING) && (mm.calib.flags & EXTDISP_CALIB_FLAG_ELECTRIC) &&
+          mm.calib.counted_centirev > 10);
+    // elengedés: azonnal megáll
+    beat(0, EXTDISP_SCREEN_CALIB, 0.05f);
+    CHECK(!held());
+    beat(0, EXTDISP_SCREEN_CALIB, 0.4f);   // a motor a szokásos lassítással áll le (ahogy a VT-ről is)
+    CHECK(pwm() < 0.5f);
+    // újra START, majd STOP (bármelyik képernyőn)
+    beat(EXTDISP_HB_FLAG_START, EXTDISP_SCREEN_CALIB, 0.5f);
+    CHECK(held());
+    beat(EXTDISP_HB_FLAG_STOP, EXTDISP_SCREEN_MAIN, 0.05f);
+    CHECK(!held());
+    beat(0, EXTDISP_SCREEN_MAIN, 0.4f);
+    // START, majd a szívverés kimarad: 600 ms után megáll
+    beat(EXTDISP_HB_FLAG_START, EXTDISP_SCREEN_CALIB, 0.5f);
+    CHECK(held());
+    // (valódi idő: a kimaradást az ISOBUS-óra méri)
+    auto idle = [&](int ms) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+        r.link_tick();
+        r.a->update(0.05f, app::HwInputs{});
+    };
+    idle(350);   // 350 ms szívverés nélkül: még forog
+    CHECK(held());
+    idle(350);   // 700 ms: már áll
+    CHECK(!held());
+    // a VT-ről indított tartást a kijelző (START nélkül) nem engedi el
+    {
+        std::lock_guard<std::mutex> g(r.shared.lock);
+        CHECK(r.shared.core.crank_hold(true, 0.6f));
+    }
+    beat(0, EXTDISP_SCREEN_CALIB, 0.2f);
+    CHECK(held());
+    {
+        std::lock_guard<std::mutex> g(r.shared.lock);
+        r.shared.core.crank_hold(false);
+    }
+    // a célfordulatnál (automatikus megállás) megáll, és tartott START mellett sem indul újra (17 fordulat)
+    CHECK(ok(r.cmd(EXTDISP_CALIB_ACT_SELECT_TURNS, 2)) && ok(r.cmd(EXTDISP_CALIB_ACT_NEW)));
+    beat(EXTDISP_HB_FLAG_START, EXTDISP_SCREEN_CALIB, 50.0f);
+    CHECK(r.st().crank.target_reached && !held() && pwm() < 0.5f);
+}
+
+TEST(core_crank_refusal_reasons) {
+    // a mag a szöveg mellett okkódot is hagy (a VT / web üzenete változatlan)
+    Settings st = default_settings();
+    st.drive_type = 0;
+    normalize(st);
+    Seeder g;
+    g.load(st, Persistent{});
+    g.clear_refusal();
+    CHECK(!g.crank_hold(true) && g.last_refusal() == Refusal::NotElectric);
+    CHECK(std::string(g.status().message).find("elektromos") != std::string::npos);
+    st.drive_type = 1;
+    st.encoder_ppr = 50;
+    normalize(st);
+    Seeder e;
+    e.load(st, Persistent{});
+    e.set_master(true);
+    e.clear_refusal();
+    CHECK(!e.crank_hold(true) && e.last_refusal() == Refusal::Metering);
+    e.set_master(false);
+    CHECK(e.motor_tune_start(0));
+    e.clear_refusal();
+    CHECK(!e.crank_hold(true) && e.last_refusal() == Refusal::Tuning);
+    e.motor_tune_stop();
+    e.clear_refusal();
+    CHECK(e.crank_hold(true) && e.last_refusal() == Refusal::None);
+    CHECK(!e.crank_set_meter(1) && e.last_refusal() == Refusal::Busy);   // forgatás közben nem vált
+    e.clear_refusal();
+    CHECK(!e.crank_copy_to_other() && e.last_refusal() == Refusal::Busy);
+    e.crank_hold(false);
 }
 
 int main() {

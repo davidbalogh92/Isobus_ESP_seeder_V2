@@ -213,6 +213,7 @@ struct SimDisplay {
     std::mutex m;
     std::vector<std::array<std::uint8_t, 8>> rx;
     std::uint8_t counter = 0;
+    std::uint8_t screen = EXTDISP_SCREEN_MAIN;
     static void on_msg(const isobus::CANMessage &msg, void *self) {
         auto *d = static_cast<SimDisplay *>(self);
         const auto &v = msg.get_data();
@@ -226,7 +227,7 @@ struct SimDisplay {
         return isobus::CANNetworkManager::CANNetwork.send_can_message(EXTDISP_PGN, f, 8, cf, partner);
     }
     bool heartbeat(std::uint8_t flags) {
-        extdisp_heartbeat_t h{counter++, flags, EXTDISP_SCREEN_MAIN};
+        extdisp_heartbeat_t h{counter++, flags, screen};
         std::uint8_t f[8];
         extdisp_encode_heartbeat(&h, f);
         return send(f);
@@ -443,8 +444,8 @@ int main(int argc, char **argv) {
         check(disp.last(EXTDISP_ID_CAPABILITIES, f) && extdisp_decode_capabilities(f.data(), 8, &caps) == EXTDISP_OK &&
                   caps.machine_type == EXTDISP_MACHINE_SEEDER && caps.protocol_version == EXTDISP_PROTOCOL_VERSION &&
                   caps.feeder_count == 1 && (caps.features & EXTDISP_FEATURE_WIFI_SERVICE) &&
-                  !(caps.features & EXTDISP_FEATURE_MACHINE_CALIB) && caps.fw_major == 2,
-              "kijelző: képességek = vetőgép, v1, 1 adagoló, WiFi szerviz, leforgatás nélkül");
+                  (caps.features & EXTDISP_FEATURE_MACHINE_CALIB) && caps.fw_major == 2,
+              "kijelző: képességek = vetőgép, v1, 1 adagoló, WiFi szerviz, leforgatás");
         // szívverés 200 ms-onként (a step 50 ms)
         int hb_div = 0;
         std::uint8_t hb_flags = 0;
@@ -509,14 +510,42 @@ int main(int argc, char **argv) {
               "kijelző: WiFi állapot (0xC0) 20 perccel");
         wait_for([] { return false; }, dstep, 1);
         check(!vt.hidden(vt::CONT_WIFI), "VT: WiFi ikon a főképernyőn");
-        // leforgatás még tiltva (ok 8)
-        extdisp_calib_command_t cc{EXTDISP_CALIB_ACT_PREPARE, 1, 85};
+        // leforgatás: a főképernyőn nincs leforgatás-állapot, a leforgatás képernyőn 200 ms-onként jön
+        check(disp.count(EXTDISP_ID_CALIB_STATUS) == 0, "kijelző: főképernyőn nincs 0x90");
+        disp.screen = EXTDISP_SCREEN_CALIB;
+        disp.clear();
+        check(wait_for([&] { return disp.count(EXTDISP_ID_CALIB_STATUS) >= 3 && disp.count(EXTDISP_ID_CALIB_RESULT) >= 3 &&
+                                    disp.count(EXTDISP_ID_CALIB_WEIGHT_ITEM) >= 3 && disp.count(EXTDISP_ID_CALIB_SAVED) >= 1; },
+                       dstep, 3),
+              "kijelző: leforgatás képernyőn 0x90 / 0x91 / 0x93 / 0x94 megérkezik");
+        extdisp_calib_command_t cc{EXTDISP_CALIB_ACT_ADD_WEIGHT, 0, 1250};
+        extdisp_encode_calib_command(&cc, cmd);
+        disp.clear();
+        disp.send(cmd);
+        check(wait_for([&] { return disp.ack_for(EXTDISP_ID_CALIB_COMMAND, a); }, dstep, 3) && a.result == EXTDISP_ACK_OK,
+              "kijelző: részmérés hozzáadása → nyugta rendben");
+        extdisp_calib_status_t cst{};
+        check(wait_for([&] { return disp.last(EXTDISP_ID_CALIB_STATUS, f) && extdisp_decode_calib_status(f.data(), 8, &cst) == EXTDISP_OK &&
+                                    cst.weight_count == 1; }, dstep, 3),
+              "kijelző: a részmérés a 0x90-ben is látszik");
+        {
+            std::lock_guard<std::mutex> g(shared.lock);
+            check(shared.core.status().crank.weight_count == 1, "a részmérés a mag (VT / web) listáján");
+        }
+        cc = {EXTDISP_CALIB_ACT_DELETE_WEIGHT, 5, 0};
         extdisp_encode_calib_command(&cc, cmd);
         disp.clear();
         disp.send(cmd);
         check(wait_for([&] { return disp.ack_for(EXTDISP_ID_CALIB_COMMAND, a); }, dstep, 3) && a.result == EXTDISP_ACK_INHIBITED &&
-                  a.inhibit_reason == EXTDISP_INHIBIT_NOT_SUPPORTED,
-              "kijelző: leforgatás parancs → tiltva (ok 8)");
+                  a.inhibit_reason == EXTDISP_INHIBIT_BAD_PARAM,
+              "kijelző: nem létező tétel törlése → tiltva (ok 6)");
+        cc = {EXTDISP_CALIB_ACT_DELETE_WEIGHT, EXTDISP_CALIB_DELETE_ALL, 0};
+        extdisp_encode_calib_command(&cc, cmd);
+        disp.clear();
+        disp.send(cmd);
+        check(wait_for([&] { return disp.ack_for(EXTDISP_ID_CALIB_COMMAND, a); }, dstep, 3) && a.result == EXTDISP_ACK_OK,
+              "kijelző: minden részmérés törlése");
+        disp.screen = EXTDISP_SCREEN_MAIN;
         // STOP gomb a szívverésben
         hb_flags = EXTDISP_HB_FLAG_STOP;
         check(wait_for([&] {

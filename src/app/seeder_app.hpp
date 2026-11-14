@@ -3,6 +3,7 @@
 // a Task Controllerrel (TC-BAS/SEC/GEO) és az ISOBUS sebességüzenetekkel.
 // Hordozható: ESP32-n (TWAI) és PC-n (virtuális CAN, szimuláció) is ugyanez a kód fut.
 #include "seeder/seeder.hpp"
+#include "ext_display.hpp"
 #include "wifi_service.hpp"
 
 #include <atomic>
@@ -83,7 +84,6 @@ class TcLink;
 class VirtualScreen;
 class AuxN;
 class KeyaBus;
-class ExtDisplay;
 
 class SeederApp {
 public:
@@ -111,6 +111,10 @@ public:
     /// külső kijelző diagnosztika (JSON objektum)
     std::string ext_display_json() const;
     ExtDisplay &ext_display() { return *ext_; }
+    /// a kijelzőnek küldendő gépállapot egy pillanatképből (a mérleg stabilitásához ciklusonként hívandó)
+    ExtDisplayMachine ext_display_machine(const Snapshot &snap, std::uint32_t now_ms);
+    /// a panelen van-e mérlegbemenet (HX711); RCv1.7-en nincs → a kijelző nem kap mérleg-funkciót
+    void set_board_has_scale(bool on) { board_scale_ = on; }
     /// AUX-N bemenet közvetlenül (teszt / szimuláció): funkció objektum, value1.
     bool aux_input(std::uint16_t function, std::uint16_t value1);
 
@@ -152,6 +156,16 @@ private:
     std::atomic<int> wifi_clients_{0};
     std::atomic<bool> ota_running_{false};
     void update_ext_display(const Snapshot &snap);
+    /// a kijelző leforgatás-parancsa (0x10) a mag crank_* műveleteire (zárol)
+    ExtAck ext_calib_command(const extdisp_calib_command_t &c);
+    /// motoros leforgatás „tartás” a kijelző szívveréséből (a mag zárja alatt hívva)
+    void ext_calib_hold(std::uint32_t now_ms);
+    bool board_scale_ = true;
+    bool ext_hold_req_prev_ = false;       ///< az előző ciklusban kérte a kijelző a tartást
+    bool ext_holding_ = false;             ///< a futó motoros leforgatást a kijelző indította / tartja
+    float scale_hist_[5] = {};             ///< a mérleg utolsó ~1 s-os értékei (stabilitás)
+    int scale_hist_n_ = 0, scale_hist_i_ = 0;
+    std::uint32_t scale_hist_ms_ = 0;
     VirtualScreen *vscreen_ = nullptr;     ///< vui_ kimenete
     float vui_timer_ = 0.0f;
     std::unique_ptr<TcLink> tc_;

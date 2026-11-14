@@ -97,6 +97,8 @@ private:
     int ntrace_ = 0;
     TuneResult res_;
     const char *msg_ = "";
+    float ppr_ = 0.0f;             ///< az enkóder imp/ford (a hibaüzenet impulzus-frekvenciájához)
+    char msg_buf_[176] = {};       ///< részletes hibaüzenet (mért pontok)
 };
 
 } // namespace seeder

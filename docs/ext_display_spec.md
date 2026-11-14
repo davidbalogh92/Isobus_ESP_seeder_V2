@@ -83,7 +83,7 @@ Minden üzenet Proprietary A (PGN 61184, 0xEF00), célzottan a másik fél cím�
 | 3 | Tartályok száma (0–2) |
 | 4 | bit0: tartály mód (0 = közös, 1 = külön) · bit4–5: adagolók száma (0–2) · a többi bit tartalék (0) |
 | 5 | Munkalámpák száma (0–2) |
-| 6 | Funkció bitek: bit0 tartály, bit1 lámpák, bit2 WiFi szerviz mód, bit3 gépspecifikus kalibrálás |
+| 6 | Funkció bitek: bit0 tartály, bit1 lámpák, bit2 WiFi szerviz mód, bit3 gépspecifikus kalibrálás, bit4 turbina fordulatszám, bit5 leforgatási mérleg |
 | 7 | Vezérlő firmware fő verzió |
 
 **Kijelző → vezérlő (parancsok):**
@@ -91,9 +91,7 @@ Minden üzenet Proprietary A (PGN 61184, 0xEF00), célzottan a másik fél cím�
 | ID | Név | Bájtok 1–7 |
 | --- | --- | --- |
 | 0x01 | Szívverés (200 ms) | 1: számláló · 2: jelzők (bit0 = STOP gomb nyomva, bit1 = START gomb nyomva) · 3: aktív képernyő (0 = főképernyő, 1 = leforgatás, 2 = tartály, 3 = beállítás) |
-| 0x10 | Leforgatás parancs (vetőgép) | 1: művelet (1 = előkészít, 2 = indít, 3 = stop) · 2: adagoló (0 = mind, 1, 2) · 3–4: fordulatszám-cél (uint16) |
-| 0x11 | Mért tömeg (vetőgép) | 1: adagoló · 2–5: tömeg 0,1 g-ban (uint32) |
-| 0x12 | Eredmény döntés (vetőgép) | 1: adagoló · 2: 1 = elfogad, 0 = elvet |
+| 0x10 | Leforgatás parancs (vetőgép) | 1: művelet (lásd lent) · 2: paraméter · 3–6: érték (uint32) |
 | 0x20 | Tartály művelet | 1: tartály (0 = közös, 1, 2) · 2: művelet (1 = beállít, 2 = hozzátankol, 3 = nulláz) · 3–6: mennyiség 0,1 kg-ban (uint32) |
 | 0x30 | Munkalámpa | 1: lámpa (1, 2) · 2: állapot (0 = ki, 1 = be, 2 = vált) |
 | 0x40 | WiFi szerviz mód | 1: 0 = ki, 1 = be |
@@ -102,32 +100,40 @@ Minden üzenet Proprietary A (PGN 61184, 0xEF00), célzottan a másik fél cím�
 
 | ID | Név | Bájtok 1–7 |
 | --- | --- | --- |
-| 0x81 | Gépállapot / szívverés (200 ms) | 1: számláló · 2: jelzők (bit0 munkakapcsoló, bit1 mozog, bit2 adagolás fut, bit3 WiFi be, bit4 lámpa 1, bit5 lámpa 2) · 3–4: sebesség 0,01 km/h · 5–7: tartalék |
-| 0x90 | Leforgatás állapot (vetőgép, 200 ms, amíg nem tétlen) | 1: állapot (lásd lent) · 2: adagoló · 3–4: kész fordulat · 5–6: cél fordulat · 7: tiltás oka |
-| 0x91 | Leforgatás eredmény (vetőgép) | 1: adagoló · 2–5: új érték g/fordulat × 1000 (uint32) · 6–7: eltérés az előzőtől 0,1%-ban (int16) |
+| 0x81 | Gépállapot / szívverés (200 ms) | 1: számláló · 2: jelzők (bit0 munkakapcsoló, bit1 mozog, bit2 adagolás fut, bit3 WiFi be, bit4 lámpa 1, bit5 lámpa 2, bit6 turbina riasztás) · 3–4: sebesség 0,01 km/h · 5–6: turbina fordulatszám 1/perc (0xFFFF = nincs adat) · 7: tartalék |
+| 0x90 | Leforgatás állapot (vetőgép; 200 ms, amíg a kijelző aktív képernyője a leforgatás) | 1: jelzők (bit0 leforgatás folyamatban, bit1 nullpont megvan, bit2 cél elérve, bit3 motor forog, bit4 motoros hajtás, bit5 a fél fordulatot kézzel kell rátenni) · 2: adagoló (alsó 4 bit: 1, 2) és fordulatszám-választás (felső 4 bit: 0 = 85, 1 = 42,5, 2 = 17) · 3–4: megszámolt fordulat 0,01-ben · 5–6: cél fordulat 0,1-ben · 7: részmérések száma (0–10) |
+| 0x91 | Leforgatás eredmény (vetőgép; a 0x90-nel együtt) | 1: adagoló · 2–4: a részmérések összege grammban (24 bit) · 5–7: új érték g/fordulat × 1000 (24 bit, 0 = még nincs) |
+| 0x92 | Mérleg állapot (vetőgép; 200 ms, amíg a kijelző aktív képernyője a leforgatás) | 1: jelzők (bit0 érvényes, bit1 stabil) · 2–5: tömeg 0,1 g-ban (int32, előjeles) |
+| 0x93 | Részmérés tétel (vetőgép; a 0x90-nel együtt, ciklusonként egy tétel körbejárva) | 1: sorszám (0–9) · 2: részmérések száma · 3–5: a tétel tömege grammban (24 bit) |
+| 0x94 | Mentett kalibráció (vetőgép; 1 s, amíg a kijelző aktív képernyője a leforgatás) | 1: adagoló · 2–4: a jelenleg mentett g/fordulat × 1000 (24 bit, 0 = nincs) |
 | 0xA0 | Tartály állapot (1 s, tartályonként) | 1: tartály · 2–5: hátralévő 0,1 kg-ban (uint32) · 6: telítettség % (0xFF = ismeretlen) |
 | 0xC0 | WiFi állapot (1 s, ha be van) | 1: állapot (0 = ki, 1 = be, 2 = kliens csatlakozva, 3 = OTA fut) · 2–3: hátralévő perc |
 | 0xF0 | Nyugta | 1: a parancs ID-ja · 2: eredmény (0 = OK, 1 = tiltva, 2 = hibás adat, 3 = foglalt) · 3: tiltás oka |
 
 **Nyugta és tartalék bájtok:** a vezérlő minden parancsra nyugtát (0xF0) küld, kivéve a szívverést (0x01); arra a 200 ms-os gépállapot (0x81) a válasz. A nem használt bájtok értéke 0xFF, a fogadó nem nézi őket. A protokoll verzió jelenleg 1.
 
-**Leforgatás állapotok:** 0 tétlen · 1 előkészítve · 2 fut · 3 kész, tömegre vár · 4 eredmény kész · 5 megszakítva · 6 tiltva.
+**Leforgatás műveletek (0x10):** 1 új leforgatás (számláló nullázása, nullpont keresése) · 2 adagoló választása (paraméter: 1, 2) · 3 fordulatszám-választás (paraméter: 0 = 85, 1 = 42,5, 2 = 17) · 4 részmérés hozzáadása (érték: gramm) · 5 a mérleg értékének átvétele részmérésként · 6 részmérés törlése (paraméter: sorszám 0–9, 0xFF = mind) · 7 mentés · 8 másolás a másik adagolóra · 9 a mérleg tárázása.
 
-**Tiltási okok:** 1 a gép mozog · 2 munkakapcsoló aktív · 3 adagolás fut · 4 kijelző-kapcsolat elveszett · 5 már fut · 6 hibás paraméter · 7 nincs ilyen tartály vagy lámpa · 8 a funkció ezen a gépen nincs.
+**Motoros forgatás:** nincs rá külön parancs. Amíg a kijelző aktív képernyője a leforgatás, a szívverés START bitje a „tartás" (a fizikai START gomb vagy a képernyő Forgat gombja nyomva). A vezérlő addig forgat, amíg a bit érkezik; a bit megszűnésekor, a STOP bitre vagy 600 ms kimaradás után megáll.
+
+**Tiltási okok:** 1 a gép mozog · 2 munkakapcsoló aktív · 3 adagolás fut · 4 kijelző-kapcsolat elveszett · 5 már fut · 6 hibás paraméter · 7 nincs ilyen tartály vagy lámpa · 8 a funkció ezen a gépen nincs · 9 nincs érvényes mérlegadat · 10 a mérleg üres · 11 nincs lemért tömeg · 12 a részmérések listája megtelt · 13 motoros forgatás csak elektromos hajtással · 14 önhangolás fut · 15 a célfordulat megvan.
 
 ## Funkciók
 
 ### Leforgatás (csak vetőgép)
 
-A leforgatás menete ugyanaz a kijelzőn és a VT-n, mert a vezérlő egyetlen állapotgépe vezeti. A fordulatszám-cél állítható (alapból 85), ez a gépprofil-átdolgozással együtt kerül be.
+A leforgatás teljes egészében kezelhető a kijelzőről, kézi (talajhajtás) és motoros hajtásnál is. A vezérlő egyetlen leforgatás-állapota vezeti, így a kijelző és a VT ugyanazt látja, és a szabályokat (mikor forgathat a motor, mikor számol a jeladó) kizárólag a vezérlő dönti el. A kijelző a V2 meglévő leforgatását kezeli: három fordulatszám közül lehet választani (85, 42,5, 17), és legfeljebb 10 részmérés adható össze.
 
-1. Előkészítés: a kijelzőn kiválasztod az adagolót és a fordulatszámot. A vezérlő ellenőrzi a tiltásokat, és „előkészítve" állapotba lép.
-2. Indítás: START gomb (fizikai vagy érintős). Villanymotoros gépnél a vezérlő hajtja a motort a célig. Talajhajtásos gépnél te tekersz, a vezérlő az enkóderből számolja a fordulatot.
-3. Futás közben a kijelző nagy számokkal mutatja a kész/cél fordulatot. A STOP bármikor megállít.
-4. Cél elérve: a motor megáll, a berregő jelez (kézi tekerésnél ez a jel, hogy abbahagyhatod).
-5. Tömeg beírása: számbillentyűzeten grammban, egy tizedessel.
-6. Eredmény: a vezérlő kiszámolja az új g/fordulat értéket, és megmutatja az eltérést az előzőtől.
-7. Elfogadás vagy elvetés. Elfogadáskor az érték a gépprofilba mentődik.
+1. **Új leforgatás:** kiválasztod az adagolót és a fordulatszámot, majd nullázod a számlálót.
+2. **Nullpont (kevés impulzusú jeladónál):** addig tekersz, amíg megjön az első impulzus; a számlálás onnan indul. A kijelző jelzi, hogy a nullpont megvan-e.
+3. **Forgatás:**
+   - *Kézi hajtás:* te tekersz, a vezérlő a tengelyjeladóból számol. A kijelző fordulatonként rövid, a célnál hosszú hangjelzést ad a berregőn. Ha a cél fél fordulatra végződik és a jeladó ezt nem tudja mérni, a kijelző kiírja, hogy a felet kézzel kell rátenni.
+   - *Motoros hajtás:* a Forgat gombot (vagy a fizikai START-ot) nyomva tartod, a motor addig forog. A célnál megáll (ha az automatikus megállás be van állítva). Csak álló gépnél és kikapcsolt vetésnél indul.
+4. **Mérés:** a lemért tömeget számbillentyűzeten grammban írod be, vagy ha a gépen van leforgatási mérleg, annak értékét egy gombbal átveszed (előtte tárázható). Több vödörnyi mérés összeadható; a tételek egyenként vagy együtt törölhetők.
+5. **Eredmény:** a vezérlő kiszámolja az új g/fordulat értéket; a kijelző megmutatja a jelenleg mentett értéket és az eltérést.
+6. **Mentés:** az új érték a kiválasztott adagolóhoz mentődik; a másik adagolóra átmásolható.
+
+A STOP gomb a motoros forgatást bármikor megállítja. A termény, a táblázati beállítás és a hektárra vetített ellenőrzés (leforgatási segéd) a VT-n marad.
 
 ### Tartály és hozzátankolás
 
@@ -158,12 +164,12 @@ A leforgatás csak álló gépnél, inaktív munkakapcsolónál és álló adago
 
 | Helyzet | Vezérlő reakciója | Kijelző reakciója |
 | --- | --- | --- |
-| Sebesség > 0,5 km/h leforgatás közben | Motor stop, állapot „megszakítva", ok: 1 | Hibaüzenet, vissza a kezdőképre |
+| Sebesség > 0,5 km/h leforgatás közben | Motor stop; a forgatás kérésére „tiltva", ok: 1 | Kiírja a tiltás okát |
 | Munkakapcsoló aktiválódik leforgatás közben | Motor stop, ok: 2 | Hibaüzenet |
-| Kijelző-szívverés kimarad 1 s-ig, futó leforgatás | Motor stop, ok: 4 (csak ha a kijelző indította) | — |
+| Kijelző-szívverés (a „tartás" bit) kimarad 600 ms-ig motoros forgatás közben | Motor stop | — |
 | Vezérlő-szívverés kimarad 1 s-ig | — | „Nincs kapcsolat" felirat, minden gomb tiltva |
 | Fizikai STOP | Motor stop | A STOP a szívverés jelzőbitjében is megy, nem csak parancsként |
-| VT és kijelző egyszerre próbál indítani | Csak az első nyer, a második: „foglalt" (3) | Kijelzi, ki fut |
+| VT és kijelző egyszerre kezeli a leforgatást | Egyetlen közös állapot van: az utolsó parancs érvényes, mindkét felület ugyanazt látja | Az állapotból frissül |
 | Ismeretlen protokoll verzió | Parancsok elutasítva | „Firmware frissítés szükséges" |
 
 Két ponton szándékos a redundancia: a STOP a szívverésben is benne van, így egy elveszett parancsüzenet sem okoz gondot; és ha a VT indította a leforgatást, a kijelző kiesése nem állítja le, mert a VT-ről akkor is meg lehet állítani.
@@ -174,8 +180,8 @@ Négy képernyő elég, szürke háttérrel, a V2 VT stílusához igazítva, nag
 
 | Képernyő | Tartalom | Gombok |
 | --- | --- | --- |
-| Főképernyő | Tartályikonok töltöttséggel és kg-mal, lámpa 1–2 állapot, WiFi ikon, kapcsolat- és sebességjelző | Leforgatás · Tartály · Lámpa 1 · Lámpa 2 · WiFi |
-| Leforgatás | Adagoló választás, fordulatszám-cél, futás közben nagy kész/cél számláló, eredmény és eltérés % | Indít · Stop · Tömeg beírása · Elfogad · Elvet |
+| Főképernyő | Tartályok töltöttséggel és kg-mal, turbina fordulatszám, lámpa 1–2 állapot, WiFi állapot, kapcsolatjelző. A sebesség, a munkakapcsoló és az adagolás állapota itt nem jelenik meg (a VT-n látszik). | Leforgatás · Tartály · Lámpa 1 · Lámpa 2 · WiFi |
+| Leforgatás | Adagoló és fordulatszám választás, nagy megszámolt/cél számláló a nullpont jelzésével, részmérések listája és összege, mérleg értéke, új és mentett g/fordulat, eltérés % | Új leforgatás · Forgat (motoros hajtásnál, nyomva tartva) · Tömeg beírása · Mérleg átvétele · Tára · Törlés · Mentés · Másolás |
 | Tartály | Tartályonként (vagy közösen) a jelenlegi mennyiség, számbillentyűzet | Beállít · Hozzátankol · Nulláz |
 | Beállítás | Fényerő, firmware verzió, CAN diagnosztika (cím, partner látszik-e, hibaszámlálók) | Vissza |
 

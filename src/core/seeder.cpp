@@ -480,7 +480,7 @@ void Seeder::set_auto(bool on) {
 bool Seeder::copy_meter(int from) {
     if (meter_count(settings_) < 2) {
         say("Csak két adagolónál");
-        return false;
+        return refuse(Refusal::NoSuchUnit);
     }
     if (from < 0 || from > 1) return false;
     const int to = 1 - from;
@@ -493,7 +493,7 @@ bool Seeder::copy_meter(int from) {
 bool Seeder::crank_copy_to_other() {
     if (crank_.hold) {
         say("Előbb állítsd le a leforgatást");
-        return false;
+        return refuse(Refusal::Busy);
     }
     // ha van mentetlen mérés, előbb a kiválasztott adagolóhoz mentjük
     update_crank_result();
@@ -634,13 +634,14 @@ bool Seeder::wheel_cal_save() {
 double Seeder::crank_effective_revs() const {
     double n = crank_.counted_revs;
     if (n <= 0.0) return 0.0;
-    const Settings &S = settings_;
-    const float ppr = meter_pulses_per_rev(S);
     // fél fordulatos cél (42,5) kevés impulzusos jeladóval: a 42 egész után a felet a kezelő kézzel teszi rá
-    const double target = chart::turns(crank_.turn_option, settings_.crank_turns_10);
-    const double whole = std::floor(target);
-    if (ppr < 2 && target - whole > 0.25 && std::fabs(n - whole) < 0.01) n += 0.5;
+    const double whole = std::floor(chart::turns(crank_.turn_option, settings_.crank_turns_10));
+    if (crank_half_by_hand() && std::fabs(n - whole) < 0.01) n += 0.5;
     return n;
+}
+bool Seeder::crank_half_by_hand() const {
+    const double target = chart::turns(crank_.turn_option, settings_.crank_turns_10);
+    return meter_pulses_per_rev(settings_) < 2 && target - std::floor(target) > 0.25;
 }
 void Seeder::update_crank_result() {
     const int m = crank_.meter < meter_count(settings_) ? crank_.meter : 0;
@@ -654,10 +655,11 @@ void Seeder::update_crank_result() {
     status_.crank = crank_;
     status_.crank_result = crank_result_;
 }
-void Seeder::crank_set_meter(int meter) {
-    if (crank_.hold) return;
+bool Seeder::crank_set_meter(int meter) {
+    if (crank_.hold) return refuse(Refusal::Busy);
     crank_.meter = meter >= 0 && meter < meter_count(settings_) ? meter : 0;
     crank_reset_count();
+    return true;
 }
 int Seeder::tank_fill_count(const Settings &S) {
     if (S.tank_fill <= 0) return 0;
@@ -697,10 +699,12 @@ void Seeder::profile_changed(bool apply_turns) {
         if (c >= t.ncrop) c = -1;
     update_crank_result();
 }
-void Seeder::crank_set_turns(int option) {
-    if (option >= 0 && option < chart::TURN_OPTIONS) crank_.turn_option = option;
+bool Seeder::crank_set_turns(int option) {
+    const bool ok = option >= 0 && option < chart::TURN_OPTIONS;
+    if (ok) crank_.turn_option = option;
     crank_.target_reached = crank_.counted_revs >= chart::turns(crank_.turn_option, settings_.crank_turns_10) - 0.01;
     update_crank_result();
+    return ok ? true : refuse(Refusal::BadParam);
 }
 void Seeder::crank_set_test_scale(float scale) {
     crank_.test_scale = clampf(scale, 0.0f, 200.0f);
@@ -720,11 +724,11 @@ void Seeder::crank_set_measured(float kg) {
 bool Seeder::crank_add_weight(float kg) {
     if (!(kg > 0.0f)) {
         say("A tömeg legyen nagyobb 0-nál");
-        return false;
+        return refuse(Refusal::BadParam);
     }
     if (crank_.weight_count >= CrankCalibration::MAX_WEIGHTS) {
         say("Legfeljebb 10 részmérés lehet");
-        return false;
+        return refuse(Refusal::ListFull);
     }
     crank_.weights[crank_.weight_count++] = clampf(kg, 0.0f, 500.0f);
     update_crank_result();
@@ -733,11 +737,12 @@ bool Seeder::crank_add_weight(float kg) {
     say(msg);
     return true;
 }
-void Seeder::crank_del_weight(int index) {
-    if (index < 0 || index >= crank_.weight_count) return;
+bool Seeder::crank_del_weight(int index) {
+    if (index < 0 || index >= crank_.weight_count) return refuse(Refusal::BadParam);
     for (int i = index; i + 1 < crank_.weight_count; ++i) crank_.weights[i] = crank_.weights[i + 1];
     crank_.weights[--crank_.weight_count] = 0.0f;
     update_crank_result();
+    return true;
 }
 void Seeder::crank_clear_weights() {
     crank_.weight_count = 0;
@@ -747,11 +752,11 @@ void Seeder::crank_clear_weights() {
 bool Seeder::crank_take_scale() {
     if (!settings_.scale_enable || !status_.scale.valid) {
         say("Nincs érvényes mérlegadat");
-        return false;
+        return refuse(settings_.scale_enable ? Refusal::NoScaleData : Refusal::NotSupported);
     }
     if (status_.scale.net_kg <= 0.0f) {
         say("A mérleg üres (előbb tárázz, majd tedd rá a vödröt)");
-        return false;
+        return refuse(Refusal::ScaleEmpty);
     }
     return crank_add_weight(status_.scale.net_kg);
 }
@@ -759,7 +764,7 @@ bool Seeder::crank_save() {
     update_crank_result();
     if (crank_result_.kg_per_rev <= 0.0) {
         say("Előbb add meg a lemért tömeget");
-        return false;
+        return refuse(Refusal::NoWeight);
     }
     const int m = crank_.meter < meter_count(settings_) ? crank_.meter : 0;
     set_param(m == 1 ? P_cal2_kg_rev : P_cal1_kg_rev, static_cast<float>(crank_result_.kg_per_rev));
@@ -777,23 +782,23 @@ bool Seeder::crank_hold(bool pressed, float timeout_s) {
     }
     if (!electric_drive(settings_)) {
         say("Motoros leforgatás csak elektromos hajtással (talajhajtásnál kézzel tekerj)");
-        return false;
+        return refuse(Refusal::NotElectric);
     }
     if (ext_stop_) {   // a külső kijelző STOP gombja nyomva: nem indulhat
         say("A külső kijelző STOP gombja nyomva");
-        return false;
+        return refuse(Refusal::ExternalStop);
     }
     if (master_ || status_.moving) {
         say("Leforgatás csak álló gépnél, vetés KI állapotban");
-        return false;
+        return refuse(status_.moving ? Refusal::Moving : Refusal::Metering);
     }
     if (tuner_.active()) {
         say("Önhangolás folyamatban");
-        return false;
+        return refuse(Refusal::Tuning);
     }
     if (settings_.crank_autostop && crank_.target_reached) {
         if (!crank_.hold) say("Elérted a célfordulatot – mérd le, vagy nullázd a számlálót");
-        return false;
+        return refuse(Refusal::TargetReached);
     }
     if (!crank_.hold) {
         prefill_ = PrefillState::Idle;
@@ -955,13 +960,14 @@ void Seeder::crank_reset_count() {
 }
 
 // --- mérleg, nyomás ----------------------------------------------------------------------------
-void Seeder::scale_tare() {
+bool Seeder::scale_tare() {
     if (!scale_has_) {
         say("Nincs mérlegadat");
-        return;
+        return refuse(Refusal::NoScaleData);
     }
     set_param(P_scale_offset, std::round(scale_filtered_));
     say("Mérleg nullázva (tára)");
+    return true;
 }
 bool Seeder::scale_calibrate(float known_kg) {
     if (!scale_has_ || known_kg <= 0.0f) {

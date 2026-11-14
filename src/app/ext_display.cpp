@@ -89,20 +89,10 @@ void ExtDisplay::process(const Rx &rx) {
             a = handlers_.tank ? handlers_.tank(c) : ExtAck{EXTDISP_ACK_INHIBITED, EXTDISP_INHIBIT_NOT_SUPPORTED};
         break;
     }
-    // leforgatás (vetőgép-specifikus): a 2. körben a VT-vel közös állapotgép kapja meg; most tiltva
-    case EXTDISP_ID_CALIB_COMMAND: {
+    case EXTDISP_ID_CALIB_COMMAND: {   // leforgatás (vetőgép): a mag meglévő crank_* műveletei
         extdisp_calib_command_t c{};
-        if (decoded(extdisp_decode_calib_command(rx.data, rx.len, &c))) a = {EXTDISP_ACK_INHIBITED, EXTDISP_INHIBIT_NOT_SUPPORTED};
-        break;
-    }
-    case EXTDISP_ID_CALIB_WEIGHT: {
-        extdisp_calib_weight_t c{};
-        if (decoded(extdisp_decode_calib_weight(rx.data, rx.len, &c))) a = {EXTDISP_ACK_INHIBITED, EXTDISP_INHIBIT_NOT_SUPPORTED};
-        break;
-    }
-    case EXTDISP_ID_CALIB_DECISION: {
-        extdisp_calib_decision_t c{};
-        if (decoded(extdisp_decode_calib_decision(rx.data, rx.len, &c))) a = {EXTDISP_ACK_INHIBITED, EXTDISP_INHIBIT_NOT_SUPPORTED};
+        if (decoded(extdisp_decode_calib_command(rx.data, rx.len, &c)))
+            a = handlers_.calib ? handlers_.calib(c) : ExtAck{EXTDISP_ACK_INHIBITED, EXTDISP_INHIBIT_NOT_SUPPORTED};
         break;
     }
     default:   // a parancstartományban, de ismeretlen: ezen a gépen nincs ilyen funkció
@@ -123,6 +113,7 @@ void ExtDisplay::tick(std::uint32_t now_ms, bool link_ok, const ExtDisplayMachin
     if (!link_ok) {   // nincs kijelző: semmit nem küldünk, a parancsokat eldobjuk
         link_prev_ = false;
         wifi_prev_ = EXTDISP_WIFI_OFF;
+        calib_prev_ = false;
         return;
     }
     for (const auto &c : cmds) process(c);
@@ -142,6 +133,7 @@ void ExtDisplay::tick(std::uint32_t now_ms, bool link_ok, const ExtDisplayMachin
         st.counter = counter_;
         st.flags = m.flags;
         st.speed_ckmh = m.speed_ckmh;
+        st.fan_rpm = m.fan_rpm;
         if (extdisp_encode_machine_status(&st, f) == EXTDISP_OK) {
             send(f);
             ++counter_;
@@ -166,6 +158,40 @@ void ExtDisplay::tick(std::uint32_t now_ms, bool link_ok, const ExtDisplayMachin
             if (extdisp_encode_tank_status(&m.tanks[i], f) == EXTDISP_OK) send(f);
         last_tank_ = now_ms;
     }
+    // leforgatás: csak amíg a kijelző aktív képernyője a leforgatás (és a gép jelenti a funkciót)
+    const bool calib_on = (m.caps.features & EXTDISP_FEATURE_MACHINE_CALIB) && connected() &&
+                          screen() == EXTDISP_SCREEN_CALIB;
+    if (calib_on) {
+        if (!calib_prev_ || now_ms - last_calib_ >= EXTDISP_CALIB_STATUS_PERIOD_MS) {
+            unsigned n = 0;
+            if (extdisp_encode_calib_status(&m.calib, f) == EXTDISP_OK && send(f)) ++n;
+            if (extdisp_encode_calib_result(&m.calib_result, f) == EXTDISP_OK && send(f)) ++n;
+            if (m.scale && extdisp_encode_scale_status(&m.scale_status, f) == EXTDISP_OK && send(f)) ++n;
+            // részmérések: ciklusonként egy tétel, körbejárva
+            extdisp_calib_weight_item_t w{};
+            w.count = m.weight_count > EXTDISP_CALIB_MAX_WEIGHTS ? EXTDISP_CALIB_MAX_WEIGHTS : m.weight_count;
+            if (weight_item_ >= w.count) weight_item_ = 0;
+            w.index = w.count ? weight_item_ : 0;
+            w.weight_g = w.count ? m.weights_g[w.index] : 0;
+            if (extdisp_encode_calib_weight_item(&w, f) == EXTDISP_OK && send(f)) ++n;
+            weight_item_ = w.count ? static_cast<std::uint8_t>((weight_item_ + 1) % w.count) : 0;
+            last_calib_ = now_ms;
+            std::lock_guard<std::mutex> g(mx_);
+            calib_sent_ += n;
+        }
+        if (!calib_prev_ || now_ms - last_saved_ >= 1000u) {
+            for (int i = 0; i < m.saved_n && i < 2; ++i) {
+                extdisp_calib_saved_t sv{};
+                sv.feeder = static_cast<std::uint8_t>(i + 1);
+                sv.mg_per_rev = m.saved_mg_per_rev[i];
+                if (extdisp_encode_calib_saved(&sv, f) == EXTDISP_OK) send(f);
+            }
+            last_saved_ = now_ms;
+        }
+    } else {
+        weight_item_ = 0;
+    }
+    calib_prev_ = calib_on;
     link_prev_ = true;
 }
 
@@ -186,6 +212,13 @@ bool ExtDisplay::start_held() const {
     return c && (hb_.flags & EXTDISP_HB_FLAG_START) != 0;
 }
 
+bool ExtDisplay::calib_hold(std::uint32_t now_ms) const {
+    std::lock_guard<std::mutex> g(mx_);
+    return hb_seen_ && now_ms - last_hb_ms_ < EXTDISP_CALIB_HOLD_TIMEOUT_MS &&
+           hb_.active_screen == EXTDISP_SCREEN_CALIB && (hb_.flags & EXTDISP_HB_FLAG_START) &&
+           !(hb_.flags & EXTDISP_HB_FLAG_STOP);
+}
+
 std::uint8_t ExtDisplay::screen() const {
     std::lock_guard<std::mutex> g(mx_);
     return hb_.active_screen;
@@ -199,16 +232,16 @@ unsigned ExtDisplay::stop_edges() const {
 std::string ExtDisplay::json() const {
     const bool conn = connected();
     std::lock_guard<std::mutex> g(mx_);
-    char b[400];
+    char b[448];
     std::snprintf(b, sizeof b,
                   "{\"connected\":%s,\"link\":%s,\"stop\":%s,\"start\":%s,\"screen\":%u,\"hb_rx\":%u,\"rx\":%u,"
                   "\"rx_bad\":%u,\"cmd_rx\":%u,\"dropped\":%u,\"tx\":%u,\"tx_fail\":%u,\"caps_sent\":%u,\"acks\":%u,"
-                  "\"last_cmd\":%u,\"last_ack\":%u,\"last_reason\":%u,\"stop_edges\":%u}",
+                  "\"last_cmd\":%u,\"last_ack\":%u,\"last_reason\":%u,\"stop_edges\":%u,\"calib_tx\":%u}",
                   conn ? "true" : "false", link_prev_ ? "true" : "false",
                   conn && (hb_.flags & EXTDISP_HB_FLAG_STOP) ? "true" : "false",
                   conn && (hb_.flags & EXTDISP_HB_FLAG_START) ? "true" : "false", hb_.active_screen, hb_rx_, rx_,
                   rx_bad_, cmd_rx_, dropped_, tx_, tx_fail_, caps_sent_, acks_, last_cmd_, last_ack_.result,
-                  last_ack_.reason, stop_edges_);
+                  last_ack_.reason, stop_edges_, calib_sent_);
     return b;
 }
 

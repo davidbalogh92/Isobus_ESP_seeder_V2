@@ -129,6 +129,26 @@ struct WheelCalibration {
     bool compute(float &pulses_per_100m, const char **error) const;
 };
 
+/// Miért utasított el a mag egy kezelői kérést (a szöveges üzenet mellett; a külső kijelző nyugtájához).
+/// A VT és a web továbbra is a szöveget mutatja; ez csak kiegészítő, gépi olvasásra szánt ok.
+enum class Refusal : std::uint8_t {
+    None = 0,
+    Moving,          ///< a gép halad
+    Metering,        ///< vetés BE / adagolás fut
+    Busy,            ///< a motoros leforgatás épp forgat
+    BadParam,        ///< érvénytelen paraméter (pl. nem létező tétel)
+    NoSuchUnit,      ///< nincs ilyen adagoló (pl. másolás egy adagolónál)
+    NotSupported,    ///< ezen a gépen nincs ilyen funkció (pl. mérleg)
+    NoScaleData,     ///< nincs érvényes mérlegadat
+    ScaleEmpty,      ///< a mérleg üres
+    NoWeight,        ///< nincs lemért tömeg
+    ListFull,        ///< a részmérések listája megtelt
+    NotElectric,     ///< csak elektromos hajtással
+    Tuning,          ///< önhangolás fut
+    TargetReached,   ///< a célfordulat megvan
+    ExternalStop,    ///< a külső kijelző STOP gombja nyomva
+};
+
 /// Leforgatási segéd (Accord táblázat) + mérés.
 struct CrankCalibration {
     static constexpr int MAX_WEIGHTS = 10;
@@ -426,15 +446,17 @@ public:
     void wheel_cal_set_distance(float meters);
     bool wheel_cal_save();
 
-    void crank_set_meter(int meter);
+    // A leforgatás műveletei. A bool-t adók false-nál a last_refusal()-ban hagyják az okot
+    // (a hívás előtt clear_refusal()); a szöveges üzenet (say) változatlan.
+    bool crank_set_meter(int meter);   ///< motoros forgatás közben nem vált (Busy)
     void crank_set_crop(int crop);
-    void crank_set_turns(int option);
+    bool crank_set_turns(int option);
     void crank_set_test_scale(float scale);
     void crank_set_measured(float kg);
     void crank_set_hectares(float ha);
     bool crank_take_scale();       ///< a mérleg nettó értéke új részmérésként a listára
     bool crank_add_weight(float kg);
-    void crank_del_weight(int index);
+    bool crank_del_weight(int index);  ///< nem létező tétel: BadParam
     void crank_clear_weights();
     bool crank_save();             ///< kg/ford mentése a kiválasztott adagolóhoz
     /// Elektromos hajtás, nyomva tartásos leforgatás: amíg érkezik (timeout_s-en belül újra), forog.
@@ -444,6 +466,11 @@ public:
     void crank_reset_count();      ///< új leforgatás: számláló nullázása, nullpont keresése
     /// a számoláshoz használt fordulat (fél fordulatos opció 1 imp/ford jeladónál is)
     double crank_effective_revs() const;
+    /// a fél fordulatos célt a kezelőnek kell rátennie (kevés impulzusú jeladó) – a crank_effective_revs() feltétele
+    bool crank_half_by_hand() const;
+    bool crank_held() const { return crank_.hold; }
+    Refusal last_refusal() const { return refusal_; }
+    void clear_refusal() { refusal_ = Refusal::None; }
     /// a leforgatott (kiválasztott) adagoló adatai a másikra: ha van mentetlen mérés, előbb ment
     bool crank_copy_to_other();
 
@@ -456,7 +483,7 @@ public:
     bool jam_test_start(int meter);
     void jam_test_stop();
 
-    void scale_tare();
+    bool scale_tare();                 ///< mérlegadat nélkül: NoScaleData
     bool scale_calibrate(float known_kg);
     bool pressure_calibrate(float known_bar);
 
@@ -569,6 +596,12 @@ private:
     double uptime_s_ = 0.0;
     const char *message_ = "";
     std::uint32_t message_seq_ = 0;
+    Refusal refusal_ = Refusal::None;
+    /// elutasítás: az ok rögzítése (a szöveges üzenetet a hívó adja, ahogy eddig)
+    bool refuse(Refusal r) {
+        refusal_ = r;
+        return false;
+    }
     void say(const char *text) {
         message_ = text;
         ++message_seq_;

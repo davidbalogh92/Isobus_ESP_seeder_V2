@@ -1,5 +1,7 @@
 #include "seeder_app.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <vector>
 
@@ -27,7 +29,7 @@
 #include <cstdlib>
 
 #ifndef SEEDER_FW_VERSION
-#define SEEDER_FW_VERSION "2.4.1"
+#define SEEDER_FW_VERSION "2.5.0"
 #endif
 
 namespace app {
@@ -133,6 +135,7 @@ SeederApp::SeederApp(Shared &shared) : shared_(shared) {
         else ok = shared_.core.tank_set(i, 0.0f);
         return ok ? ExtAck{} : ExtAck{EXTDISP_ACK_BAD_DATA, EXTDISP_INHIBIT_NONE};
     };
+    h.calib = [this](const extdisp_calib_command_t &c) -> ExtAck { return ext_calib_command(c); };
     ext_->set_handlers(std::move(h));
     // AUX gomb → az azonos softkey művelete a valódi VT felületen (ha még nincs, a virtuálison)
     aux_ = std::make_unique<AuxN>([this](std::uint16_t key, std::uint8_t act) {
@@ -336,6 +339,7 @@ void SeederApp::update(float dt_s, const HwInputs &hw) {
             keya_->command(shared_.core.settings(), shared_.core.outputs(), dt_s);
         // külső kijelző STOP gombja (a szívverés jelzőbitjéből; kapcsolat nélkül elengedettnek számít)
         shared_.core.set_external_stop(ext_->stop_held());
+        ext_calib_hold(isobus::SystemTiming::get_timestamp_ms());
         snap.st = shared_.core.status();
         snap.set = shared_.core.settings();
         snap.per = shared_.core.persistent();
@@ -384,7 +388,95 @@ WifiService::Result SeederApp::wifi_request(bool on, WifiService::Source src) {
     return r;
 }
 
+namespace {
+std::uint8_t inhibit_of(seeder::Refusal r) {
+    using seeder::Refusal;
+    switch (r) {
+    case Refusal::Moving: return EXTDISP_INHIBIT_MOVING;
+    case Refusal::Metering: return EXTDISP_INHIBIT_METERING;
+    case Refusal::Busy: return EXTDISP_INHIBIT_ALREADY_RUNNING;
+    case Refusal::BadParam: return EXTDISP_INHIBIT_BAD_PARAM;
+    case Refusal::NoSuchUnit: return EXTDISP_INHIBIT_NO_SUCH_UNIT;
+    case Refusal::NotSupported: return EXTDISP_INHIBIT_NOT_SUPPORTED;
+    case Refusal::NoScaleData: return EXTDISP_INHIBIT_NO_SCALE_DATA;
+    case Refusal::ScaleEmpty: return EXTDISP_INHIBIT_SCALE_EMPTY;
+    case Refusal::NoWeight: return EXTDISP_INHIBIT_NO_WEIGHT;
+    case Refusal::ListFull: return EXTDISP_INHIBIT_LIST_FULL;
+    case Refusal::NotElectric: return EXTDISP_INHIBIT_NOT_ELECTRIC;
+    case Refusal::Tuning: return EXTDISP_INHIBIT_TUNING;
+    case Refusal::TargetReached: return EXTDISP_INHIBIT_TARGET_REACHED;
+    case Refusal::ExternalStop: return EXTDISP_INHIBIT_ALREADY_RUNNING;
+    default: return EXTDISP_INHIBIT_BAD_PARAM;
+    }
+}
+std::uint32_t u24(double v) {
+    const double r = std::round(v);
+    return r <= 0.0 ? 0u : (r >= 16777215.0 ? 16777215u : static_cast<std::uint32_t>(r));
+}
+} // namespace
+
+ExtAck SeederApp::ext_calib_command(const extdisp_calib_command_t &c) {
+    // a kijelző leforgatás-parancsa a mag meglévő crank_* műveleteire; elutasításnál a mag oka megy vissza
+    std::lock_guard<std::mutex> g(shared_.lock);
+    seeder::Seeder &core = shared_.core;
+    const seeder::Settings &s = core.settings();
+    core.clear_refusal();
+    bool ok = true;
+    switch (c.action) {
+    case EXTDISP_CALIB_ACT_NEW: core.crank_reset_count(); break;
+    case EXTDISP_CALIB_ACT_SELECT_FEEDER:
+        if (c.param > seeder::meter_count(s)) return {EXTDISP_ACK_INHIBITED, EXTDISP_INHIBIT_NO_SUCH_UNIT};
+        ok = core.crank_set_meter(c.param - 1);
+        break;
+    case EXTDISP_CALIB_ACT_SELECT_TURNS: ok = core.crank_set_turns(c.param); break;
+    case EXTDISP_CALIB_ACT_ADD_WEIGHT: ok = core.crank_add_weight(static_cast<float>(c.value) / 1000.0f); break;
+    case EXTDISP_CALIB_ACT_TAKE_SCALE:
+        if (!board_scale_ || !s.scale_enable) return {EXTDISP_ACK_INHIBITED, EXTDISP_INHIBIT_NOT_SUPPORTED};
+        ok = core.crank_take_scale();
+        break;
+    case EXTDISP_CALIB_ACT_DELETE_WEIGHT:
+        if (c.param == EXTDISP_CALIB_DELETE_ALL) core.crank_clear_weights();
+        else ok = core.crank_del_weight(c.param);
+        break;
+    case EXTDISP_CALIB_ACT_SAVE: ok = core.crank_save(); break;
+    case EXTDISP_CALIB_ACT_COPY_TO_OTHER: ok = core.crank_copy_to_other(); break;
+    case EXTDISP_CALIB_ACT_TARE_SCALE:
+        if (!board_scale_ || !s.scale_enable) return {EXTDISP_ACK_INHIBITED, EXTDISP_INHIBIT_NOT_SUPPORTED};
+        ok = core.scale_tare();
+        break;
+    default: return {EXTDISP_ACK_INHIBITED, EXTDISP_INHIBIT_NOT_SUPPORTED};
+    }
+    if (ok) return {};
+    return {EXTDISP_ACK_INHIBITED, inhibit_of(core.last_refusal())};
+}
+
+void SeederApp::ext_calib_hold(std::uint32_t now_ms) {
+    // motoros leforgatás a kijelzőről: amíg a leforgatás képernyőn a START él (és nincs STOP, a szívverés
+    // 600 ms-on belül jön), ciklusonként frissítjük a tartást; megszűnéskor azonnal elengedjük.
+    // Csak a kijelző által indított tartást kezeljük: a VT / web tartását nem engedjük el.
+    seeder::Seeder &core = shared_.core;
+    const bool req = ext_->calib_hold(now_ms);
+    if (req && !ext_hold_req_prev_) {
+        // felfutó él: egyszer próbál indulni (elutasításnál a szöveg egyszer jelenik meg, nem ciklusonként)
+        ext_holding_ = core.crank_hold(true, 0.3f);
+    } else if (req && ext_holding_) {
+        if (core.crank_held()) core.crank_hold(true, 0.3f);
+        else ext_holding_ = false;   // a mag megállította (célfordulat, biztonság): új nyomásig nem indul
+    } else if (!req && ext_holding_) {
+        core.crank_hold(false);
+        ext_holding_ = false;
+    }
+    ext_hold_req_prev_ = req;
+}
+
 void SeederApp::update_ext_display(const Snapshot &snap) {
+    const std::uint32_t now = isobus::SystemTiming::get_timestamp_ms();
+    const ExtDisplayMachine m = ext_display_machine(snap, now);
+    const bool link = ecu_ && display_partner_ && ecu_->get_address_valid() && display_partner_->get_address_valid();
+    ext_->tick(now, link, m);
+}
+
+ExtDisplayMachine SeederApp::ext_display_machine(const Snapshot &snap, std::uint32_t now_ms) {
     const seeder::Status &st = snap.st;
     const seeder::Settings &s = snap.set;
     ExtDisplayMachine m;
@@ -394,9 +486,12 @@ void SeederApp::update_ext_display(const Snapshot &snap) {
     m.caps.tank_mode = st.tank_fill_n == 2 ? EXTDISP_TANK_MODE_SEPARATE : EXTDISP_TANK_MODE_SHARED;
     m.caps.feeder_count = static_cast<std::uint8_t>(st.meter_count < 0 ? 0 : (st.meter_count > 2 ? 2 : st.meter_count));
     m.caps.light_count = s.lights_enable ? 2 : 0;
+    const bool fan_watch = s.fan_min_rpm > 0 || s.fan_max_rpm > 0;   // van turbinafigyelés (riasztási határ)
+    const bool scale = board_scale_ && s.scale_enable;
     m.caps.features = static_cast<std::uint8_t>(EXTDISP_FEATURE_WIFI_SERVICE | (s.lights_enable ? EXTDISP_FEATURE_LIGHTS : 0) |
-                                                (st.tank_fill_n > 0 ? EXTDISP_FEATURE_TANK : 0));
-    // a leforgatás (gépspecifikus kalibrálás) a 2. körben jön: addig a bit 0, a kijelző nem mutatja a gombot
+                                                (st.tank_fill_n > 0 ? EXTDISP_FEATURE_TANK : 0) |
+                                                EXTDISP_FEATURE_MACHINE_CALIB | (fan_watch ? EXTDISP_FEATURE_FAN : 0) |
+                                                (scale ? EXTDISP_FEATURE_SCALE : 0));
     m.caps.fw_major = static_cast<std::uint8_t>(std::atoi(SEEDER_FW_VERSION));
     const bool work_active = s.work_sw > 0 && st.work_down;
     const bool metering = st.state == seeder::SowState::Sowing || st.state == seeder::SowState::Prefill;
@@ -404,6 +499,13 @@ void SeederApp::update_ext_display(const Snapshot &snap) {
                                         (metering ? EXTDISP_ST_FLAG_METERING : 0) |
                                         (snap.wifi_state != 0 ? EXTDISP_ST_FLAG_WIFI_ON : 0) |
                                         (st.lamp[0] ? EXTDISP_ST_FLAG_LIGHT1 : 0) | (st.lamp[1] ? EXTDISP_ST_FLAG_LIGHT2 : 0));
+    const std::uint32_t fan_bits = (1u << static_cast<unsigned>(seeder::AlarmId::FanLow)) |
+                                   (1u << static_cast<unsigned>(seeder::AlarmId::FanHigh));
+    if (fan_watch && (st.alarms_active & fan_bits)) m.flags |= EXTDISP_ST_FLAG_FAN_ALARM;
+    if (fan_watch) {
+        const float r = std::round(st.fan_rpm);
+        m.fan_rpm = static_cast<std::uint16_t>(r < 0.0f ? 0.0f : (r > 65000.0f ? 65000.0f : r));
+    }
     const float ck = std::round(st.speed_kmh * 100.0f);
     m.speed_ckmh = static_cast<std::uint16_t>(ck < 0.0f ? 0.0f : (ck > 65000.0f ? 65000.0f : ck));
     m.wifi_state = snap.wifi_state;
@@ -418,8 +520,61 @@ void SeederApp::update_ext_display(const Snapshot &snap) {
         t.fill_percent = known ? static_cast<std::uint8_t>(std::lround(st.tank_pct[i] > 100.0f ? 100.0f : st.tank_pct[i]))
                                : static_cast<std::uint8_t>(EXTDISP_FILL_UNKNOWN);
     }
-    const bool link = ecu_ && display_partner_ && ecu_->get_address_valid() && display_partner_->get_address_valid();
-    ext_->tick(isobus::SystemTiming::get_timestamp_ms(), link, m);
+    // leforgatás
+    const seeder::CrankCalibration &cc = st.crank;
+    const bool elec = seeder::electric_drive(s);
+    const double target = seeder::chart::turns(cc.turn_option, s.crank_turns_10);
+    const float ppr = seeder::meter_pulses_per_rev(s);
+    const double whole = std::floor(target);
+    const bool half_by_hand = ppr < 2 && target - whole > 0.25;   // = Seeder::crank_half_by_hand()
+    m.calib.flags = static_cast<std::uint8_t>((cc.session ? EXTDISP_CALIB_FLAG_SESSION : 0) |
+                                              (cc.armed ? EXTDISP_CALIB_FLAG_ZERO_FOUND : 0) |
+                                              (cc.target_reached ? EXTDISP_CALIB_FLAG_TARGET_REACHED : 0) |
+                                              (cc.motor_running ? EXTDISP_CALIB_FLAG_MOTOR_RUNNING : 0) |
+                                              (elec ? EXTDISP_CALIB_FLAG_ELECTRIC : 0) |
+                                              (half_by_hand ? EXTDISP_CALIB_FLAG_HALF_BY_HAND : 0));
+    m.calib.feeder = static_cast<std::uint8_t>(cc.meter == 1 ? 2 : 1);
+    m.calib.turn_option = static_cast<std::uint8_t>(cc.turn_option >= 0 && cc.turn_option < 3 ? cc.turn_option : 0);
+    const double cr = std::round(static_cast<double>(cc.counted_revs) * 100.0);
+    m.calib.counted_centirev = static_cast<std::uint16_t>(cr < 0.0 ? 0.0 : (cr > 65535.0 ? 65535.0 : cr));
+    const double tr = std::round(target * 10.0);   // a V2 valódi célja („Ford. 1/10 ha” szerint)
+    m.calib.target_decirev = static_cast<std::uint16_t>(tr < 0.0 ? 0.0 : (tr > 65535.0 ? 65535.0 : tr));
+    const int wn = cc.weight_count < 0 ? 0 : (cc.weight_count > 10 ? 10 : cc.weight_count);
+    m.calib.weight_count = static_cast<std::uint8_t>(wn);
+    m.calib_result.feeder = m.calib.feeder;
+    m.calib_result.total_g = u24(static_cast<double>(cc.measured_kg) * 1000.0);
+    m.calib_result.mg_per_rev = st.crank_result.kg_per_rev > 0.0 ? u24(st.crank_result.kg_per_rev * 1.0e6) : 0u;
+    m.weight_count = static_cast<std::uint8_t>(wn);
+    for (int i = 0; i < wn; ++i) m.weights_g[i] = u24(static_cast<double>(cc.weights[i]) * 1000.0);
+    m.saved_n = m.caps.feeder_count;
+    for (int i = 0; i < m.saved_n && i < 2; ++i) m.saved_mg_per_rev[i] = u24(seeder::cal_kg_rev(s, i) * 1.0e6);
+    m.scale = scale;
+    if (scale) {
+        // stabil: az utolsó ~1 s (5 × 200 ms) értékei 1 g-on belül
+        const float v = st.scale.net_kg;
+        bool stable = false;
+        if (st.scale.valid) {
+            if (scale_hist_n_ == 0 || now_ms - scale_hist_ms_ >= 200u) {   // 200 ms-onként egy minta
+                scale_hist_[scale_hist_i_] = v;
+                scale_hist_i_ = (scale_hist_i_ + 1) % 5;
+                if (scale_hist_n_ < 5) ++scale_hist_n_;
+                scale_hist_ms_ = now_ms;
+            }
+            float lo = v, hi = v;
+            for (int i = 0; i < scale_hist_n_; ++i) {
+                lo = std::min(lo, scale_hist_[i]);
+                hi = std::max(hi, scale_hist_[i]);
+            }
+            stable = scale_hist_n_ >= 5 && hi - lo <= 0.001f;
+        } else {
+            scale_hist_n_ = 0;
+        }
+        m.scale_status.flags = static_cast<std::uint8_t>((st.scale.valid ? EXTDISP_SCALE_FLAG_VALID : 0) |
+                                                         (stable ? EXTDISP_SCALE_FLAG_STABLE : 0));
+        const double dg = std::round(static_cast<double>(v) * 10000.0);
+        m.scale_status.weight_dg = st.scale.valid ? static_cast<std::int32_t>(std::max(-2.0e9, std::min(2.0e9, dg))) : 0;
+    }
+    return m;
 }
 
 void SeederApp::announce() {

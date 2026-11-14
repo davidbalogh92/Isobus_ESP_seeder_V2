@@ -85,3 +85,5 @@ PSRAM-os (R8) modullal a panel nem működik (a GPIO35–37 az Etherneté).
   **Forgásirány megfordítása**.
 * Keya CAN-motorral: Hajtás = **Elektr. Keya**; a motorok a 17/16-os CAN-en, a többi ugyanaz, mint a Waveshare-en.
 * Olajhűtés, mérleg ezen a panelen nem használható (nincs hőmérő- és mérlegbemenet) – maradjanak kikapcsolva.
+* A külső kijelzőn a leforgatás itt is teljes (kézi és motoros), csak a mérleg gombjai (átvétel, tára) nem jelennek
+  meg: a vezérlő a kijelzőnek nem jelent mérleget.

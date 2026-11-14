@@ -58,7 +58,9 @@ extern "C" {
 #define EXTDISP_TANK_STATUS_PERIOD_MS 1000u
 #define EXTDISP_WIFI_STATUS_PERIOD_MS 1000u
 #define EXTDISP_CALIB_MAX_SPEED_CKMH 50u /* 0,5 km/h, 0,01 km/h egységben */
-#define EXTDISP_CALIB_DEFAULT_TARGET_REVS 85u
+#define EXTDISP_CALIB_TURN_OPTIONS 3u     /* fordulatszám-választás: 0 = 85, 1 = 42,5, 2 = 17 */
+#define EXTDISP_CALIB_MAX_WEIGHTS 10u     /* legfeljebb ennyi részmérés adható össze */
+#define EXTDISP_CALIB_HOLD_TIMEOUT_MS 600u /* motoros forgatás: ennyi ideig él egy "tartás" jelzés */
 
 #define EXTDISP_MAX_TANKS 2u
 #define EXTDISP_MAX_LIGHTS 2u
@@ -70,9 +72,7 @@ extern "C" {
 
 /* Kijelző -> vezérlő (parancsok) */
 #define EXTDISP_ID_HEARTBEAT 0x01u
-#define EXTDISP_ID_CALIB_COMMAND 0x10u  /* vetőgép */
-#define EXTDISP_ID_CALIB_WEIGHT 0x11u   /* vetőgép */
-#define EXTDISP_ID_CALIB_DECISION 0x12u /* vetőgép */
+#define EXTDISP_ID_CALIB_COMMAND 0x10u /* vetőgép: leforgatás */
 #define EXTDISP_ID_TANK_COMMAND 0x20u
 #define EXTDISP_ID_LIGHT_COMMAND 0x30u
 #define EXTDISP_ID_WIFI_COMMAND 0x40u
@@ -82,6 +82,9 @@ extern "C" {
 #define EXTDISP_ID_MACHINE_STATUS 0x81u
 #define EXTDISP_ID_CALIB_STATUS 0x90u /* vetőgép */
 #define EXTDISP_ID_CALIB_RESULT 0x91u /* vetőgép */
+#define EXTDISP_ID_SCALE_STATUS 0x92u /* vetőgép: leforgatási mérleg */
+#define EXTDISP_ID_CALIB_WEIGHT_ITEM 0x93u /* vetőgép: a részmérések listájának egy tétele */
+#define EXTDISP_ID_CALIB_SAVED 0x94u       /* vetőgép: a jelenleg mentett kalibráció */
 #define EXTDISP_ID_TANK_STATUS 0xA0u
 #define EXTDISP_ID_WIFI_STATUS 0xC0u
 #define EXTDISP_ID_ACK 0xF0u
@@ -136,6 +139,8 @@ typedef enum {
 #define EXTDISP_FEATURE_LIGHTS 0x02u
 #define EXTDISP_FEATURE_WIFI_SERVICE 0x04u
 #define EXTDISP_FEATURE_MACHINE_CALIB 0x08u
+#define EXTDISP_FEATURE_FAN 0x10u   /* turbina fordulatszám a gépállapotban (0x81) */
+#define EXTDISP_FEATURE_SCALE 0x20u /* leforgatási mérleg (0x92) */
 
 /* Kijelző szívverés jelzők (0x01, 2. bájt) */
 #define EXTDISP_HB_FLAG_STOP 0x01u
@@ -148,19 +153,38 @@ typedef enum {
 #define EXTDISP_ST_FLAG_WIFI_ON 0x08u
 #define EXTDISP_ST_FLAG_LIGHT1 0x10u
 #define EXTDISP_ST_FLAG_LIGHT2 0x20u
+#define EXTDISP_ST_FLAG_FAN_ALARM 0x40u /* a turbina fordulatszáma a határon kívül van */
 
-/* Leforgatás művelet (0x10, 1. bájt) */
-#define EXTDISP_CALIB_ACT_PREPARE 1u
-#define EXTDISP_CALIB_ACT_START 2u
-#define EXTDISP_CALIB_ACT_STOP 3u
+/* Turbina fordulatszám (0x81, 5-6. bájt): ennyi, ha nincs adat. A bővítés előtti vezérlő a
+ * tartalék bájtokban éppen ezt küldi, ezért a mező visszafelé kompatibilis. */
+#define EXTDISP_FAN_RPM_UNKNOWN 0xFFFFu
+
+/* Mérleg jelzők (0x92, 1. bájt) */
+#define EXTDISP_SCALE_FLAG_VALID 0x01u  /* a mérleg működik, az érték érvényes */
+#define EXTDISP_SCALE_FLAG_STABLE 0x02u /* az érték megállt (nem ingadozik) */
+
+/*
+ * Leforgatás művelet (0x10, 1. bájt). A leforgatást a vezérlő vezeti (kézi és motoros hajtásnál
+ * is a saját szabályaival), a kijelző csak kér; minden parancsra nyugta jön.
+ * A motoros forgatás NEM parancs: a kijelző szívverésének START bitje a "tartás" (a fizikai START
+ * gomb vagy a képernyő Forgat gombja nyomva), amíg az aktív képernyő a leforgatás. A vezérlő a
+ * bit megszűnésekor, a STOP bitre vagy EXTDISP_CALIB_HOLD_TIMEOUT_MS kimaradás után megáll.
+ */
+#define EXTDISP_CALIB_ACT_NEW 1u            /* új leforgatás: számláló nullázása, nullpont keresése */
+#define EXTDISP_CALIB_ACT_SELECT_FEEDER 2u  /* adagoló választása; paraméter: 1 vagy 2 */
+#define EXTDISP_CALIB_ACT_SELECT_TURNS 3u   /* fordulatszám-választás; paraméter: 0..2 */
+#define EXTDISP_CALIB_ACT_ADD_WEIGHT 4u     /* részmérés hozzáadása; érték: tömeg grammban */
+#define EXTDISP_CALIB_ACT_TAKE_SCALE 5u     /* a mérleg nettó értéke új részmérésként */
+#define EXTDISP_CALIB_ACT_DELETE_WEIGHT 6u  /* részmérés törlése; paraméter: sorszám 0..9, 0xFF = mind */
+#define EXTDISP_CALIB_ACT_SAVE 7u           /* az új kg/fordulat mentése a kiválasztott adagolóhoz */
+#define EXTDISP_CALIB_ACT_COPY_TO_OTHER 8u  /* a kiválasztott adagoló kalibrációja a másikra */
+#define EXTDISP_CALIB_ACT_TARE_SCALE 9u     /* a mérleg tárázása */
+#define EXTDISP_CALIB_ACT_MAX 9u
+#define EXTDISP_CALIB_DELETE_ALL 0xFFu
 
 /* Adagoló / tartály választó */
 #define EXTDISP_FEEDER_ALL 0u
 #define EXTDISP_TANK_SHARED 0u
-
-/* Eredmény döntés (0x12, 2. bájt) */
-#define EXTDISP_DECISION_REJECT 0u
-#define EXTDISP_DECISION_ACCEPT 1u
 
 /* Tartály művelet (0x20, 2. bájt) */
 #define EXTDISP_TANK_ACT_SET 1u
@@ -176,15 +200,13 @@ typedef enum {
 #define EXTDISP_WIFI_CMD_OFF 0u
 #define EXTDISP_WIFI_CMD_ON 1u
 
-/* Leforgatás állapot (0x90, 1. bájt) */
-#define EXTDISP_CALIB_IDLE 0u
-#define EXTDISP_CALIB_PREPARED 1u
-#define EXTDISP_CALIB_RUNNING 2u
-#define EXTDISP_CALIB_WAIT_WEIGHT 3u
-#define EXTDISP_CALIB_RESULT_READY 4u
-#define EXTDISP_CALIB_ABORTED 5u
-#define EXTDISP_CALIB_INHIBITED 6u
-#define EXTDISP_CALIB_STATE_MAX 6u
+/* Leforgatás állapot jelzők (0x90, 1. bájt) */
+#define EXTDISP_CALIB_FLAG_SESSION 0x01u        /* leforgatás folyamatban (nullázástól mentésig) */
+#define EXTDISP_CALIB_FLAG_ZERO_FOUND 0x02u     /* megvan a nullpont, a számlálás él (0 = tekerj, amíg megjön) */
+#define EXTDISP_CALIB_FLAG_TARGET_REACHED 0x04u /* a megszámolt fordulat elérte a célt */
+#define EXTDISP_CALIB_FLAG_MOTOR_RUNNING 0x08u  /* a motor éppen forgat */
+#define EXTDISP_CALIB_FLAG_ELECTRIC 0x10u       /* motoros hajtás (0 = talajhajtás: kézzel kell tekerni) */
+#define EXTDISP_CALIB_FLAG_HALF_BY_HAND 0x20u   /* a cél fél fordulatra végződik, a felet kézzel kell rátenni */
 
 /* Tiltási okok (0x90 7. bájt, 0xF0 3. bájt). A 0 = nincs tiltás. */
 #define EXTDISP_INHIBIT_NONE 0u
@@ -196,7 +218,14 @@ typedef enum {
 #define EXTDISP_INHIBIT_BAD_PARAM 6u
 #define EXTDISP_INHIBIT_NO_SUCH_UNIT 7u
 #define EXTDISP_INHIBIT_NOT_SUPPORTED 8u
-#define EXTDISP_INHIBIT_MAX 8u
+#define EXTDISP_INHIBIT_NO_SCALE_DATA 9u   /* nincs érvényes mérlegadat */
+#define EXTDISP_INHIBIT_SCALE_EMPTY 10u    /* a mérleg üres (előbb tára, aztán a vödör) */
+#define EXTDISP_INHIBIT_NO_WEIGHT 11u      /* nincs lemért tömeg, nincs mit menteni */
+#define EXTDISP_INHIBIT_LIST_FULL 12u      /* a részmérések listája megtelt */
+#define EXTDISP_INHIBIT_NOT_ELECTRIC 13u   /* motoros forgatás csak elektromos hajtással */
+#define EXTDISP_INHIBIT_TUNING 14u         /* önhangolás fut */
+#define EXTDISP_INHIBIT_TARGET_REACHED 15u /* a célfordulat megvan: mérj, vagy kezdj új leforgatást */
+#define EXTDISP_INHIBIT_MAX 15u
 
 /* Telítettség (0xA0, 6. bájt) */
 #define EXTDISP_FILL_UNKNOWN 0xFFu
@@ -238,22 +267,10 @@ typedef struct {
 
 /* 0x10 Leforgatás parancs (vetőgép) */
 typedef struct {
-    uint8_t action;       /* EXTDISP_CALIB_ACT_* */
-    uint8_t feeder;       /* 0 = mind, 1, 2 */
-    uint16_t target_revs; /* fordulatszám-cél, egész fordulat */
+    uint8_t action; /* EXTDISP_CALIB_ACT_* */
+    uint8_t param;  /* a művelettől függ (adagoló, fordulatszám-választás, sorszám), különben 0 */
+    uint32_t value; /* ADD_WEIGHT: tömeg grammban, különben 0 */
 } extdisp_calib_command_t;
-
-/* 0x11 Mért tömeg (vetőgép) */
-typedef struct {
-    uint8_t feeder;     /* 0 = mind, 1, 2 */
-    uint32_t weight_dg; /* 0,1 g egységben */
-} extdisp_calib_weight_t;
-
-/* 0x12 Eredmény döntés (vetőgép) */
-typedef struct {
-    uint8_t feeder;   /* 0 = mind, 1, 2 */
-    uint8_t decision; /* EXTDISP_DECISION_* */
-} extdisp_calib_decision_t;
 
 /* 0x20 Tartály művelet */
 typedef struct {
@@ -278,23 +295,44 @@ typedef struct {
     uint8_t counter;
     uint8_t flags;       /* EXTDISP_ST_FLAG_* */
     uint16_t speed_ckmh; /* 0,01 km/h egységben */
+    uint16_t fan_rpm;    /* turbina fordulat 1/perc, EXTDISP_FAN_RPM_UNKNOWN = nincs adat */
 } extdisp_machine_status_t;
 
-/* 0x90 Leforgatás állapot (vetőgép) */
+/* 0x90 Leforgatás állapot (vetőgép; 200 ms, amíg a kijelző aktív képernyője a leforgatás) */
 typedef struct {
-    uint8_t state;          /* EXTDISP_CALIB_* */
-    uint8_t feeder;         /* 0 = mind, 1, 2 */
-    uint16_t done_revs;     /* kész fordulat */
-    uint16_t target_revs;   /* cél fordulat */
-    uint8_t inhibit_reason; /* EXTDISP_INHIBIT_* */
+    uint8_t flags;            /* EXTDISP_CALIB_FLAG_* */
+    uint8_t feeder;           /* a kiválasztott adagoló: 1 vagy 2 */
+    uint8_t turn_option;      /* fordulatszám-választás: 0..2 */
+    uint16_t counted_centirev; /* megszámolt fordulat, 0,01 fordulatban */
+    uint16_t target_decirev;  /* cél fordulat, 0,1 fordulatban (850, 425, 170) */
+    uint8_t weight_count;     /* a részmérések száma, 0..10 */
 } extdisp_calib_status_t;
 
-/* 0x91 Leforgatás eredmény (vetőgép) */
+/* 0x91 Leforgatás eredmény (vetőgép; a 0x90-nel együtt) */
 typedef struct {
-    uint8_t feeder;         /* 0 = mind, 1, 2 */
-    uint32_t mg_per_rev;    /* g/fordulat x 1000 */
-    int16_t deviation_pm;   /* eltérés az előzőtől 0,1 %-ban, előjeles */
+    uint8_t feeder;       /* 1 vagy 2 */
+    uint32_t total_g;     /* a részmérések összege grammban (24 bit) */
+    uint32_t mg_per_rev;  /* az új érték: g/fordulat x 1000 (24 bit); 0 = még nincs eredmény */
 } extdisp_calib_result_t;
+
+/* 0x92 Mérleg állapot (vetőgép; 200 ms, amíg a kijelző aktív képernyője a leforgatás) */
+typedef struct {
+    uint8_t flags;     /* EXTDISP_SCALE_FLAG_* */
+    int32_t weight_dg; /* tömeg 0,1 g egységben, előjeles (tárázás után negatív is lehet) */
+} extdisp_scale_status_t;
+
+/* 0x93 Részmérés tétel (vetőgép; a 0x90-nel együtt, ciklusonként egy tétel körbejárva) */
+typedef struct {
+    uint8_t index;     /* a tétel sorszáma, 0..count-1 (ha count = 0, nem számít) */
+    uint8_t count;     /* a részmérések száma, 0..10 */
+    uint32_t weight_g; /* a tétel tömege grammban (24 bit) */
+} extdisp_calib_weight_item_t;
+
+/* 0x94 Mentett kalibráció (vetőgép; 1 s, amíg a kijelző aktív képernyője a leforgatás) */
+typedef struct {
+    uint8_t feeder;      /* 1 vagy 2 */
+    uint32_t mg_per_rev; /* a jelenleg mentett érték: g/fordulat x 1000 (24 bit); 0 = nincs */
+} extdisp_calib_saved_t;
 
 /* 0xA0 Tartály állapot (1 s, tartályonként) */
 typedef struct {
@@ -332,6 +370,24 @@ static inline void extdisp_put_u32(uint8_t *p, uint32_t v)
     p[1] = (uint8_t)((v >> 8) & 0xFFu);
     p[2] = (uint8_t)((v >> 16) & 0xFFu);
     p[3] = (uint8_t)((v >> 24) & 0xFFu);
+}
+
+static inline void extdisp_put_u24(uint8_t *p, uint32_t v)
+{
+    p[0] = (uint8_t)(v & 0xFFu);
+    p[1] = (uint8_t)((v >> 8) & 0xFFu);
+    p[2] = (uint8_t)((v >> 16) & 0xFFu);
+}
+
+static inline uint32_t extdisp_get_u24(const uint8_t *p)
+{
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16);
+}
+
+/* A leforgatás fordulatszám-választásának értéke tizedfordulatban (0 = érvénytelen választás). */
+static inline uint16_t extdisp_calib_turns_x10(uint8_t option)
+{
+    return (uint16_t)(option == 0u ? 850u : (option == 1u ? 425u : (option == 2u ? 170u : 0u)));
 }
 
 static inline uint16_t extdisp_get_u16(const uint8_t *p)
@@ -441,15 +497,28 @@ static inline bool extdisp_valid_capabilities(const extdisp_capabilities_t *m)
            m->feeder_count <= EXTDISP_MAX_FEEDERS;
 }
 
-static inline bool extdisp_valid_calib_command(const extdisp_calib_command_t *m)
+static inline bool extdisp_valid_calib_feeder(uint8_t feeder)
 {
-    return m->action >= EXTDISP_CALIB_ACT_PREPARE && m->action <= EXTDISP_CALIB_ACT_STOP &&
-           extdisp_valid_feeder(m->feeder);
+    return feeder >= 1u && feeder <= EXTDISP_MAX_FEEDERS;
 }
 
-static inline bool extdisp_valid_calib_decision(const extdisp_calib_decision_t *m)
+static inline bool extdisp_valid_calib_command(const extdisp_calib_command_t *m)
 {
-    return extdisp_valid_feeder(m->feeder) && m->decision <= EXTDISP_DECISION_ACCEPT;
+    if (m->action < EXTDISP_CALIB_ACT_NEW || m->action > EXTDISP_CALIB_ACT_MAX) {
+        return false;
+    }
+    switch (m->action) {
+    case EXTDISP_CALIB_ACT_SELECT_FEEDER:
+        return extdisp_valid_calib_feeder(m->param);
+    case EXTDISP_CALIB_ACT_SELECT_TURNS:
+        return m->param < EXTDISP_CALIB_TURN_OPTIONS;
+    case EXTDISP_CALIB_ACT_ADD_WEIGHT:
+        return m->value > 0u;
+    case EXTDISP_CALIB_ACT_DELETE_WEIGHT:
+        return m->param < EXTDISP_CALIB_MAX_WEIGHTS || m->param == EXTDISP_CALIB_DELETE_ALL;
+    default:
+        return true;
+    }
 }
 
 static inline bool extdisp_valid_tank_command(const extdisp_tank_command_t *m)
@@ -465,8 +534,24 @@ static inline bool extdisp_valid_light_command(const extdisp_light_command_t *m)
 
 static inline bool extdisp_valid_calib_status(const extdisp_calib_status_t *m)
 {
-    return m->state <= EXTDISP_CALIB_STATE_MAX && extdisp_valid_feeder(m->feeder) &&
-           m->inhibit_reason <= EXTDISP_INHIBIT_MAX;
+    return extdisp_valid_calib_feeder(m->feeder) && m->turn_option < EXTDISP_CALIB_TURN_OPTIONS &&
+           m->weight_count <= EXTDISP_CALIB_MAX_WEIGHTS;
+}
+
+static inline bool extdisp_valid_calib_result(const extdisp_calib_result_t *m)
+{
+    return extdisp_valid_calib_feeder(m->feeder) && m->total_g <= 0xFFFFFFu && m->mg_per_rev <= 0xFFFFFFu;
+}
+
+static inline bool extdisp_valid_calib_weight_item(const extdisp_calib_weight_item_t *m)
+{
+    return m->count <= EXTDISP_CALIB_MAX_WEIGHTS && (m->count == 0u || m->index < m->count) &&
+           m->weight_g <= 0xFFFFFFu;
+}
+
+static inline bool extdisp_valid_calib_saved(const extdisp_calib_saved_t *m)
+{
+    return extdisp_valid_calib_feeder(m->feeder) && m->mg_per_rev <= 0xFFFFFFu;
 }
 
 static inline bool extdisp_valid_tank_status(const extdisp_tank_status_t *m)
@@ -562,8 +647,7 @@ static inline extdisp_result_t extdisp_decode_heartbeat(const uint8_t *data, siz
 
 /* 0x10 Leforgatás parancs ------------------------------------------------ */
 
-static inline extdisp_result_t extdisp_encode_calib_command(const extdisp_calib_command_t *m,
-                                                            uint8_t *frame)
+static inline extdisp_result_t extdisp_encode_calib_command(const extdisp_calib_command_t *m, uint8_t *frame)
 {
     if (m == NULL || frame == NULL) {
         return EXTDISP_ERR_NULL;
@@ -573,80 +657,21 @@ static inline extdisp_result_t extdisp_encode_calib_command(const extdisp_calib_
     }
     extdisp_frame_init(frame, EXTDISP_ID_CALIB_COMMAND);
     frame[1] = m->action;
-    frame[2] = m->feeder;
-    extdisp_put_u16(&frame[3], m->target_revs);
+    frame[2] = m->param;
+    extdisp_put_u32(&frame[3], m->value);
     return EXTDISP_OK;
 }
 
-static inline extdisp_result_t extdisp_decode_calib_command(const uint8_t *data, size_t len,
-                                                            extdisp_calib_command_t *m)
+static inline extdisp_result_t extdisp_decode_calib_command(const uint8_t *data, size_t len, extdisp_calib_command_t *m)
 {
     extdisp_result_t r = extdisp_check_frame(data, len, m, EXTDISP_ID_CALIB_COMMAND);
     if (r != EXTDISP_OK) {
         return r;
     }
     m->action = data[1];
-    m->feeder = data[2];
-    m->target_revs = extdisp_get_u16(&data[3]);
+    m->param = data[2];
+    m->value = extdisp_get_u32(&data[3]);
     return extdisp_valid_calib_command(m) ? EXTDISP_OK : EXTDISP_ERR_VALUE;
-}
-
-/* 0x11 Mért tömeg -------------------------------------------------------- */
-
-static inline extdisp_result_t extdisp_encode_calib_weight(const extdisp_calib_weight_t *m,
-                                                           uint8_t *frame)
-{
-    if (m == NULL || frame == NULL) {
-        return EXTDISP_ERR_NULL;
-    }
-    if (!extdisp_valid_feeder(m->feeder)) {
-        return EXTDISP_ERR_VALUE;
-    }
-    extdisp_frame_init(frame, EXTDISP_ID_CALIB_WEIGHT);
-    frame[1] = m->feeder;
-    extdisp_put_u32(&frame[2], m->weight_dg);
-    return EXTDISP_OK;
-}
-
-static inline extdisp_result_t extdisp_decode_calib_weight(const uint8_t *data, size_t len,
-                                                           extdisp_calib_weight_t *m)
-{
-    extdisp_result_t r = extdisp_check_frame(data, len, m, EXTDISP_ID_CALIB_WEIGHT);
-    if (r != EXTDISP_OK) {
-        return r;
-    }
-    m->feeder = data[1];
-    m->weight_dg = extdisp_get_u32(&data[2]);
-    return extdisp_valid_feeder(m->feeder) ? EXTDISP_OK : EXTDISP_ERR_VALUE;
-}
-
-/* 0x12 Eredmény döntés --------------------------------------------------- */
-
-static inline extdisp_result_t extdisp_encode_calib_decision(const extdisp_calib_decision_t *m,
-                                                             uint8_t *frame)
-{
-    if (m == NULL || frame == NULL) {
-        return EXTDISP_ERR_NULL;
-    }
-    if (!extdisp_valid_calib_decision(m)) {
-        return EXTDISP_ERR_VALUE;
-    }
-    extdisp_frame_init(frame, EXTDISP_ID_CALIB_DECISION);
-    frame[1] = m->feeder;
-    frame[2] = m->decision;
-    return EXTDISP_OK;
-}
-
-static inline extdisp_result_t extdisp_decode_calib_decision(const uint8_t *data, size_t len,
-                                                             extdisp_calib_decision_t *m)
-{
-    extdisp_result_t r = extdisp_check_frame(data, len, m, EXTDISP_ID_CALIB_DECISION);
-    if (r != EXTDISP_OK) {
-        return r;
-    }
-    m->feeder = data[1];
-    m->decision = data[2];
-    return extdisp_valid_calib_decision(m) ? EXTDISP_OK : EXTDISP_ERR_VALUE;
 }
 
 /* 0x20 Tartály művelet --------------------------------------------------- */
@@ -748,6 +773,7 @@ static inline extdisp_result_t extdisp_encode_machine_status(const extdisp_machi
     frame[1] = m->counter;
     frame[2] = m->flags;
     extdisp_put_u16(&frame[3], m->speed_ckmh);
+    extdisp_put_u16(&frame[5], m->fan_rpm);
     return EXTDISP_OK;
 }
 
@@ -761,13 +787,13 @@ static inline extdisp_result_t extdisp_decode_machine_status(const uint8_t *data
     m->counter = data[1];
     m->flags = data[2];
     m->speed_ckmh = extdisp_get_u16(&data[3]);
+    m->fan_rpm = extdisp_get_u16(&data[5]);
     return EXTDISP_OK;
 }
 
 /* 0x90 Leforgatás állapot ------------------------------------------------ */
 
-static inline extdisp_result_t extdisp_encode_calib_status(const extdisp_calib_status_t *m,
-                                                           uint8_t *frame)
+static inline extdisp_result_t extdisp_encode_calib_status(const extdisp_calib_status_t *m, uint8_t *frame)
 {
     if (m == NULL || frame == NULL) {
         return EXTDISP_ERR_NULL;
@@ -776,61 +802,141 @@ static inline extdisp_result_t extdisp_encode_calib_status(const extdisp_calib_s
         return EXTDISP_ERR_VALUE;
     }
     extdisp_frame_init(frame, EXTDISP_ID_CALIB_STATUS);
-    frame[1] = m->state;
-    frame[2] = m->feeder;
-    extdisp_put_u16(&frame[3], m->done_revs);
-    extdisp_put_u16(&frame[5], m->target_revs);
-    frame[7] = m->inhibit_reason;
+    frame[1] = m->flags;
+    frame[2] = (uint8_t)(m->feeder | (uint8_t)(m->turn_option << 4));
+    extdisp_put_u16(&frame[3], m->counted_centirev);
+    extdisp_put_u16(&frame[5], m->target_decirev);
+    frame[7] = m->weight_count;
     return EXTDISP_OK;
 }
 
-static inline extdisp_result_t extdisp_decode_calib_status(const uint8_t *data, size_t len,
-                                                           extdisp_calib_status_t *m)
+static inline extdisp_result_t extdisp_decode_calib_status(const uint8_t *data, size_t len, extdisp_calib_status_t *m)
 {
     extdisp_result_t r = extdisp_check_frame(data, len, m, EXTDISP_ID_CALIB_STATUS);
     if (r != EXTDISP_OK) {
         return r;
     }
-    m->state = data[1];
-    m->feeder = data[2];
-    m->done_revs = extdisp_get_u16(&data[3]);
-    m->target_revs = extdisp_get_u16(&data[5]);
-    m->inhibit_reason = data[7];
+    m->flags = data[1];
+    m->feeder = (uint8_t)(data[2] & 0x0Fu);
+    m->turn_option = (uint8_t)(data[2] >> 4);
+    m->counted_centirev = extdisp_get_u16(&data[3]);
+    m->target_decirev = extdisp_get_u16(&data[5]);
+    m->weight_count = data[7];
     return extdisp_valid_calib_status(m) ? EXTDISP_OK : EXTDISP_ERR_VALUE;
 }
 
 /* 0x91 Leforgatás eredmény ----------------------------------------------- */
 
-static inline extdisp_result_t extdisp_encode_calib_result(const extdisp_calib_result_t *m,
-                                                           uint8_t *frame)
+static inline extdisp_result_t extdisp_encode_calib_result(const extdisp_calib_result_t *m, uint8_t *frame)
 {
     if (m == NULL || frame == NULL) {
         return EXTDISP_ERR_NULL;
     }
-    if (!extdisp_valid_feeder(m->feeder)) {
+    if (!extdisp_valid_calib_result(m)) {
         return EXTDISP_ERR_VALUE;
     }
     extdisp_frame_init(frame, EXTDISP_ID_CALIB_RESULT);
     frame[1] = m->feeder;
-    extdisp_put_u32(&frame[2], m->mg_per_rev);
-    extdisp_put_u16(&frame[6], (uint16_t)m->deviation_pm);
+    extdisp_put_u24(&frame[2], m->total_g);
+    extdisp_put_u24(&frame[5], m->mg_per_rev);
     return EXTDISP_OK;
 }
 
-static inline extdisp_result_t extdisp_decode_calib_result(const uint8_t *data, size_t len,
-                                                           extdisp_calib_result_t *m)
+static inline extdisp_result_t extdisp_decode_calib_result(const uint8_t *data, size_t len, extdisp_calib_result_t *m)
 {
-    uint16_t raw;
     extdisp_result_t r = extdisp_check_frame(data, len, m, EXTDISP_ID_CALIB_RESULT);
     if (r != EXTDISP_OK) {
         return r;
     }
     m->feeder = data[1];
-    m->mg_per_rev = extdisp_get_u32(&data[2]);
-    /* kettes komplemens, hordozható módon (nem implementációfüggő konverzió) */
-    raw = extdisp_get_u16(&data[6]);
-    m->deviation_pm = (raw & 0x8000u) ? (int16_t)((int32_t)raw - 65536) : (int16_t)raw;
-    return extdisp_valid_feeder(m->feeder) ? EXTDISP_OK : EXTDISP_ERR_VALUE;
+    m->total_g = extdisp_get_u24(&data[2]);
+    m->mg_per_rev = extdisp_get_u24(&data[5]);
+    return extdisp_valid_calib_result(m) ? EXTDISP_OK : EXTDISP_ERR_VALUE;
+}
+
+/* 0x92 Mérleg állapot ---------------------------------------------------- */
+
+static inline extdisp_result_t extdisp_encode_scale_status(const extdisp_scale_status_t *m,
+                                                           uint8_t *frame)
+{
+    if (m == NULL || frame == NULL) {
+        return EXTDISP_ERR_NULL;
+    }
+    extdisp_frame_init(frame, EXTDISP_ID_SCALE_STATUS);
+    frame[1] = m->flags;
+    extdisp_put_u32(&frame[2], (uint32_t)m->weight_dg);
+    return EXTDISP_OK;
+}
+
+static inline extdisp_result_t extdisp_decode_scale_status(const uint8_t *data, size_t len,
+                                                           extdisp_scale_status_t *m)
+{
+    uint32_t raw;
+    extdisp_result_t r = extdisp_check_frame(data, len, m, EXTDISP_ID_SCALE_STATUS);
+    if (r != EXTDISP_OK) {
+        return r;
+    }
+    m->flags = data[1];
+    /* kettes komplemens, hordozható módon */
+    raw = extdisp_get_u32(&data[2]);
+    m->weight_dg = (raw & 0x80000000u) ? (int32_t)(-(int64_t)(0x100000000ull - raw)) : (int32_t)raw;
+    return EXTDISP_OK;
+}
+
+/* 0x93 Részmérés tétel --------------------------------------------------- */
+
+static inline extdisp_result_t extdisp_encode_calib_weight_item(const extdisp_calib_weight_item_t *m, uint8_t *frame)
+{
+    if (m == NULL || frame == NULL) {
+        return EXTDISP_ERR_NULL;
+    }
+    if (!extdisp_valid_calib_weight_item(m)) {
+        return EXTDISP_ERR_VALUE;
+    }
+    extdisp_frame_init(frame, EXTDISP_ID_CALIB_WEIGHT_ITEM);
+    frame[1] = m->index;
+    frame[2] = m->count;
+    extdisp_put_u24(&frame[3], m->weight_g);
+    return EXTDISP_OK;
+}
+
+static inline extdisp_result_t extdisp_decode_calib_weight_item(const uint8_t *data, size_t len, extdisp_calib_weight_item_t *m)
+{
+    extdisp_result_t r = extdisp_check_frame(data, len, m, EXTDISP_ID_CALIB_WEIGHT_ITEM);
+    if (r != EXTDISP_OK) {
+        return r;
+    }
+    m->index = data[1];
+    m->count = data[2];
+    m->weight_g = extdisp_get_u24(&data[3]);
+    return extdisp_valid_calib_weight_item(m) ? EXTDISP_OK : EXTDISP_ERR_VALUE;
+}
+
+/* 0x94 Mentett kalibráció ------------------------------------------------ */
+
+static inline extdisp_result_t extdisp_encode_calib_saved(const extdisp_calib_saved_t *m, uint8_t *frame)
+{
+    if (m == NULL || frame == NULL) {
+        return EXTDISP_ERR_NULL;
+    }
+    if (!extdisp_valid_calib_saved(m)) {
+        return EXTDISP_ERR_VALUE;
+    }
+    extdisp_frame_init(frame, EXTDISP_ID_CALIB_SAVED);
+    frame[1] = m->feeder;
+    extdisp_put_u24(&frame[2], m->mg_per_rev);
+    return EXTDISP_OK;
+}
+
+static inline extdisp_result_t extdisp_decode_calib_saved(const uint8_t *data, size_t len, extdisp_calib_saved_t *m)
+{
+    extdisp_result_t r = extdisp_check_frame(data, len, m, EXTDISP_ID_CALIB_SAVED);
+    if (r != EXTDISP_OK) {
+        return r;
+    }
+    m->feeder = data[1];
+    m->mg_per_rev = extdisp_get_u24(&data[2]);
+    return extdisp_valid_calib_saved(m) ? EXTDISP_OK : EXTDISP_ERR_VALUE;
 }
 
 /* 0xA0 Tartály állapot --------------------------------------------------- */

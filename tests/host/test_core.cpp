@@ -603,6 +603,27 @@ TEST(motor_tune_motor_does_not_start) {
     CHECK(s.outputs().motor_pwm_pct[0] < 0.5f);
 }
 
+TEST(motor_tune_flat_rpm_reports_points_and_pulse_rate) {
+    // a motor forog, de a mért fordulat nem nő (pl. a bemenet nem számolja a sűrű impulzusokat):
+    // a hibaüzenetben a mért pontok és az impulzus-frekvencia
+    MotorTuner t;
+    t.start(0, 100.0f);
+    const float ppr = 600.0f;
+    float since = 10.0f;
+    for (int k = 0; k < 3000 && t.active(); ++k) {
+        const float pwm = t.pwm();
+        const float rpm = pwm > 12.0f ? 200.0f : 0.0f;   // telítődik: 200 1/min = 2000 Hz
+        since = rpm > 0.0f ? 0.0f : since + 0.05f;
+        t.step(0.05f, rpm, since, rpm > 0.0f ? static_cast<std::uint32_t>(rpm / 60.0f * ppr * 0.05f) : 0u, ppr);
+    }
+    CHECK(t.phase() == TunePhase::Failed);
+    const std::string msg = t.message();
+    std::printf("  %s\n", msg.c_str());
+    CHECK(msg.find("nem nő") != std::string::npos);
+    CHECK(msg.find("200.0") != std::string::npos);
+    CHECK(msg.find("2000 Hz") != std::string::npos);
+}
+
 TEST(clutch_polarity_options) {
     Seeder s = make([](Settings &st) { st.clutch_mode = 1; }); // áram alatt old
     Machine m = down_machine();
