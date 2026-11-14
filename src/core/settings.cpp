@@ -2,6 +2,7 @@
 #include "seeder/settings.hpp"
 
 #include <cctype>
+#include <functional>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -402,7 +403,8 @@ int settings_from_json(Settings &s, const char *json, std::string *error) {
     return applied;
 }
 
-std::string schema_json() {
+void schema_json_stream(const std::function<void(const std::string &)> &emit) {
+    // darabokban (fejléc, majd paraméterenként), hogy a web PSRAM nélkül se foglaljon egyben ~40 kB-ot
     std::string out = "{\"groups\":[";
     for (std::size_t g = 0; g < GROUP_COUNT; ++g) {
         if (g) out += ',';
@@ -417,8 +419,10 @@ std::string schema_json() {
     out += "],\"vt_groups\":";
     out += VT_GROUPS_JSON;
     out += ",\"params\":[";
+    emit(out);
     for (std::uint16_t i = 0; i < PARAM_COUNT; ++i) {
         const ParamDef &d = PARAMS[i];
+        out.clear();
         if (i) out += ',';
         out += "{\"key\":\"";
         out += d.key;
@@ -458,9 +462,15 @@ std::string schema_json() {
             out += ']';
         }
         out += '}';
+        emit(out);
     }
-    out += "]}";
-    return out;
+    emit("]}");
+}
+
+std::string schema_json() {
+    std::string all;
+    schema_json_stream([&all](const std::string &part) { all += part; });
+    return all;
 }
 
 std::uint32_t ddop_relevant_hash(const Settings &s) {

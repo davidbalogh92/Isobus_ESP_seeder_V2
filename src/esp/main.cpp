@@ -160,6 +160,15 @@ constexpr float CYCLE_S = 0.02f;   // 20 ms vezérlési ciklus (motorszabályzá
 extern "C" void app_main() {
     web::init_log();
     web::log("INFO", "Vetőgép-vezérlő indul – %s", board::NAME);
+    {   // az előző leállás oka (összeomlás után a naplóban és a soros konzolon látszik)
+        const esp_reset_reason_t rr = esp_reset_reason();
+        const char *why = rr == ESP_RST_POWERON ? "bekapcsolás" : rr == ESP_RST_SW ? "szoftveres újraindítás"
+                        : rr == ESP_RST_PANIC ? "ÖSSZEOMLÁS (panic)" : rr == ESP_RST_INT_WDT ? "ÖSSZEOMLÁS (megszakítás-watchdog)"
+                        : rr == ESP_RST_TASK_WDT ? "ÖSSZEOMLÁS (taszk-watchdog)" : rr == ESP_RST_WDT ? "watchdog"
+                        : rr == ESP_RST_BROWNOUT ? "tápfeszültség-esés (brownout)" : "egyéb";
+        web::log(rr == ESP_RST_POWERON || rr == ESP_RST_SW ? "INFO" : "WARN", "Előző leállás oka: %s (%d)", why,
+                 static_cast<int>(rr));
+    }
 
     // --- beállítások és tartós adatok
     if (!storage::init()) web::log("ERROR", "NVS inicializálás sikertelen");
@@ -232,6 +241,10 @@ extern "C" void app_main() {
     }
     web::attach_isobus(isobus_app.get());
     if (wifi_ok) web::confirm_running_firmware();
+    web::log("INFO", "Indulás kész. Szabad belső RAM: %u B (legnagyobb blokk %u B), PSRAM: %u kB",
+             static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+             static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+             static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
 
     // --- vezérlési ciklus
     TickType_t wake = xTaskGetTickCount();

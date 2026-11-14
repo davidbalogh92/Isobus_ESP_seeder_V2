@@ -1,5 +1,7 @@
 #include "web.hpp"
 
+#include "seeder/settings.hpp"
+
 #include "web_api.hpp"
 #include "board.hpp"
 
@@ -104,6 +106,26 @@ esp_err_t api_pool(httpd_req_t *req) {
     httpd_resp_set_type(req, "application/octet-stream");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     return httpd_resp_send(req, pool_bin_start, static_cast<ssize_t>(pool_bin_end - pool_bin_start));
+}
+
+/// A paraméterleírás (~40 kB) darabokban: PSRAM nélküli panelen (RCv1.7) nincs ekkora összefüggő belső RAM
+esp_err_t api_schema(httpd_req_t *req) {
+    httpd_resp_set_type(req, "application/json; charset=utf-8");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    std::string buf;
+    buf.reserve(1600);
+    bool ok = true;
+    seeder::schema_json_stream([&](const std::string &part) {
+        if (!ok) return;
+        buf += part;
+        if (buf.size() >= 1400) {
+            ok = httpd_resp_send_chunk(req, buf.data(), static_cast<ssize_t>(buf.size())) == ESP_OK;
+            buf.clear();
+        }
+    });
+    if (ok && !buf.empty()) ok = httpd_resp_send_chunk(req, buf.data(), static_cast<ssize_t>(buf.size())) == ESP_OK;
+    if (!ok) return ESP_FAIL;
+    return httpd_resp_send_chunk(req, nullptr, 0);
 }
 
 std::string hw_json() {
@@ -347,7 +369,7 @@ bool start(app::Shared *sh, app::SeederApp *ia, const char *wifi_password) {
     static const Route routes[] = {
         {"/", HTTP_GET, page_index},
         {"/api/state", HTTP_GET, api_generic},
-        {"/api/schema", HTTP_GET, api_generic},
+        {"/api/schema", HTTP_GET, api_schema},
         {"/api/crops", HTTP_GET, api_generic},
         {"/api/profile.csv", HTTP_GET, api_generic},
         {"/api/profile", HTTP_POST, api_generic},

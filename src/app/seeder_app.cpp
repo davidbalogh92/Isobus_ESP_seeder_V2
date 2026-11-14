@@ -29,7 +29,7 @@
 #include <cstdlib>
 
 #ifndef SEEDER_FW_VERSION
-#define SEEDER_FW_VERSION "2.5.0"
+#define SEEDER_FW_VERSION "2.5.1"
 #endif
 
 namespace app {

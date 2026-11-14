@@ -4,6 +4,7 @@
 #include "seeder/params_gen.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <string>
 
 namespace seeder {
@@ -57,6 +58,8 @@ std::string settings_to_json(const Settings &s);
 int settings_from_json(Settings &s, const char *json, std::string *error = nullptr);
 /// A web felület űrlapjaihoz: csoportok + paraméterek leírása.
 std::string schema_json();
+/// ugyanez darabokban (a web egyenként küldi, PSRAM nélküli panelen nem kell egyben a teljes szöveg)
+void schema_json_stream(const std::function<void(const std::string &)> &emit);
 
 /// A TC eszközleíró (DDOP) szempontjából lényeges mezők ellenőrzőösszege.
 std::uint32_t ddop_relevant_hash(const Settings &s);
