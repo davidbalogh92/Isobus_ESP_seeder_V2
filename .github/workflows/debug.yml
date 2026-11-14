@@ -19,4 +19,9 @@ jobs:
           python-version: '3.11'
       - run: python -m pip install 'platformio==6.1.18' esp-idf-size
       - run: python -m platformio run -e rcv17_16mb > build.log 2>&1 || (tail -50 build.log; exit 1)
-      - run: python -m esp_idf_size .pio/build/rcv17_16mb/firmware.map || true
+      - run: |
+          MAP=$(find .pio/build/rcv17_16mb -maxdepth 1 -name "*.map" | head -1); echo "map: $MAP"
+          python -m esp_idf_size "$MAP" || true
+          SZ=$(find ~/.platformio/packages -name "xtensa-esp32s3-elf-size" | head -1)
+          $SZ -A .pio/build/rcv17_16mb/firmware.elf | grep -E "dram0|iram0|flash|rtc" || true
+          grep -E "DATA_CACHE|WIFI_IRAM|RX_IRAM|STATIC_RX_BUFFER_NUM" .pio/build/rcv17_16mb/config/sdkconfig.h || true
