@@ -40,7 +40,7 @@ extern const char index_html_end[] asm("_binary_index_html_end");
 namespace web {
 namespace {
 constexpr const char *TAG = "SEEDER_WEB";
-constexpr std::size_t LOG_CAPACITY = 120;
+constexpr std::size_t LOG_CAPACITY = board::LOG_LINES;
 constexpr std::size_t LOG_SIZE = 160;
 struct LogLine {
     std::uint32_t ms;
@@ -49,7 +49,7 @@ struct LogLine {
 };
 SemaphoreHandle_t log_lock = nullptr;
 std::array<LogLine, LOG_CAPACITY> lines{};
-std::size_t count = 0, head = 0;
+std::size_t count = 0, head = 0, total_lines = 0;   // head == total_lines % LOG_CAPACITY
 SemaphoreHandle_t hw_lock = nullptr;
 HwDiag hw{};
 app::Shared *shared = nullptr;
@@ -174,34 +174,41 @@ esp_err_t api_generic(httpd_req_t *req) {
     return send_json(req, r.body, r.status == 200 ? nullptr : "400 Bad Request");
 }
 
-void copy_logs(std::unique_ptr<LogLine[]> &copy, std::size_t &n) {
-    n = 0;
-    if (xSemaphoreTake(log_lock, pdMS_TO_TICKS(100)) != pdTRUE) return;
-    n = count;
-    for (std::size_t i = 0; i < n; ++i) copy[i] = lines[(head + LOG_CAPACITY - count + i) % LOG_CAPACITY];
+/// a napló seq. sora (sorszám a firmware indulása óta), soronként zárolva: nincs szükség a teljes napló
+/// másolatára a kupacon. false, ha közben felülíródott.
+bool log_line(std::size_t seq, LogLine &out) {
+    if (xSemaphoreTake(log_lock, pdMS_TO_TICKS(100)) != pdTRUE) return false;
+    const bool ok = seq < total_lines && seq + count >= total_lines;
+    if (ok) out = lines[seq % LOG_CAPACITY];
     xSemaphoreGive(log_lock);
+    return ok;
 }
 
 esp_err_t api_logs(httpd_req_t *req) {
-    std::unique_ptr<LogLine[]> copy(new (std::nothrow) LogLine[LOG_CAPACITY]);
-    if (!copy) return httpd_resp_send_500(req);
-    std::size_t n = 0;
-    copy_logs(copy, n);
+    std::size_t first = 0, end = 0;   // a küldendő sorszámok: [first, end)
+    if (xSemaphoreTake(log_lock, pdMS_TO_TICKS(100)) == pdTRUE) {
+        end = total_lines;
+        first = total_lines - count;
+        xSemaphoreGive(log_lock);
+    }
     const bool txt = std::strstr(req->uri, ".txt") != nullptr;
     httpd_resp_set_type(req, txt ? "text/plain; charset=utf-8" : "application/json; charset=utf-8");
     if (txt) httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=\"vetogep-naplo.txt\"");
     if (!txt && httpd_resp_send_chunk(req, "[", 1) != ESP_OK) return ESP_FAIL;
-    for (std::size_t i = 0; i < n; ++i) {
+    bool any = false;
+    for (std::size_t seq = first; seq < end; ++seq) {
+        LogLine l;
+        if (!log_line(seq, l)) continue;
         std::string item;
         if (txt) {
             char b[220];
-            std::snprintf(b, sizeof(b), "%10lu %-6s %s\n", static_cast<unsigned long>(copy[i].ms), copy[i].severity,
-                          copy[i].text);
+            std::snprintf(b, sizeof(b), "%10lu %-6s %s\n", static_cast<unsigned long>(l.ms), l.severity, l.text);
             item = b;
         } else {
-            item = std::string(i ? "," : "") + "{\"ms\":" + std::to_string(copy[i].ms) + ",\"level\":\"" +
-                   esc(copy[i].severity) + "\",\"message\":\"" + esc(copy[i].text) + "\"}";
+            item = std::string(any ? "," : "") + "{\"ms\":" + std::to_string(l.ms) + ",\"level\":\"" +
+                   esc(l.severity) + "\",\"message\":\"" + esc(l.text) + "\"}";
         }
+        any = true;
         if (httpd_resp_send_chunk(req, item.c_str(), item.size()) != ESP_OK) return ESP_FAIL;
     }
     if (!txt && httpd_resp_send_chunk(req, "]", 1) != ESP_OK) return ESP_FAIL;
@@ -310,6 +317,7 @@ void log(const char *severity, const char *format, ...) {
     std::snprintf(l.severity, sizeof(l.severity), "%s", severity);
     std::snprintf(l.text, sizeof(l.text), "%s", text);
     head = (head + 1) % LOG_CAPACITY;
+    ++total_lines;
     if (count < LOG_CAPACITY) ++count;
     xSemaphoreGive(log_lock);
 }

@@ -47,14 +47,32 @@ ApiResult handle_api(Shared &shared, SeederApp *isobus, const std::string &metho
             st = shared.core.status_json();
         }
         const IsobusDiag d = isobus ? isobus->diag() : IsobusDiag{};
-        return ok("{\"status\":" + st + ",\"isobus\":" + isobus_diag_json(d) +
-                  ",\"aux\":" + (isobus ? isobus->aux_json() : std::string("{}")) +
-                  ",\"keya\":" + (isobus ? isobus->keya_json() : std::string("[]")) +
-                  ",\"keya_setup\":" + (isobus ? isobus->keya().setup_json() : std::string("{}")) +
-                  ",\"wifi\":" + (isobus ? isobus->wifi().json() : std::string("{}")) +
-                  ",\"ext_display\":" + (isobus ? isobus->ext_display_json() : std::string("{}")) + ",\"hw\":" +
-                  (hw_json.empty() ? std::string("{}") : hw_json) + ",\"fw\":\"" + seeder::json_escape(fw_version) +
-                  "\",\"ssid\":\"" + seeder::json_escape(ssid) + "\"}");
+        // egyetlen, előre lefoglalt pufferbe (a sok ideiglenes másolat PSRAM nélkül szétaprózza a kupacot)
+        std::string o;
+        o.reserve(st.size() + hw_json.size() + 2048);
+        auto add = [&o](const std::string &k, const std::string &v) {
+            o += ",\"";
+            o += k;
+            o += "\":";
+            o += v;
+        };
+        o += "{\"status\":";
+        o += st;
+        st.clear();
+        st.shrink_to_fit();
+        add("isobus", isobus_diag_json(d));
+        add("aux", isobus ? isobus->aux_json() : std::string("{}"));
+        add("keya", isobus ? isobus->keya_json() : std::string("[]"));
+        add("keya_setup", isobus ? isobus->keya().setup_json() : std::string("{}"));
+        add("wifi", isobus ? isobus->wifi().json() : std::string("{}"));
+        add("ext_display", isobus ? isobus->ext_display_json() : std::string("{}"));
+        add("hw", hw_json.empty() ? std::string("{}") : hw_json);
+        o += ",\"fw\":\"";
+        o += seeder::json_escape(fw_version);
+        o += "\",\"ssid\":\"";
+        o += seeder::json_escape(ssid);
+        o += "\"}";
+        return ok(std::move(o));
     }
     if (method == "GET" && path == "/api/schema") return ok(seeder::schema_json());
     if (method == "GET" && path == "/api/crops") {

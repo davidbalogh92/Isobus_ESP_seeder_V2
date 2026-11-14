@@ -5,6 +5,7 @@
 // DS18B20 hőmérők, ADS1115 (külső modul szintillesztővel), AgOpenGPS.
 //
 // Minden bemenet aktív alacsony: az optocsatoló / érintkező GND-re húz.
+#include <cstddef>
 #include <cstdint>
 
 namespace board {
@@ -34,6 +35,7 @@ enum class Expander : std::uint8_t { None, PCA9555, TCA9554, PCA9685 };
 // az első feltöltés előtt (docs/HARDVER_RCV17_HU.md).
 #if defined(SEEDER_BOARD_RCV17)
 constexpr const char *NAME = "ESP32S3 RCv1.7 (16 MB, PSRAM nélkül)";
+constexpr std::size_t LOG_LINES = 48;                // webes napló: PSRAM nélkül kevesebb sor (≈ 8 kB)
 constexpr int CAN_TX_GPIO = 17;
 constexpr int CAN_RX_GPIO = 16;                     // MCP2562, 120 Ω lezárás jumperrel
 constexpr int I2C_SDA = 8;
@@ -93,6 +95,7 @@ constexpr PinInfo PINMAP[] = {
 };
 #else
 constexpr const char *NAME = "Waveshare ESP32-S3-ETH-8DI-8RO-C (16 MB)";
+constexpr std::size_t LOG_LINES = 120;               // webes napló (≈ 20 kB)
 constexpr int CAN_TX_GPIO = 17;
 constexpr int CAN_RX_GPIO = 18;
 constexpr int I2C_SDA = 42;
