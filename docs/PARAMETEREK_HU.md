@@ -61,6 +61,7 @@ _Generált fájl (tools/gen_params.py). Minden paraméter a webes felületen (Be
 | `keya_gear` | Keya: hajtómű áttétel | 49.0 | 1 – 500 | KEYA CAN-MOTOR |  |
 | `keya_hb_ms` | Keya: szívverés-időkorlát a motorban | 500 ms | 0 – 5000 ms | KEYA CAN-MOTOR | Induláskor a vezérlő beírja a motorba (33-as paraméter): ha ennyi ideig nem jön szívverés, a motor magától megáll. 0 = nem írja be. |
 | `motor_deadband_pct` | Indulási PWM (holtsáv) | 0.0 % | 0 – 60 % | MOTORSZABÁLYZÁS | Ennél kisebb PWM-nél a motor nem forog. Az önhangolás méri és menti; a terhelési mutató és az előrecsatolás pontosításához. |
+| `crank_rpm` | Motoros leforgatás fordulata | 0.0 1/min | 0 – 200 1/min | MOTORSZABÁLYZÁS | Elektromos hajtásnál ennyivel forgat a motoros leforgatás (adagolófordulat / perc). 0 = automatikus (a 100% PWM-hez tartozó fordulat fele, legfeljebb 40). A célfordulat előtti utolsó fordulaton lassít, de nem a motor biztos forgási határa (1,5 × PWM minimum) alá, és ha a motor megakad, visszagyorsít. |
 
 ## Turbina
 

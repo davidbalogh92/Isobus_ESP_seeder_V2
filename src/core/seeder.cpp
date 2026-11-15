@@ -639,6 +639,20 @@ double Seeder::crank_effective_revs() const {
     if (crank_half_by_hand() && std::fabs(n - whole) < 0.01) n += 0.5;
     return n;
 }
+float Seeder::crank_target_rpm(double left, float since_pulse_s) const {
+    // motoros leforgatás: beállított (vagy automatikus) fordulat; a cél előtti utolsó fordulaton lassít a pontos
+    // megállásért, de nem a motor biztos forgási határa alá (terhelés alatt – vetőmaggal – se akadjon meg)
+    const Settings &S = settings_;
+    const float max_rpm = S.motor_max_rpm > 1.0f ? S.motor_max_rpm : 1.0f;
+    float base = S.crank_rpm > 0.0f ? S.crank_rpm : std::min(max_rpm * 0.5f, 40.0f);
+    base = std::min(base, max_rpm);
+    if (!S.crank_autostop || left >= 1.0) return base;
+    const float floor_rpm = max_rpm * std::min(0.9f, 1.5f * S.pwm_min_pct / 100.0f);   // ff ≈ 1,5 × PWM min
+    float slow = std::max(base * 0.6f, floor_rpm);
+    if (since_pulse_s > 0.5f) slow = base;   // megakadt (nem jön impulzus): vissza a teljes fordulatra
+    return std::min(slow, base);
+}
+
 bool Seeder::crank_half_by_hand() const {
     const double target = chart::turns(crank_.turn_option, settings_.crank_turns_10);
     return meter_pulses_per_rev(settings_) < 2 && target - std::floor(target) > 0.25;
@@ -1251,11 +1265,10 @@ void Seeder::tick(const TickInputs &input) {
                 const bool any_drive = run_cond && (meter_on[0] || meter_on[1]);
                 if (crank_.hold && crank_.meter < n_met) {
                     const double left = chart::turns(crank_.turn_option, S.crank_turns_10) - crank_.counted_revs;
-                    const float crank_rpm = S.motor_max_rpm * 0.5f < 40.0f ? S.motor_max_rpm * 0.5f : 40.0f;
                     if (S.crank_autostop && left <= 0.005) {
                         crank_.hold = false;
                     } else {
-                        t = (S.crank_autostop && left < 1.5) ? crank_rpm * 0.3f : crank_rpm;
+                        t = crank_target_rpm(left, since_pulse_[0]);
                         crank_drive = true;
                     }
                 } else if (any_drive && manual_ && !prefill_active) {
@@ -1304,11 +1317,10 @@ void Seeder::tick(const TickInputs &input) {
         } else if (elec) {
             if (crank_this) {
                 const double left = chart::turns(crank_.turn_option, settings_.crank_turns_10) - crank_.counted_revs;
-                const float crank_rpm = S.motor_max_rpm * 0.5f < 40.0f ? S.motor_max_rpm * 0.5f : 40.0f;
                 if (S.crank_autostop && left <= 0.005) {
                     crank_.hold = false;
                 } else {
-                    target_rpm = (S.crank_autostop && left < 1.5) ? crank_rpm * 0.3f : crank_rpm;
+                    target_rpm = crank_target_rpm(left, since_pulse_[i]);
                     crank_drive = true;
                 }
             } else if (drive && manual_ && !prefill_active) {

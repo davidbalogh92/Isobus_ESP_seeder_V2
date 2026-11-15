@@ -211,6 +211,11 @@ add("motor_deadband_pct", "drive", "Indulási PWM (holtsáv)", "Indulási PWM", 
                           "és az előrecsatolás pontosításához.")
 
 # --------------------------------------------------------------------------- turbina
+add("crank_rpm", "drive", "Motoros leforgatás fordulata", "Leforg. ford.", "float", 0.0, 0.0, 200.0, 1.0, 0,
+    "1/min", vt_page="motor",
+    help="Elektromos hajtásnál ennyivel forgat a motoros leforgatás (adagolófordulat / perc). 0 = automatikus "
+         "(a 100% PWM-hez tartozó fordulat fele, legfeljebb 40). A célfordulat előtti utolsó fordulaton lassít, de "
+         "nem a motor biztos forgási határa (1,5 × PWM minimum) alá, és ha a motor megakad, visszagyorsít.")
 add("fan_ppr", "fan", "Turbina impulzus / fordulat", "Imp/fordulat", "int", 1, 1, 100, 1, 0, "imp", vt_page="fan")
 add("fan_min_rpm", "fan", "Riasztás e fordulat alatt", "Min. fordulat", "int", 2500, 0, 20000, 10, 0, "1/min",
     vt_page="fan",

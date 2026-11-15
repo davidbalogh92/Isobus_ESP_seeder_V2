@@ -468,6 +468,8 @@ public:
     double crank_effective_revs() const;
     /// a fél fordulatos célt a kezelőnek kell rátennie (kevés impulzusú jeladó) – a crank_effective_revs() feltétele
     bool crank_half_by_hand() const;
+    /// a motoros leforgatás célfordulata (left: hátralévő fordulat; megakadásnál a teljes fordulat)
+    float crank_target_rpm(double left, float since_pulse_s) const;
     bool crank_held() const { return crank_.hold; }
     Refusal last_refusal() const { return refusal_; }
     void clear_refusal() { refusal_ = Refusal::None; }

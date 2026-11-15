@@ -624,6 +624,35 @@ TEST(motor_tune_flat_rpm_reports_points_and_pulse_rate) {
     CHECK(msg.find("2000 Hz") != std::string::npos);
 }
 
+TEST(crank_motor_speed_and_final_turn) {
+    // motoros leforgatás: beállítható fordulat; az utolsó fordulaton lassít, de nem a biztos forgási határ alá
+    Settings st = default_settings();
+    st.drive_type = 1;
+    st.motor_max_rpm = 100.0f;
+    st.pwm_min_pct = 20.0f;
+    normalize(st);
+    Seeder g;
+    g.load(st, Persistent{});
+    CHECK(std::fabs(g.crank_target_rpm(50.0, 0.0f) - 40.0f) < 1e-4f);   // automatikus: min(100/2, 40)
+    // utolsó fordulat: 0,6 × 40 = 24, de a határ 100 × 1,5 × 20 % = 30 1/min
+    CHECK(std::fabs(g.crank_target_rpm(0.8, 0.0f) - 30.0f) < 1e-4f);
+    CHECK(std::fabs(g.crank_target_rpm(0.8, 0.7f) - 40.0f) < 1e-4f);    // megakadt: vissza a teljesre
+    st.crank_rpm = 60.0f;
+    g.load(st, Persistent{});
+    CHECK(std::fabs(g.crank_target_rpm(50.0, 0.0f) - 60.0f) < 1e-4f);
+    CHECK(std::fabs(g.crank_target_rpm(0.5, 0.0f) - 36.0f) < 1e-4f);    // 0,6 × 60 > 30
+    st.crank_rpm = 150.0f;                                              // a 100% PWM fordulatánál nem több
+    g.load(st, Persistent{});
+    CHECK(std::fabs(g.crank_target_rpm(50.0, 0.0f) - 100.0f) < 1e-4f);
+    st.crank_rpm = 20.0f;                                               // lassú beállításnál a végén sem gyorsít
+    g.load(st, Persistent{});
+    CHECK(std::fabs(g.crank_target_rpm(0.5, 0.0f) - 20.0f) < 1e-4f);
+    st.crank_autostop = 0;                                              // megállás nélkül nincs lassítás
+    st.crank_rpm = 40.0f;
+    g.load(st, Persistent{});
+    CHECK(std::fabs(g.crank_target_rpm(0.5, 0.0f) - 40.0f) < 1e-4f);
+}
+
 TEST(clutch_polarity_options) {
     Seeder s = make([](Settings &st) { st.clutch_mode = 1; }); // áram alatt old
     Machine m = down_machine();
