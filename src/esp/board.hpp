@@ -26,7 +26,8 @@ enum class Expander : std::uint8_t { None, PCA9555, TCA9554, PCA9685 };
 // ESP32S3 RCv1.7 (AgOpenGPS Rate Controller panel, Vági F. / Gunics B.) – „kisebb tudású” vetőgép-panel:
 // két motor enkóderrel (PWM + DIR a panel motorvezérlőjén), két tartályszenzor, munkakapcsoló,
 // kerék- és turbina-jeladó, leforgató gomb, munkalámpák és kuplungok a PCA9685 H-híd kimenetein,
-// nyomás az ADS1115-ön, Ethernet (W5500). Nincs: mérleg (HX711), hőmérők (DS18B20), hangjelző.
+// nyomás az ADS1115-ön, Ethernet (W5500); mérleg (HX711) és hőmérők (DS18B20) a H26 szabad lábain
+// (GPIO10–12, 3,3 V!). Nincs: hangjelző.
 // Lábkiosztás: Rate_control_ESPRC_01_V1.4 kapcsolási rajz (6. lap) + RC_ESP32 firmware. A két szabályzó
 // kimenet a panelen TB67H451 H-híd (IN1 = „Dir”, IN2 = „PWM”, mindkettő PWM): 1. csatorna GPIO4 / 5 → MOT9,
 // 2. csatorna GPIO7 / 15 → ZONE1 sorkapocs; a H2 tüskesoron külső Cytronhoz is kijönnek.
@@ -54,7 +55,7 @@ constexpr Pin CRANK_BTN = G(9);                     // H26 szabad láb (nem stra
 constexpr Pin CLUTCH[2] = {X(0), X(1)};             // kimenet 1 / 2
 constexpr Pin VALVE = X(2);                         // kimenet 3
 constexpr Pin LAMP[2] = {X(3), X(4)};               // kimenet 4 / 5
-constexpr Pin COOLER = X(5);                        // kimenet 6 (hőmérő nincs – nem használt)
+constexpr Pin COOLER = X(5);                        // kimenet 6: hűtőventilátor
 constexpr Pin COOLER_REV = X(6);                    // kimenet 7
 constexpr int BUZZER_GPIO = -1;
 constexpr bool HAS_ETH = true;
@@ -65,8 +66,8 @@ constexpr int MOTOR_PWM_GPIO[2] = {5, 15};          // 1. csatorna IN2 (MOT9) / 
 constexpr int MOTOR_AUX_GPIO[2] = {4, 7};           // 1. csatorna IN1 / 2. csatorna IN1
 constexpr int DRIVER_EN_GPIO = 13;                  // régebbi paneleken Cytron-engedélyező (újakon nincs bekötve)
 constexpr bool DIR_DEFAULT = true;                  // „csak PWM” módban is IN1 = alacsony kimenet (ne lebegjen)
-constexpr int HX711_DATA = -1, HX711_CLOCK = -1;
-constexpr int ONEWIRE_GPIO = -1;
+constexpr int HX711_DATA = 11, HX711_CLOCK = 12;   // H26: a HX711 modul VCC/VDD 3,3 V-ról!
+constexpr int ONEWIRE_GPIO = 10;                    // H26: 2 db DS18B20, 4,7 kΩ felhúzó a 3,3 V-ra
 
 struct PinInfo {
     const char *pin;
@@ -77,7 +78,7 @@ constexpr PinInfo PINMAP[] = {
     {"CAN TX / RX – GPIO17 / GPIO16", "ISOBUS (250 kbit/s), Keya motorok, külső kijelző", "P3 sorkapocs: 1 CAN_L, 2 CAN_H; 120 Ω: H3 jumper (meglévő buszon nyitva)"},
     {"FLOW1 – GPIO21", "1. adagoló: motorenkóder (vagy tengelyjeladó)", "optós bemenet"},
     {"FLOW2 – GPIO47", "2. adagoló: motorenkóder (vagy tengelyjeladó)", "optós bemenet"},
-    {"MOT9 – IN2 GPIO5 / IN1 GPIO4", "1. adagolómotor (TB67H451)", "Motorvezérlő = PWM + PWM; H2-n külső Cytron: PWM + DIR"},
+    {"MOT9 – IN2 GPIO5 / IN1 GPIO4", "1. adagolómotor (TB67H451)", "Motorvezérlő = PWM + PWM; H2-n külső vezérlő: Cytron PWM + DIR, IBT-2 PWM + PWM"},
     {"ZONE1 – IN2 GPIO15 / IN1 GPIO7", "2. adagolómotor (TB67H451)", "mint fent"},
     {"GPIO13", "Cytron-engedélyező (régebbi panelek)", "elektromos hajtásnál magas"},
     {"WORK1 – GPIO40", "Munkakapcsoló (gép lent)", "optós; NO vagy NC (beállítás)"},
@@ -85,10 +86,13 @@ constexpr PinInfo PINMAP[] = {
     {"H4: GPIO1", "Kerékjeladó", "3,3 V-os láb: optocsatoló / feszültségosztó kell!"},
     {"H4: GPIO2", "Turbina fordulat", "3,3 V-os láb: optocsatoló / feszültségosztó kell!"},
     {"H26: GPIO9", "Leforgató nyomógomb (bekapcsoláskor 3 s: WiFi)", "GND-re záró gomb"},
+    {"H26: GPIO10", "DS18B20 hőmérők (olajhűtés, 2 db)", "3,3 V táp, 4,7 kΩ felhúzó a 3,3 V-ra"},
+    {"H26: GPIO11 / GPIO12", "HX711 DATA / CLOCK (leforgatási mérleg)", "a HX711 VCC/VDD 3,3 V-ról"},
     {"PCA9685 kimenet 1 / 2 (1A–1B / 2A–2B)", "1. / 2. adagoló kuplung", "TB67H451: A = +, B = −; csatorna 0 / 2"},
     {"PCA9685 kimenet 3", "Nyitás / nyomjelző terelőszelep", "csatorna 4"},
     {"PCA9685 kimenet 4 / 5", "1. / 2. munkalámpa (állítható)", "csatorna 6 / 8"},
-    {"PCA9685 kimenet 6–8", "Tartalék", "csatorna 10 / 12 / 14"},
+    {"PCA9685 kimenet 6 / 7", "Olajhűtő ventilátor / irányváltó (visszafúvás)", "csatorna 10 / 12"},
+    {"PCA9685 kimenet 8", "Tartalék", "csatorna 14"},
     {"I2C SDA8 / SCL18", "PCA9685 (0x40), ADS1115 (0x48)", "400 kHz"},
     {"ADS1115 A0", "Nyomás (lenyomás)", "0–5 V"},
     {"W5500: MISO37 MOSI35 SCLK36 CS38 INT45 RST48", "Ethernet", "AgOpenGPS, web, Windows-program"},

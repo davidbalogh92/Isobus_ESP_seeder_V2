@@ -131,8 +131,9 @@ Olajhőmérséklet → „hőmérők felcserélése”.
 ### ESP32S3 RCv1.7 (AgOpenGPS Rate Controller panel) – második, kisebb tudású panel
 
 Ugyanaz a firmware (VT, web, AgOpenGPS, Keya, külső kijelző), a panel adott lábaival: 2 motor enkóderrel
-(a panel TB67H451 H-hídjai: Motorvezérlő = PWM + PWM; külső Cytronnal PWM + DIR), 2 tartály, munkakapcsoló, kerék- / turbina-jeladó és leforgató gomb
-szabad lábakon, 8 kimenet a PCA9685-ön, nyomás, Ethernet. Nincs mérleg, hőmérő, hangjelző.
+(a panel TB67H451 H-hídjai: Motorvezérlő = PWM + PWM; a H2-n külső Cytron: PWM + DIR, IBT-2: PWM + PWM), 2 tartály,
+munkakapcsoló, kerék- / turbina-jeladó, leforgató gomb, mérleg (HX711) és 2 hőmérő (olajhűtés) a szabad 3,3 V-os
+lábakon, 8 kimenet a PCA9685-ön, nyomás, Ethernet. Nincs hangjelző.
 Kiadás: `VETOGEP_RCV17_16MB_vXXX_FULL_0x0.bin` / `…_OTA.bin`; új, nyers panel első feltöltése (eFuse 3,3 V):
 `RCV17_ELSO_FELTOLTES.zip` Windows-szkript. Lábkiosztás, eFuse és bekötés:
 [docs/HARDVER_RCV17_HU.md](docs/HARDVER_RCV17_HU.md).

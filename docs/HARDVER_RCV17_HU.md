@@ -1,16 +1,17 @@
-# Vetőgép V2 az ESP32S3 RCv1.7 panelen (második, kisebb tudású panel)
+# Vetőgép V2 az ESP32S3 RCv1.7 panelen (második panel)
 
 Az AgOpenGPS Rate Controller panel (Vági F. / Gunics B., ESP32-S3-WROOM-1U, 16 MB flash, **PSRAM nincs**)
 ugyanazt a vetőgép-firmware-t futtatja, mint a Waveshare panel – a VT, a web, a Windows-program, az
 AgOpenGPS, a Keya CAN-motor és a **külső kijelző** (CAN, Proprietary A) ugyanúgy működik.
-A panel adott lábkészlete miatt kevesebbet tud:
+A panel adott lábkészlete miatt:
 
 | Van | Nincs |
 |---|---|
-| 2 adagolómotor enkóderrel (a panel TB67H451 H-hídjain, vagy külső Cytronnal), vagy Keya CAN-motor | HX711 mérleg (leforgatási mérlegelés kézzel) |
-| 2 tartályszenzor, munkakapcsoló | DS18B20 hőmérők (olajhűtés) |
-| kerékjeladó, turbina-jeladó (szabad lábakon, illesztéssel), leforgató gomb | hangjelző |
-| 8 kimenet a PCA9685-ön (kuplungok, terelőszelep, 2 munkalámpa, tartalék) | |
+| 2 adagolómotor enkóderrel (a panel TB67H451 H-hídjain, vagy külső motorvezérlővel a H2-n), vagy Keya CAN-motor | hangjelző |
+| 2 tartályszenzor, munkakapcsoló | szabad láb (mind foglalt) |
+| kerékjeladó, turbina-jeladó (szabad lábakon, illesztéssel), leforgató gomb | |
+| HX711 mérleg és 2 DS18B20 hőmérő (olajhűtés) a H26 3,3 V-os lábain | |
+| 8 kimenet a PCA9685-ön (kuplungok, terelőszelep, 2 munkalámpa, olajhűtő ventilátor + irányváltó, tartalék) | |
 | nyomásmérés (ADS1115 a panelen), Ethernet (W5500) | |
 
 Kiadási fájlok: `VETOGEP_RCV17_16MB_vXXX_FULL_0x0.bin` (USB) és `VETOGEP_RCV17_16MB_vXXX_OTA.bin` (OTA).
@@ -46,17 +47,20 @@ mindkettő PWM-jel, az egyik irányhoz az IN1-et, a másikhoz az IN2-t kell hajt
 | 2. adagoló enkóder | GPIO47 (FLOW2) | optocsatolós bemenet |
 | 1. motor | **MOT9** sorkapocs – IN2 GPIO5 (előre), IN1 GPIO4 (hátra) | TB67H451 (max. 3,5 A) |
 | 2. motor | **ZONE1** sorkapocs – IN2 GPIO15 (előre), IN1 GPIO7 (hátra) | TB67H451 (max. 3,5 A) |
-| Külső Cytron | H2 tüskesor: ugyanezek a jelek (IN1 = DIR, IN2 = PWM) | nagyobb motorhoz |
+| Külső motorvezérlő | H2 tüskesor: ugyanezek a jelek – lásd lent | ha a TB67H451 kevés |
 | Cytron-engedélyező | GPIO13 | csak régebbi paneleken; elektromos hajtásnál magas |
 | Munkakapcsoló | GPIO40 (WORK1) | optocsatolós; NO / NC beállítás |
 | 1. / 2. tartály | **GPIO42 (BIN1) / GPIO41 (BIN2)** | optocsatolós; NO / NC beállítás |
 | Kerékjeladó | GPIO1 (H4) | **3,3 V-os láb – optocsatoló vagy feszültségosztó kell** |
 | Turbina-jeladó | GPIO2 (H4) | **3,3 V-os láb – optocsatoló vagy feszültségosztó kell** |
 | Leforgató nyomógomb | GPIO9 (H26) | GND-re záró gomb; bekapcsoláskor 3 s nyomva: WiFi szerviz mód |
+| DS18B20 hőmérők (2 db) | GPIO10 (H26) | **3,3 V** táp, GND, adat; **4,7 kΩ felhúzó az adat és a 3,3 V közé** |
+| HX711 mérlegerősítő | GPIO11 = DATA (DOUT), GPIO12 = CLOCK (SCK) (H26) | a HX711 modul VCC/VDD **3,3 V**-ról; a modul a panel közelében |
 | Kimenet 1 / 2 | PCA9685, sorkapocs 1A–1B / 2A–2B | 1. / 2. adagoló kuplung |
 | Kimenet 3 | 3A–3B | terelőszelep (nyitás / nyomjelző) |
 | Kimenet 4 / 5 | 4A–4B / 5A–5B | 1. / 2. munkalámpa (Beállítások → Kiegészítők: a kimenet állítható) |
-| Kimenet 6–8 | 6A–8B | tartalék |
+| Kimenet 6 / 7 | 6A–6B / 7A–7B | olajhűtő ventilátor / irányváltó (visszafúvás) |
+| Kimenet 8 | 8A–8B | tartalék |
 | Nyomás | ADS1115 AIN0 (ADC 5V / 4–20 mA sorkapocs) | 0–5 V |
 | Ethernet W5500 | MISO37 MOSI35 SCLK36 CS38 INT45 RST48 | AgOpenGPS, web, Windows-program |
 
@@ -68,9 +72,30 @@ Bekapcsolt kimenetnél **A = +12 V, B = 0 V**, kikapcsoltnál mindkét kapocs sz
 a kuplungot / lámpát az **A és B kapocs közé** kösd. A beállításokban a „Relé n” megnevezés ezen a panelen a
 „Kimenet n”-t jelenti (a számozás a Waveshare reléivel azonos).
 
-Szabad lábak: GPIO1, 2 (H4) és 9–12 (H26). A GPIO3 és 46 is a H26-on van, de strapping lábak – nem használjuk.
-A szabad lábak közvetlenül az ESP32-re mennek: 12 V-os jeladót **csak illesztéssel** (pl. PC817
-optocsatoló, vagy osztó + Zener) szabad rákötni. A jel aktív alacsony (GND-re húz), belső felhúzással.
+A H4 / H26 lábai (GPIO1, 2, 9–12) mind foglaltak (kerék, turbina, leforgató gomb, hőmérő, mérleg). A GPIO3 és
+46 is a H26-on van, de strapping lábak – nem használjuk. Ezek a lábak közvetlenül az ESP32-re mennek:
+**csak 3,3 V** kerülhet rájuk; 12 V-os jeladót **csak illesztéssel** (pl. PC817 optocsatoló, vagy osztó +
+Zener) szabad rákötni. A jeladó-bemenetek aktív alacsonyak (GND-re húz), belső felhúzással.
+
+## Külső motorvezérlő (ha a panel TB67H451-e kevés)
+
+A panel két TB67H451 hídja adagolónként kb. **3,5 A csúcsáramot** bír. Nagyobb motorhoz (induláskor, vetőmaggal
+terhelve több amper), vagy ha a motor a leforgatásnál / induláskor megakad és a híd túlmelegszik / lekapcsol,
+**külső motorvezérlő** kell. Ehhez nem kell új láb: ugyanazok a jelek a **H2 tüskesoron** is kijönnek.
+
+| Jel (H2) | 1. motor | 2. motor | Cytron (MD10C, MD20A, MD30C …) | BTS7960 / IBT-2 |
+|---|---|---|---|---|
+| IN2 („PWM”) | GPIO5 | GPIO15 | PWM | RPWM |
+| IN1 („Dir”) | GPIO4 | GPIO7 | DIR | LPWM |
+| GND | GND | GND | GND | GND |
+| Engedélyező (csak régebbi panel) | GPIO13 | GPIO13 | – | R_EN + L_EN: 3,3 / 5 V-ra kötve |
+
+* Beállítások → Hajtás → **Motorvezérlő**: Cytronhoz **PWM + DIR**, IBT-2-höz **PWM + PWM**; a panel saját
+  hídjához (MOT9 / ZONE1) **PWM + PWM**.
+* Külső vezérlőnél a MOT9 / ZONE1 sorkapocsra **ne köss semmit** (a beépített híd párhuzamosan kapja a jelet,
+  terhelés nélkül ez nem gond).
+* A jelek 3,3 V-osak (a Cytron és az IBT-2 elfogadja). PWM frekvencia (Motorszabályzás): 16–20 kHz, hogy ne sípoljon.
+* A motorvezérlő tápját (12 V) közvetlenül az akkumulátorról / biztosítékról vedd, ne a panelen át.
 
 A panelből 8 MB-os és 16 MB-os flash-ű is készült; ez a firmware a **16 MB-osra** (WROOM-1U-N16) való.
 PSRAM-os (R8) modullal a panel nem működik (a GPIO35–37 az Etherneté).
@@ -93,11 +118,11 @@ ezek miatt egy impulzusból kettő is lehetett.
 
 * Beállítások → Hajtás, motor → Hajtás: **Elektr. PWM**, Motorvezérlő:
   * a panel saját MOT9 / ZONE1 kimenetén (TB67H451): **PWM + PWM**,
-  * a H2-re kötött külső Cytronnal: **PWM + DIR**,
+  * a H2-re kötött külső Cytronnal: **PWM + DIR**, IBT-2-vel: **PWM + PWM** (lásd: Külső motorvezérlő),
   * „Csak PWM” (visszafordítás nélkül) mindkettővel működik: az IN1 / DIR alacsony kimenet marad.
 * A Rate Controller programban bepipált **Invert** a forgásirányt fordítja: itt Motorszabályzás →
   **Forgásirány megfordítása**.
 * Keya CAN-motorral: Hajtás = **Elektr. Keya**; a motorok a 17/16-os CAN-en, a többi ugyanaz, mint a Waveshare-en.
-* Olajhűtés, mérleg ezen a panelen nem használható (nincs hőmérő- és mérlegbemenet) – maradjanak kikapcsolva.
-* A külső kijelzőn a leforgatás itt is teljes (kézi és motoros), csak a mérleg gombjai (átvétel, tára) nem jelennek
-  meg: a vezérlő a kijelzőnek nem jelent mérleget.
+* Olajhűtés (hőmérők a GPIO10-en) és leforgatási mérleg (HX711 a GPIO11 / 12-n) ugyanúgy beállítható, mint a
+  Waveshare-en (v2.5.6-tól). Ha nincs bekötve, maradjanak kikapcsolva.
+* A külső kijelzőn a leforgatás itt is teljes (kézi és motoros, bekapcsolt mérleggel a tára / átvétel is).

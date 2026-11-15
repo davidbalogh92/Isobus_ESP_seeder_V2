@@ -20,8 +20,10 @@ a mag (`src/core`, `include/seeder`) és az alkalmazásréteg (`src/app`) közö
 **Ha egy új funkció a két panelen nem egyformán valósítható meg, megvalósítás előtt meg kell beszélni
 a felhasználóval** (nem találgatunk, nem döntünk helyette). Ismert eltérések, amelyekre figyelni kell:
 
-* RCv1.7-en nincs: HX711 mérleg, DS18B20 hőmérő (olajhűtés), hangjelző, szabad relé helyett H-híd kimenet.
-* RCv1.7-en a szabad lábak (GPIO1, 2, 9–12) nyers 3,3 V-osak; új bemenet csak illesztéssel.
+* RCv1.7-en nincs: hangjelző, szabad relé helyett H-híd kimenet. HX711 mérleg (GPIO11/12) és DS18B20
+  (GPIO10) a H26 nyers 3,3 V-os lábain van.
+* RCv1.7-en minden szabad láb foglalt (GPIO1 kerék, 2 turbina, 9 leforgató gomb, 10 hőmérő, 11/12 mérleg;
+  a 3 és 46 strapping) – új bemenethez / kimenethez előbb meg kell beszélni, mi kerüljön ki vagy hová.
 * Motorvezérlő: Waveshare – külső vezérlő (PWM / PWM+DIR / PWM+PWM); RCv1.7 – saját TB67H451 (PWM+PWM)
   vagy külső Cytron a H2-n (PWM+DIR).
 * CAN-lábak: Waveshare 17/18, RCv1.7 17/16. Kimenetek: Waveshare TCA9554 relék, RCv1.7 PCA9685 H-hidak.
