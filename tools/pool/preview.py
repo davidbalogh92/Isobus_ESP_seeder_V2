@@ -150,6 +150,7 @@ def render_all(gen, outdir: Path):
         n["OUT_DAY_KG2"]: 1800, n["OUT_TOT_KG2"]: 60200,
         n["OUT_CAL_SCALE"]: 545, n["OUT_CAL_EXPECT"]: 20000, n["OUT_CAL_NEW"]: 552, n["OUT_CAL_REVS"]: 850,
         n["OUT_CAL_KGREV"]: 2353, n["OUT_SCALE_KG"]: 100000 + 12345, n["OUT_SCALE_RAW"]: 8388608 + 104000,
+        n["OUT_TSCALE_KG"]: 1000000 + 12345, n["OUT_TSCALE_RAW"]: 8388608 + 2650000,
         n["OUT_FAN_RPM2"]: 3450, n["OUT_CAL_TARGET"]: 850, n["OUT_CAL_NW"]: 2,
         n["OUT_DG_WKMH"]: 108, n["OUT_DG_GKMH"]: 112, n["OUT_DG_SLIP"]: 36, n["OUT_DG_RPM1"]: 312,
         n["OUT_DG_RPM2"]: 298, n["OUT_DG_PWM1"]: 412, n["OUT_DG_PWM2"]: 398, n["OUT_DG_WHZ"]: 311, n["OUT_DG_FHZ"]: 583, n["OP_DG_SRC"]: G.STR_SRC[7],

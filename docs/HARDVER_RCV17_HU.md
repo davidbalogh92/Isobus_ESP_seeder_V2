@@ -11,6 +11,7 @@ A panel adott lábkészlete miatt:
 | 2 tartályszenzor, munkakapcsoló | szabad láb (mind foglalt) |
 | kerékjeladó, turbina-jeladó (szabad lábakon, illesztéssel), leforgató gomb | |
 | HX711 mérleg és 2 DS18B20 hőmérő (olajhűtés) a H26 3,3 V-os lábain | |
+| tartálymérleg (NAU7802) az I2C buszon | |
 | 8 kimenet a PCA9685-ön (kuplungok, terelőszelep, 2 munkalámpa, olajhűtő ventilátor + irányváltó, tartalék) | |
 | nyomásmérés (ADS1115 a panelen), Ethernet (W5500) | |
 
@@ -56,6 +57,7 @@ mindkettő PWM-jel, az egyik irányhoz az IN1-et, a másikhoz az IN2-t kell hajt
 | Leforgató nyomógomb | GPIO9 (H26) | GND-re záró gomb; bekapcsoláskor 3 s nyomva: WiFi szerviz mód |
 | DS18B20 hőmérők (2 db) | GPIO10 (H26) | **3,3 V** táp, GND, adat; **4,7 kΩ felhúzó az adat és a 3,3 V közé** |
 | HX711 mérlegerősítő | GPIO11 = DATA (DOUT), GPIO12 = CLOCK (SCK) (H26) | a HX711 modul VCC/VDD **3,3 V**-ról; a modul a panel közelében |
+| Tartálymérleg (NAU7802) | I2C: SDA GPIO8 / SCL GPIO18 (az ESP modul melletti SDA / SCL pont) | cím 0x2A, a modul **3,3 V**-ról; nem kell szabad láb |
 | Kimenet 1 / 2 | PCA9685, sorkapocs 1A–1B / 2A–2B | 1. / 2. adagoló kuplung |
 | Kimenet 3 | 3A–3B | terelőszelep (nyitás / nyomjelző) |
 | Kimenet 4 / 5 | 4A–4B / 5A–5B | 1. / 2. munkalámpa (Beállítások → Kiegészítők: a kimenet állítható) |

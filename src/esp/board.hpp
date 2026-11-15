@@ -93,7 +93,7 @@ constexpr PinInfo PINMAP[] = {
     {"PCA9685 kimenet 4 / 5", "1. / 2. munkalámpa (állítható)", "csatorna 6 / 8"},
     {"PCA9685 kimenet 6 / 7", "Olajhűtő ventilátor / irányváltó (visszafúvás)", "csatorna 10 / 12"},
     {"PCA9685 kimenet 8", "Tartalék", "csatorna 14"},
-    {"I2C SDA8 / SCL18", "PCA9685 (0x40), ADS1115 (0x48)", "400 kHz"},
+    {"I2C SDA8 / SCL18", "PCA9685 (0x40), ADS1115 (0x48), NAU7802 tartálymérleg (0x2A)", "400 kHz; a NAU7802 modul 3,3 V-ról"},
     {"ADS1115 A0", "Nyomás (lenyomás)", "0–5 V"},
     {"W5500: MISO37 MOSI35 SCLK36 CS38 INT45 RST48", "Ethernet", "AgOpenGPS, web, Windows-program"},
 };
@@ -162,7 +162,7 @@ constexpr PinInfo PINMAP[] = {
     {"GPIO45", "2. motor DIR (PWM+DIR) / LPWM (IBT-2)", "indításkor nem húzhatja fel semmi (strapping láb)"},
     {"GPIO1 / GPIO2", "HX711 DATA / CLOCK (leforgatási mérleg)", "3,3 V táp"},
     {"GPIO3", "DS18B20 hőmérők (1-Wire)", "4,7 kΩ felhúzó a 3,3 V-ra"},
-    {"I2C SDA42 / SCL41", "TCA9554 relék (0x20), ADS1115 (0x48)", "ADS1115: külső modul szintillesztővel"},
+    {"I2C SDA42 / SCL41", "TCA9554 relék (0x20), ADS1115 (0x48), NAU7802 tartálymérleg (0x2A)", "ADS1115: külső modul szintillesztővel; NAU7802 3,3 V-ról"},
     {"ADS1115 A0 / A1–A2 / A3", "Nyomás / motoráram / tartalék", "0–5 V"},
     {"GPIO12–16 (belső)", "W5500 Ethernet (INT, MOSI, MISO, SCLK, CS)", "AgOpenGPS / AgIO hálózat"},
     {"GPIO46", "Hangjelző (a panelen)", "leforgatás: fordulatonként rövid, célnál hosszú"},

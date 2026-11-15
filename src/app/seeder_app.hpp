@@ -73,6 +73,8 @@ struct HwInputs {
     float temp_c[2] = {-300.0f, -300.0f};
     bool scale_valid = false;
     float scale_raw = 0.0f;
+    bool tscale_valid = false;         ///< tartálymérleg (NAU7802)
+    float tscale_raw = 0.0f;
     bool crank_button = false;
     // AgOpenGPS (UDP) – az ESP hálózati rétege tölti ki
     seeder::IsobusSpeedValue aog_speed;

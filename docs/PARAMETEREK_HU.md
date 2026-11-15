@@ -109,6 +109,7 @@ _Generált fájl (tools/gen_params.py). Minden paraméter a webes felületen (Be
 | `pressure_enable` | Nyomásmérés (lenyomatás, ADS1115) | Nem | Nem / Igen | KIEGÉSZÍTÕK |  |
 | `temp_enable` | Olajhőmérséklet + hűtőventilátor (2× DS18B20) | Nem | Nem / Igen | KIEGÉSZÍTÕK |  |
 | `scale_enable` | Leforgatási mérleg (HX711) | Nem | Nem / Igen | KIEGÉSZÍTÕK |  |
+| `tscale_enable` | Tartálymérleg (NAU7802, I2C) | Nem | Nem / Igen | KIEGÉSZÍTÕK | Az egész géptartály tömege mérlegcellákkal, NAU7802 erősítővel az I2C buszon (0x2A). Csak tájékoztató: a főképernyőn, a weben és a külső kijelzőn látszik, nem riaszt (a leürülést a tartályszenzorok jelzik). |
 
 ## Nyomásmérés (lenyomatás)
 
@@ -142,6 +143,13 @@ _Generált fájl (tools/gen_params.py). Minden paraméter a webes felületen (Be
 | `scale_capacity_kg` | Mérlegcella méréshatára | 50.0 kg | 1 – 500 kg | MÉRLEG |  |
 | `scale_factor` | Mérleg kalibrációs tényező (beütés / kg) | 85000.0 1/kg | 1 – 1e+07 1/kg | MÉRLEG | A 'Kalibrálás ismert súllyal' állítja be. |
 | `scale_offset` | Mérleg nullpont (tára, nyers) | 0.0 | -2e+07 – 2e+07 | – |  |
+
+## Tartálymérleg
+
+| Kulcs | Megnevezés | Alapérték | Tartomány | VT oldal | Megjegyzés |
+|---|---|---|---|---|---|
+| `tscale_factor` | Tartálymérleg tényező (beütés / kg) | 2000.0 1/kg | 1 – 1e+07 1/kg | TARTÁLYMÉRLEG | A 'Kalibrálás ismert súllyal' állítja be (VT: Tartálymérleg oldal, MENTÉS gomb; web: Kalibrálás). |
+| `tscale_offset` | Tartálymérleg nullpont (tára, nyers) | 0.0 | -2e+07 – 2e+07 | – |  |
 
 ## Szakaszolás, Task Controller és geometria
 

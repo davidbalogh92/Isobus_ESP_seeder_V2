@@ -180,6 +180,15 @@ struct ScaleState {
     bool overload = false;
 };
 
+/// Tartálymérleg (az egész géptartály, csak tájékoztató)
+enum class TankScaleQuality : std::uint8_t { NoData = 0, Moving, Settling, Stable };
+struct TankScaleState {
+    bool valid = false;            ///< van friss mérés
+    float raw = 0.0f;              ///< szűrt nyers érték
+    float net_kg = 0.0f;           ///< szűrt nettó tömeg
+    TankScaleQuality quality = TankScaleQuality::NoData;
+};
+
 // ------------------------------------------------------------------------- számlálók
 struct Totals {
     double area_m2 = 0.0;          ///< vetett terület
@@ -237,6 +246,8 @@ struct TickInputs {
     float temp_c[2] = {-300.0f, -300.0f}; ///< DS18B20: [0] olajtartály, [1] hűtő kimenet; < -100 = nincs
     bool scale_valid = false;
     float scale_raw = 0.0f;            ///< HX711 nyers érték
+    bool tscale_valid = false;         ///< tartálymérleg (NAU7802): friss mérés
+    float tscale_raw = 0.0f;           ///< tartálymérleg nyers érték
 };
 
 /// Kimenetek. A *_level a fizikai szint (a kuplungtípus és a kimenet-fordítás már alkalmazva).
@@ -341,6 +352,7 @@ struct Status {
     float cooler_rev_next_s = -1.0f;   ///< a következő automatikus visszafúvásig (< 0 = nincs)
     bool crank_button = false;
     ScaleState scale;
+    TankScaleState tscale;
     // kalibrálás
     WheelCalibration wheel_cal;
     float wheel_cal_ppm = 0.0f;
@@ -487,6 +499,8 @@ public:
 
     bool scale_tare();                 ///< mérlegadat nélkül: NoScaleData
     bool scale_calibrate(float known_kg);
+    bool tscale_tare();                ///< tartálymérleg: üres tartály = nulla
+    bool tscale_calibrate(float known_kg);
     bool pressure_calibrate(float known_bar);
 
     const Outputs &outputs() const { return outputs_; }
@@ -582,6 +596,9 @@ private:
     float scale_filtered_ = 0.0f;
     bool scale_has_ = false;
     float scale_timeout_ = 10.0f;
+    // tartálymérleg
+    float tscale_filtered_ = 0.0f, tscale_dev_ = 0.0f, tscale_timeout_ = 10.0f, tscale_still_s_ = 0.0f;
+    bool tscale_has_ = false;
     float pressure_filtered_ = -1.0f;
     float pressure_raw_bar_ = 0.0f;   ///< kalibrációs szorzó és nullpont nélkül
 

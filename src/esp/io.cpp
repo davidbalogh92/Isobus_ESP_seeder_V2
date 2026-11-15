@@ -252,6 +252,66 @@ bool ads_read(int ch, float &volts) {
     return true;
 }
 
+// ============================================================== NAU7802 tartálymérleg (I2C, 0x2A)
+// 24 bites mérlegerősítő az I2C buszon – mindkét panelen ugyanott (nem kell szabad láb). Belső 3,0 V-os
+// LDO adja a cellák tápját, 128-as erősítés, 10 SPS (a legkisebb zaj). Csak tájékoztató tartálytömeghez.
+constexpr std::uint8_t NAU7802_ADDR = 0x2A;
+i2c_master_dev_handle_t nau_dev = nullptr;
+std::atomic<bool> tscale_ok{false}, tscale_valid{false};
+std::atomic<std::int32_t> tscale_raw{0};
+std::atomic<std::int64_t> tscale_time_us{0};
+
+bool nau_write(std::uint8_t reg, std::uint8_t v) { return reg_write(nau_dev, reg, &v, 1); }
+bool nau_read(std::uint8_t reg, std::uint8_t &v) { return reg_read(nau_dev, reg, &v, 1); }
+
+bool nau7802_init() {
+    std::uint8_t v = 0;
+    if (!nau_write(0x00, 0x01)) return false;   // PU_CTRL: RR (regiszter-reset)
+    vTaskDelay(pdMS_TO_TICKS(2));
+    if (!nau_write(0x00, 0x02)) return false;   // PUD: digitális rész be
+    bool ready = false;
+    for (int i = 0; i < 20 && !ready; ++i) {    // PUR: bekapcsolás kész
+        vTaskDelay(pdMS_TO_TICKS(2));
+        ready = nau_read(0x00, v) && (v & 0x08);
+    }
+    if (!ready) return false;
+    if (!nau_write(0x00, 0x86)) return false;   // AVDDS (belső LDO) + PUA + PUD
+    if (!nau_write(0x01, (5u << 3) | 7u)) return false;   // CTRL1: LDO 3,0 V, erősítés 128
+    if (!nau_write(0x02, 0x00)) return false;   // CTRL2: 10 SPS, 1. csatorna
+    if (!nau_write(0x15, 0x30)) return false;   // ADC: a chopper órajel ki (adatlap ajánlás)
+    if (!nau_read(0x1C, v) || !nau_write(0x1C, static_cast<std::uint8_t>(v | 0x80))) return false;   // PGA_CAP_EN
+    vTaskDelay(pdMS_TO_TICKS(250));             // az LDO és a cellák beállása
+    if (!nau_write(0x00, 0x96)) return false;   // + CS: folyamatos mérés
+    // belső kalibráció (offset)
+    if (!nau_write(0x02, 0x04)) return false;   // CALS
+    for (int i = 0; i < 100; ++i) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+        if (!nau_read(0x02, v)) return false;
+        if (!(v & 0x04)) return (v & 0x08) == 0;   // CAL_ERR
+    }
+    return false;
+}
+
+/// kész mérés olvasása (CR bit), false: nincs új adat vagy hiba (err)
+bool nau7802_read(std::int32_t &raw, bool &err) {
+    err = false;
+    std::uint8_t v = 0;
+    if (!nau_read(0x00, v)) {
+        err = true;
+        return false;
+    }
+    if (!(v & 0x20)) return false;   // CR: még nincs kész
+    std::uint8_t b[3] = {0, 0, 0};
+    if (!reg_read(nau_dev, 0x12, b, 3)) {
+        err = true;
+        return false;
+    }
+    std::int32_t r = (static_cast<std::int32_t>(b[0]) << 16) | (static_cast<std::int32_t>(b[1]) << 8) | b[2];
+    if (r & 0x800000) r -= 0x1000000;
+    raw = r;
+    return true;
+}
+
 // ============================================================== HX711 (bitbang, 128-as erősítés, A csatorna)
 std::atomic<bool> scale_valid{false};
 std::atomic<std::int32_t> scale_raw{0};
@@ -579,7 +639,7 @@ void sample_task(void *) {
 }
 
 void analog_task(void *) {
-    std::int64_t last_ads_probe = -10000000, last_ow_search = -20000000;
+    std::int64_t last_ads_probe = -10000000, last_ow_search = -20000000, last_nau_probe = -10000000;
     bool ow_converting = false;
     std::int64_t ow_started = 0;
     for (;;) {
@@ -606,6 +666,33 @@ void analog_task(void *) {
                 }
                 ch = (ch + 1) & 3;
             }
+        }
+        // NAU7802 tartálymérleg: 10 s-onként keressük, utána 10 SPS
+        if (bus) {
+            if (!tscale_ok.load() && t - last_nau_probe > 10000000) {
+                last_nau_probe = t;
+                if (i2c_add(NAU7802_ADDR, nau_dev)) {
+                    if (nau7802_init()) {
+                        tscale_ok = true;
+                        web::log("INFO", "Tartálymérleg (NAU7802) csatlakozva (0x%02X)", NAU7802_ADDR);
+                    } else {
+                        web::log("WARN", "Tartálymérleg (NAU7802): az indítás nem sikerült");
+                    }
+                }
+            }
+            if (tscale_ok.load()) {
+                std::int32_t r = 0;
+                bool err = false;
+                if (nau7802_read(r, err)) {
+                    tscale_raw = r;
+                    tscale_time_us = t;
+                    tscale_valid = true;
+                } else if (err) {
+                    tscale_ok = false;
+                    web::log("WARN", "Tartálymérleg (NAU7802) nem válaszol");
+                }
+            }
+            if (t - tscale_time_us.load() > 1000000) tscale_valid = false;
         }
         // HX711: kb. 10 Hz-en kész mérés
         std::int32_t raw = 0;
@@ -741,6 +828,8 @@ app::HwInputs read(const seeder::Settings &s) {
     in.temp_c[1] = temps[1 - a].load();
     in.scale_valid = scale_valid.load();
     in.scale_raw = static_cast<float>(scale_raw.load());
+    in.tscale_valid = tscale_valid.load();
+    in.tscale_raw = static_cast<float>(tscale_raw.load());
     return in;
 }
 
@@ -793,12 +882,13 @@ void apply(const seeder::Outputs &o, const seeder::Settings &s) {
 }
 
 std::string diag_json() {
-    char b[640];
+    char b[720];
     std::snprintf(b, sizeof(b),
                   "{\"expander\":%s,\"exp_inputs\":%u,\"exp_outputs\":%u,\"ads\":%s,\"ads_v\":[%.3f,%.3f,%.3f,%.3f],"
                   "\"ds18b20\":%d,\"temps\":[%.2f,%.2f],\"hx711\":%s,\"hx_raw\":%ld,\"pwm\":[%.1f,%.1f],"
                   "\"pulses\":{\"wheel\":%lu,\"fan\":%lu,\"meter1\":%lu,\"meter2\":%lu},"
                   "\"glitches\":{\"wheel\":%lu,\"fan\":%lu,\"meter1\":%lu,\"meter2\":%lu},"
+                  "\"tscale\":{\"ok\":%s,\"valid\":%s,\"raw\":%ld},"
                   "\"has\":{\"motor\":%s,\"scale\":%s,\"temp\":%s}}",
                   exp_ok.load() ? "true" : "false", static_cast<unsigned>(exp_inputs.load()),
                   static_cast<unsigned>(exp_out_wanted.load()), ads_ok.load() ? "true" : "false",
@@ -811,6 +901,8 @@ std::string diag_json() {
                   static_cast<unsigned long>(meter_ch[0].total), static_cast<unsigned long>(meter_ch[1].total),
                   static_cast<unsigned long>(wheel_ch.glitches), static_cast<unsigned long>(fan_ch.glitches),
                   static_cast<unsigned long>(meter_ch[0].glitches), static_cast<unsigned long>(meter_ch[1].glitches),
+                  tscale_ok.load() ? "true" : "false", tscale_valid.load() ? "true" : "false",
+                  static_cast<long>(tscale_raw.load()),
                   board::MOTOR_PWM_GPIO[0] >= 0 ? "true" : "false", board::HX711_DATA >= 0 ? "true" : "false",
                   board::ONEWIRE_GPIO >= 0 ? "true" : "false");
     std::string o = b;

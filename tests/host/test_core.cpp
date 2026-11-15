@@ -1242,6 +1242,68 @@ TEST(scale_tare_and_calibration) {
     CHECK(!s.scale_calibrate(5.0f));
 }
 
+TEST(tank_scale_tare_calibration_and_filtering) {
+    // tartálymérleg (NAU7802): álló gép, tára, kalibrálás ismert tömeggel, minőségjelzés, menet közbeni szűrés
+    Seeder s = make([](Settings &st) { st.tscale_enable = 1; st.sim_speed = 0.0f; });
+    Machine m = down_machine();
+    m.in.tscale_valid = true;
+    m.in.tscale_raw = -50000.0f;   // üres tartály
+    m.run(s, 1.0f);
+    CHECK(s.status().tscale.valid);
+    CHECK(s.status().tscale.quality == TankScaleQuality::Settling);   // még nincs 2 s nyugalom
+    m.run(s, 3.0f);
+    CHECK(s.status().tscale.quality == TankScaleQuality::Stable);
+    CHECK(s.tscale_tare());
+    m.run(s, 0.5f);
+    CHECK_NEAR(s.status().tscale.net_kg, 0.0, 0.1);
+    m.in.tscale_raw = -50000.0f + 500.0f * 2147.0f;   // 500 kg, 2147 beütés/kg
+    m.run(s, 4.0f);
+    CHECK(s.tscale_calibrate(500.0f));
+    CHECK_NEAR(s.settings().tscale_factor, 2147.0, 3.0);
+    m.in.tscale_raw = -50000.0f + 1234.5f * 2147.0f;   // tankolás: gyorsan követi
+    m.run(s, 2.0f);
+    CHECK_NEAR(s.status().tscale.net_kg, 1234.5, 5.0);
+    CHECK(s.status().tscale.quality == TankScaleQuality::Settling);   // az ugrás után még „nem nyugodt”
+    m.run(s, 8.0f);
+    CHECK_NEAR(s.status().tscale.net_kg, 1234.5, 2.0);
+    CHECK(s.status().tscale.quality == TankScaleQuality::Stable);
+    // fordított bekötésű cellák: negatív irány is kalibrálható
+    m.in.tscale_raw = -50000.0f - 500.0f * 2147.0f;
+    m.run(s, 4.0f);
+    CHECK(s.tscale_calibrate(500.0f));
+    CHECK_NEAR(s.settings().tscale_factor, 2147.0, 3.0);
+    // nincs adat: nem kalibrálható, nincs riasztás (csak tájékoztató)
+    m.in.tscale_valid = false;
+    m.run(s, 4.0f);
+    CHECK(!s.status().tscale.valid && s.status().tscale.quality == TankScaleQuality::NoData);
+    CHECK(!s.tscale_tare() && !s.tscale_calibrate(100.0f));
+    CHECK(s.status().alarms_active == 0 || !has_alarm(s, AlarmId::ScaleSensor));
+}
+
+TEST(tank_scale_filters_strongly_while_moving) {
+    Seeder s = make([](Settings &st) { st.tscale_enable = 1; st.tscale_factor = 1000.0f; st.tscale_offset = 0.0f; });
+    Machine m = down_machine();   // 8 km/h szimulált sebesség
+    m.in.tscale_valid = true;
+    m.in.tscale_raw = 800000.0f;   // 800 kg
+    m.run(s, 2.0f);
+    CHECK_NEAR(s.status().tscale.net_kg, 800.0, 1.0);   // az első mérésből indul
+    CHECK(s.status().tscale.quality == TankScaleQuality::Moving);
+    // rázkódás: ±200 kg-os ugrálás 0,1 s-onként → a szűrt érték alig mozdul
+    float lo = 1e9f, hi = -1e9f;
+    for (int k = 0; k < 100; ++k) {
+        m.in.tscale_raw = (k & 1) ? 1000000.0f : 600000.0f;
+        m.run(s, 0.1f);
+        lo = std::min(lo, s.status().tscale.net_kg);
+        hi = std::max(hi, s.status().tscale.net_kg);
+    }
+    CHECK(hi - lo < 20.0f);
+    CHECK_NEAR(s.status().tscale.net_kg, 800.0, 15.0);
+    // kikapcsolva: nincs állapot
+    s.set_param(P_tscale_enable, 0.0f);
+    m.run(s, 0.2f);
+    CHECK(!s.status().tscale.valid);
+}
+
 // =====================================================================================================
 // kalibrálások
 // =====================================================================================================

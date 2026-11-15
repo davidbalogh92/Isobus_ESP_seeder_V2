@@ -1604,6 +1604,24 @@ TEST(ext_display_calib_motor_hold_from_display) {
     CHECK(r.st().crank.target_reached && !held() && pwm() < 0.5f);
 }
 
+TEST(ext_display_tank_scale_as_shared_tank) {
+    // tartálymérleg: a külső kijelző a mért tömeget kapja közös tartályként (töltöttség % ismeretlen)
+    CalibRig r([](Settings &st) { st.tscale_enable = 1; st.tscale_factor = 1000.0f; st.tscale_offset = 0.0f; });
+    auto mm = r.snapshot_machine();
+    CHECK((mm.caps.features & EXTDISP_FEATURE_TANK) && mm.tank_n == 0);   // még nincs mérés
+    app::HwInputs hw;
+    hw.tscale_valid = true;
+    hw.tscale_raw = 1234500.0f;   // 1234,5 kg
+    r.run(1.0f, hw);
+    mm = r.snapshot_machine();
+    CHECK(mm.tank_n == 1 && mm.tanks[0].tank == EXTDISP_TANK_SHARED && mm.tanks[0].fill_percent == EXTDISP_FILL_UNKNOWN);
+    CHECK(mm.tanks[0].remaining_hg >= 12340 && mm.tanks[0].remaining_hg <= 12350);
+    // kikapcsolt mérleggel és töltetkövetés nélkül nincs tartály-funkció
+    CalibRig n([](Settings &) {});
+    mm = n.snapshot_machine();
+    CHECK(!(mm.caps.features & EXTDISP_FEATURE_TANK) && mm.tank_n == 0);
+}
+
 TEST(core_crank_refusal_reasons) {
     // a mag a szöveg mellett okkódot is hagy (a VT / web üzenete változatlan)
     Settings st = default_settings();

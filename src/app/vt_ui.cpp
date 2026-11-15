@@ -303,6 +303,13 @@ void VtUi::on_softkey(std::uint16_t id, std::uint8_t activation) {
         c.scale_calibrate(kg);
         break;
     }
+    case vt::K_TSCALE_TARE: c.tscale_tare(); break;
+    case vt::K_TSCALE_CAL: {
+        auto it = cache_.find(key(CMD_NUM, vt::VT_IN_TSCALE_REF_DEF.id));
+        const float kg = it != cache_.end() ? it->second * vt::VT_IN_TSCALE_REF_DEF.step : 500.0f;
+        c.tscale_calibrate(kg);
+        break;
+    }
     case vt::K_PRESS_CAL: {
         auto it = cache_.find(key(CMD_NUM, vt::VT_IN_PRESS_REF_DEF.id));
         const float bar = it != cache_.end() ? it->second * vt::VT_IN_PRESS_REF_DEF.step : 50.0f;
@@ -638,10 +645,17 @@ void VtUi::update_main(const Snapshot &s) {
             std::snprintf(b, sizeof b, "%ld kg", std::lround(v));
             return std::string(b);
         };
-        const int n = st.tank_fill_n;
-        shown(vt::CONT_TANK_C, n == 1);
+        // tartálymérleg (ha be van kapcsolva): középen a mért tömeg – menet közben / nem nyugodt mérésnél „~”
+        const bool ts = s.set.tscale_enable != 0;
+        const int n = ts ? 0 : st.tank_fill_n;
+        shown(vt::CONT_TANK_C, ts || n == 1);
         shown(vt::CONT_TANK_L, n == 2);
         shown(vt::CONT_TANK_R, n == 2);
+        if (ts) {
+            if (!st.tscale.valid) text(vt::STR_TANK_C, "-- kg");
+            else text(vt::STR_TANK_C, (st.tscale.quality == seeder::TankScaleQuality::Stable ? "" : "~") +
+                                          kg(st.tscale.net_kg));
+        }
         if (n == 1) text(vt::STR_TANK_C, kg(st.tank_kg[0]));
         if (n == 2) {
             text(vt::STR_TANK_L, kg(st.tank_kg[0]));
@@ -798,6 +812,10 @@ void VtUi::update_pages(const Snapshot &s) {
     // mérleg (nyers: g + 100000, ill. érték + 2^23)
     num(vt::OUT_SCALE_KG, std::lround(st.scale.net_kg * 1000.0f) + 100000);
     num(vt::OUT_SCALE_RAW, std::lround(st.scale.raw) + 8388608);
+    // tartálymérleg (nyers: 0,1 kg + 10^6, ill. érték + 2^23)
+    num(vt::OUT_TSCALE_KG, std::max(0L, std::lround(st.tscale.net_kg * 10.0f) + 1000000));
+    num(vt::OUT_TSCALE_RAW, std::max(0L, std::lround(st.tscale.raw) + 8388608));
+    num(vt::OP_TSCALE_STATE, vt::STR_TSCALE_ST[static_cast<int>(st.tscale.quality) & 3]);
     // TC, geometria
     num(vt::OP_TC_STATE, !set.tc_enable ? vt::STR_TC_DIS : (st.tc_connected ? vt::STR_TC_ON : vt::STR_TC_OFF));
     num(vt::OP_TC_MODE, st.sec_auto ? vt::STR_AUTO : vt::STR_MANUAL);

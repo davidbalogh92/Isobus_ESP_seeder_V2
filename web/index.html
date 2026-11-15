@@ -170,6 +170,10 @@ table.pins td:first-child{font-variant-numeric:tabular-nums;white-space:nowrap;f
     </div>
   </div>
   <div class="grid g2" style="margin-top:var(--gap)" id="meters"></div>
+  <div class="card hide" style="margin-top:var(--gap)" id="tscaleCard">
+    <h2>Tartálymérleg <small class="muted">(tájékoztató)</small></h2>
+    <div><span class="big" id="tsMainKg">–</span><span class="unit">kg</span> <span class="muted" id="tsMainQ"></span></div>
+  </div>
   <div class="card hide" style="margin-top:var(--gap)" id="tankCard">
     <h2>Tartálytöltet <small class="muted">(tájékoztató, a kijuttatott mennyiségből)</small></h2>
     <div class="grid g2">
@@ -210,6 +214,7 @@ table.pins td:first-child{font-variant-numeric:tabular-nums;white-space:nowrap;f
     <button data-p="crank" class="on">Leforgatás</button>
     <button data-p="chart">Táblázat</button>
     <button data-p="scale">Mérleg</button>
+    <button data-p="tscale">Tartálymérleg</button>
     <button data-p="wheel">Kerékjeladó</button>
     <button data-p="press">Nyomás</button>
     <button data-p="tune">Motor</button>
@@ -302,6 +307,27 @@ table.pins td:first-child{font-variant-numeric:tabular-nums;white-space:nowrap;f
         <div class="field"><label>Ismert súly</label><div class="inp"><input id="scRef" type="number" step="0.01" value="10" inputmode="decimal"><span class="u">kg</span></div></div>
         <div class="row" style="margin-top:8px"><button class="btn primary wide" onclick="cmd('scale_calibrate',+$('scRef').value).then(r=>r&&toast('Mérleg kalibrálva'))">Kalibrálás</button></div>
         <p class="note">Méréshatár: <b id="scCap">–</b> kg · tényező: <b id="scFac">–</b> /kg</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="calpage" id="cal-tscale">
+    <div class="grid g2">
+      <div class="card">
+        <h2>Tartálymérleg (NAU7802, I2C)</h2>
+        <div><span class="big" id="tsKg">–</span><span class="unit">kg</span></div>
+        <div class="kv"><span>Nyers érték</span><b id="tsRaw">–</b></div>
+        <div class="kv"><span>Állapot</span><b id="tsState">–</b></div>
+        <div class="row" style="margin-top:10px"><button class="btn wide" onclick="cmd('tscale_tare').then(r=>r&&toast('Tárázva'))">Tárázás (üres tartály)</button></div>
+        <p class="note" id="tsOff">A tartálymérleg ki van kapcsolva (Beállítások → Kiegészítők → Tartálymérleg).</p>
+        <p class="note">Csak tájékoztató: a főképernyőn és a külső kijelzőn látszik, nem riaszt. Menet közben erősen szűrt („~”), pontos érték álló gépnél.</p>
+      </div>
+      <div class="card">
+        <h2>Tartálymérleg kalibrálása</h2>
+        <div class="steps note">1. Üres tartálynál, álló géppel tárázz. 2. Tölts be ismert tömeget (pl. 20 zsák = 500 kg). 3. Várd meg a „stabil” állapotot, írd be a tömeget és kalibrálj.</div>
+        <div class="field"><label>Ismert tömeg</label><div class="inp"><input id="tsRef" type="number" step="0.1" value="500" inputmode="decimal"><span class="u">kg</span></div></div>
+        <div class="row" style="margin-top:8px"><button class="btn primary wide" onclick="cmd('tscale_calibrate',+$('tsRef').value).then(r=>r&&toast('Tartálymérleg kalibrálva'))">Kalibrálás</button></div>
+        <p class="note">Tényező: <b id="tsFac">–</b> /kg · nullpont: <b id="tsOffV">–</b> (kézzel: Beállítások → Tartálymérleg)</p>
       </div>
     </div>
   </div>
@@ -703,6 +729,8 @@ function render(){
   $('speed').textContent=fmt(st.speed,1);$('speedSrc').textContent=(st.speed_valid?st.speed_src:'Nincs sebességjel')+(st.speed_fallback?' (tartalék)':'');
   $('fan').textContent=fmt(st.fan_rpm);$('fanLim').textContent=`min ${fmt(CFG.fan_min_rpm)}${CFG.fan_max_rpm>0?' · max '+fmt(CFG.fan_max_rpm):''} 1/min`;
   $('fan').style.color=(st.alarm_list||[]).some(a=>a.code.startsWith('FAN'))?'var(--bad)':'';
+  {const ts=st.tscale||{};show('tscaleCard',!!CFG.tscale_enable);$('tsMainKg').textContent=ts.valid?fmt(ts.kg,0):'–';
+   $('tsMainQ').textContent=!ts.valid?'nincs jel':['','menet közben, szűrt','még nem nyugodt','stabil'][ts.quality|0];}
   {const n=st.tank_fill_n||0;show('tankCard',n>0);show('tankRow1',n>1);$('tankName0').textContent=n>1?'1. tartály':'Közös tartály';
    for(let i=0;i<2;i++)$('tankKg'+i).textContent=fmt(st.tank_kg[i],0)+' kg'+(st.tank_pct[i]>0?' ('+fmt(st.tank_pct[i],0)+' %)':'');}
   const ms=$('meters');ms.innerHTML=[...Array(st.meters).keys()].map(i=>meterCard(st,i)).join('');
@@ -747,6 +775,9 @@ function render(){
   if(calPage==='chart'&&activeTab==='cal')renderChart();
   $('scKg').textContent=st.scale.valid?fmt(st.scale.kg,3):'–';$('scRaw').textContent=fmt(st.scale.raw);
   $('scState').textContent=!CFG.scale_enable?'kikapcsolva':!st.scale.valid?'nincs jel (HX711)':st.scale.overload?'TÚLTERHELÉS':'rendben';
+  {const ts=st.tscale||{};$('tsKg').textContent=ts.valid?fmt(ts.kg,1):'–';$('tsRaw').textContent=ts.valid?fmt(ts.raw):'–';
+   $('tsState').textContent=!CFG.tscale_enable?'kikapcsolva':!ts.valid?'nincs jel (NAU7802)':['nincs adat','menet közben, szűrt','még nem nyugodt','stabil'][ts.quality|0];
+   show('tsOff',!CFG.tscale_enable);$('tsFac').textContent=fmt(CFG.tscale_factor,1);$('tsOffV').textContent=fmt(CFG.tscale_offset)}
   show('scOff',!CFG.scale_enable);$('scCap').textContent=fmt(CFG.scale_capacity_kg,1);$('scFac').textContent=fmt(CFG.scale_factor,1);
   const wc=st.wheel_cal,names={Idle:'Indításra kész',Running:'Mérés folyamatban…',Stopped:'Leállítva – ellenőrizd és mentsd'};
   $('wcState').textContent=names[wc.state];setIfIdle('wcDist',wc.distance);setIfIdle('wcPulses',wc.pulses);

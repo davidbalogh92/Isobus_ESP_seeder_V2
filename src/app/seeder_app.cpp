@@ -29,7 +29,7 @@
 #include <cstdlib>
 
 #ifndef SEEDER_FW_VERSION
-#define SEEDER_FW_VERSION "2.5.6"
+#define SEEDER_FW_VERSION "2.6.0"
 #endif
 
 namespace app {
@@ -322,6 +322,8 @@ void SeederApp::update(float dt_s, const HwInputs &hw) {
     in.temp_c[1] = hw.temp_c[1];
     in.scale_valid = hw.scale_valid;
     in.scale_raw = hw.scale_raw;
+    in.tscale_valid = hw.tscale_valid;
+    in.tscale_raw = hw.tscale_raw;
     in.isobus = read_speeds();
     in.isobus.aog = hw.aog_speed;
     in.aog = hw.aog;
@@ -489,7 +491,7 @@ ExtDisplayMachine SeederApp::ext_display_machine(const Snapshot &snap, std::uint
     const bool fan_watch = s.fan_min_rpm > 0 || s.fan_max_rpm > 0;   // van turbinafigyelés (riasztási határ)
     const bool scale = board_scale_ && s.scale_enable;
     m.caps.features = static_cast<std::uint8_t>(EXTDISP_FEATURE_WIFI_SERVICE | (s.lights_enable ? EXTDISP_FEATURE_LIGHTS : 0) |
-                                                (st.tank_fill_n > 0 ? EXTDISP_FEATURE_TANK : 0) |
+                                                (st.tank_fill_n > 0 || s.tscale_enable ? EXTDISP_FEATURE_TANK : 0) |
                                                 EXTDISP_FEATURE_MACHINE_CALIB | (fan_watch ? EXTDISP_FEATURE_FAN : 0) |
                                                 (scale ? EXTDISP_FEATURE_SCALE : 0));
     m.caps.fw_major = static_cast<std::uint8_t>(std::atoi(SEEDER_FW_VERSION));
@@ -519,6 +521,17 @@ ExtDisplayMachine SeederApp::ext_display_machine(const Snapshot &snap, std::uint
         const bool known = snap.per.tank_ref_kg[i] > 0.5f;
         t.fill_percent = known ? static_cast<std::uint8_t>(std::lround(st.tank_pct[i] > 100.0f ? 100.0f : st.tank_pct[i]))
                                : static_cast<std::uint8_t>(EXTDISP_FILL_UNKNOWN);
+    }
+    if (s.tscale_enable) {
+        // tartálymérleg: a mért tömeg megy közös tartályként (a számolt töltet helyett; töltöttség % nem ismert)
+        m.tank_n = st.tscale.valid ? 1 : 0;
+        if (st.tscale.valid) {
+            extdisp_tank_status_t &t = m.tanks[0];
+            t.tank = EXTDISP_TANK_SHARED;
+            const float hg = std::round(st.tscale.net_kg * 10.0f);
+            t.remaining_hg = static_cast<std::uint32_t>(hg < 0.0f ? 0.0f : (hg > 16000000.0f ? 16000000.0f : hg));
+            t.fill_percent = static_cast<std::uint8_t>(EXTDISP_FILL_UNKNOWN);
+        }
     }
     // leforgatás
     const seeder::CrankCalibration &cc = st.crank;

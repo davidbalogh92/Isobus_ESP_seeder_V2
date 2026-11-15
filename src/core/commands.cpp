@@ -136,6 +136,10 @@ bool apply_command(Seeder &s, const std::string &c, double v, std::string &error
     else if (c == "scale_tare") s.scale_tare();
     else if (c == "scale_calibrate") {
         if (!s.scale_calibrate(fv)) return fail("A kalibrálás nem sikerült");
+    } else if (c == "tscale_tare") {
+        if (!s.tscale_tare()) return fail("Nincs tartálymérleg-adat");
+    } else if (c == "tscale_calibrate") {
+        if (!s.tscale_calibrate(fv)) return fail("A kalibrálás nem sikerült");
     } else if (c == "pressure_calibrate") {
         if (!s.pressure_calibrate(fv)) return fail("A kalibrálás nem sikerült");
     } else {

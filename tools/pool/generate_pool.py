@@ -380,6 +380,8 @@ K_WEIGHT_CLEAR = KEY("K_WEIGHT_CLEAR", "softkey_cancel")     # részmérések t�
 K_CRANK_SAVE = KEY("K_CRANK_SAVE", "softkey_save")
 K_CRANK_COPY = KEY("K_CRANK_COPY", "softkey_crank_copy")
 K_PRESS_CAL = KEY("K_PRESS_CAL", "softkey_save")
+K_TSCALE_TARE = KEY("K_TSCALE_TARE", "softkey_tare")
+K_TSCALE_CAL = KEY("K_TSCALE_CAL", "softkey_save")
 # motor önhangolás
 K_TUNE_PAGE = KEY("K_TUNE_PAGE", "softkey_tune")
 K_TUNE_METER, PIC_K_TUNE_METER = KEYPTR("K_TUNE_METER", "OP_K_TUNE_METER", ["softkey_meter1_on", "softkey_meter2_on"])
@@ -409,6 +411,7 @@ PAGE_INFO = {
     "pressure": ("Nyomás", "main/main_pressure"),
     "cooling": ("Olajhûtés", "main/main_temp"),
     "scale": ("Mérleg", "softkeys/softkey_calib"),
+    "tscale": ("Tartálymérleg", "softkeys/softkey_tare"),
     "tc": ("Szakaszolás", "softkeys/softkey_tc"),
     "aog": ("AgOpenGPS", "menu/menu_aog"),
     "geometry": ("Geometria", "softkeys/softkey_geom"),
@@ -465,6 +468,7 @@ SK_GROUP = {gid: P.softkey_mask(P.new_id(4000), [K_BACK] + [K_PAGE[pg] for pg in
 SK_WCAL = P.softkey_mask(P.new_id(4000), [K_BACK, K_START, K_STOP, K_SAVE, K_CANCEL], name="SK_WCAL")
 SK_SCALE = P.softkey_mask(P.new_id(4000), [K_BACK, K_TARE, K_SCALE_CAL], name="SK_SCALE")
 SK_PRESSURE = P.softkey_mask(P.new_id(4000), [K_BACK, K_PRESS_CAL], name="SK_PRESSURE")
+SK_TSCALE = P.softkey_mask(P.new_id(4000), [K_BACK, K_TSCALE_TARE, K_TSCALE_CAL], name="SK_TSCALE")
 SK_COOLING = P.softkey_mask(P.new_id(4000), [K_BACK, K_COOLER, K_COOLER_REV], name="SK_COOLING")
 SK_CALIB = P.softkey_mask(P.new_id(4000), [K_BACK, K_CAL_METER, K_SCALE_TAKE, K_CRANK_SAVE, K_SCALE_PAGE,
                                             K_CRANK_START, K_CRANK_RESET, K_WEIGHT_CLEAR, K_CRANK_COPY],
@@ -518,6 +522,8 @@ STR_EMPTY = S("ÜRES", 88, 22, F_LABEL, name="STR_EMPTY")
 STR_FULL = S("TELE", 88, 22, F_LABEL, name="STR_FULL")
 STR_TC_ON = S("Kapcsolódva", 180, 22, F_LABEL, name="STR_TC_ON")
 STR_TC_OFF = S("Nincs kapcsolat", 180, 22, F_LABEL, name="STR_TC_OFF")
+STR_TSCALE_ST = [S(t, 186, 22, F_LABEL, name=f"STR_TSCALE_ST_{i}") for i, t in
+                 enumerate(["Nincs adat", "Mozgás: szûrt", "Nem nyugodt", "Stabil"])]
 STR_TC_DIS = S("Kikapcsolva", 180, 22, F_LABEL, name="STR_TC_DIS")
 STR_OK = S("OK", 88, 22, F_LABEL, name="STR_OK")
 STR_NONE = S("nincs", 88, 22, F_LABEL, name="STR_NONE")
@@ -694,6 +700,7 @@ PAGE_DESC["drive"] = "Hajtás típusa, motorok, kuplung, jeladók"
 PAGE_DESC["motor"] = "Fordulat, PWM, rámpák, önhangolás"
 PAGE_DESC["jam"] = "Visszafordítás, próba"
 PAGE_DESC["keya"] = "Node ID, egység, áttétel, szívverés"
+PAGE_DESC["tscale"] = "Tára, kalibrálás ismert tömeggel"
 PBTN = {}
 GROUP_MASK = {}
 for gi, (gid, glabel, _icon, pages) in enumerate(pd.VT_GROUPS):
@@ -810,7 +817,7 @@ def heading(text, h):
 
 
 PAGE_MASK = {}
-PAGE_SK = {"speed": SK_WCAL, "scale": SK_SCALE, "pressure": SK_PRESSURE, "cooling": SK_COOLING,
+PAGE_SK = {"speed": SK_WCAL, "scale": SK_SCALE, "tscale": SK_TSCALE, "pressure": SK_PRESSURE, "cooling": SK_COOLING,
            "motor": SK_MOTOR, "jam": SK_JAMPG}
 param_index = {p.key: i for i, p in enumerate(pd.P)}
 GEO_PICS = ["geo/geo_mounted", "geo/geo_steer_front", "geo/geo_steer_rear", "geo/geo_trailed_front",
@@ -860,6 +867,12 @@ for page_no, (pid, title) in enumerate(pd.VT_PAGES):
                  lambda h: output_row("Nyers érték", N("OUT_SCALE_RAW", ROW_W_INPUT, F_VALUE_N, offset=-8388608), "", h),
                  lambda h: heading("Üres vödör: TÁRA, súly: MENTÉS", h),
                  lambda h: custom_row("Ismert súly", "VT_IN_SCALE_REF", 0.01, 0, 500, 2, "kg", h, 10)]
+    elif pid == "tscale":
+        extra = [lambda h: output_row("Nettó tömeg", num_out("OUT_TSCALE_KG", 1, 0.1, -1000000), "kg", h),
+                 lambda h: output_row("Nyers érték", N("OUT_TSCALE_RAW", ROW_W_INPUT, F_VALUE_N, offset=-8388608), "", h),
+                 lambda h: output_row("Állapot", P.obj_ptr(27196, STR_TSCALE_ST[0], "OP_TSCALE_STATE"), "", h),
+                 lambda h: heading("Üres: TÁRA, tömeggel: MENTÉS", h),
+                 lambda h: custom_row("Ismert súly", "VT_IN_TSCALE_REF", 0.1, 0, 20000, 1, "kg", h, 500)]
     elif pid == "tc":
         extra = [lambda h: output_row("TC kapcsolat", P.obj_ptr(27129, STR_TC_OFF, "OP_TC_STATE"), "", h),
                  lambda h: output_row("Szakaszvezérlés", P.obj_ptr(27130, STR_MANUAL, "OP_TC_MODE"), "", h)]
@@ -1137,7 +1150,7 @@ ARRAYS = {
     "PIC_K_COOLER_REV": PIC_K_COOLER_REV, "STR_REV": STR_REV, "STR_SRC": STR_SRC,
     "SK_FUNC": SK_FUNC, "STR_ALARM": STR_ALARM, "STR_ALARMBIG": STR_ALARM_BIG, "STR_CAL": CAL_STATE,
     "STR_METER": STR_METER, "STR_TUNE": STR_TUNE, "PIC_K_TUNE_METER": PIC_K_TUNE_METER,
-          "STR_DRV": STR_DRV, "STR_TANK_MODE": STR_TANK_MODE, "PIC_K_JAM_METER": PIC_K_JAM_METER, "STR_NOTE": STR_NOTE, "K_BLANK": K_BLANK,
+          "STR_DRV": STR_DRV, "STR_TANK_MODE": STR_TANK_MODE, "STR_TSCALE_ST": STR_TSCALE_ST, "PIC_K_JAM_METER": PIC_K_JAM_METER, "STR_NOTE": STR_NOTE, "K_BLANK": K_BLANK,
 }
 
 

@@ -999,6 +999,29 @@ bool Seeder::scale_calibrate(float known_kg) {
     else say("Mérleg kalibrálva");
     return true;
 }
+bool Seeder::tscale_tare() {
+    if (!tscale_has_) {
+        say("Nincs tartálymérleg-adat");
+        return false;
+    }
+    set_param(P_tscale_offset, std::round(tscale_filtered_));
+    say("Tartálymérleg nullázva (üres tartály)");
+    return true;
+}
+bool Seeder::tscale_calibrate(float known_kg) {
+    if (!tscale_has_ || known_kg <= 0.0f) {
+        say("Tegyél a tartályba ismert súlyt és add meg a tömegét");
+        return false;
+    }
+    const float factor = (tscale_filtered_ - settings_.tscale_offset) / known_kg;
+    if (!(std::fabs(factor) >= 1.0f)) {
+        say("A tartálymérleg nem érzékel terhelést");
+        return false;
+    }
+    set_param(P_tscale_factor, std::fabs(factor));
+    say(factor < 0.0f ? "Tartálymérleg kalibrálva (fordított bekötés)" : "Tartálymérleg kalibrálva");
+    return true;
+}
 bool Seeder::pressure_calibrate(float known_bar) {
     if (!settings_.pressure_enable || !status_.pressure_ok || pressure_raw_bar_ <= 0.5f) {
         say("Nincs érvényes nyomásjel (legyen nyomás alatt)");
@@ -1579,6 +1602,40 @@ void Seeder::tick(const TickInputs &input) {
         alarms_.set(AlarmId::ScaleSensor, false);
     }
 
+    // --- tartálymérleg (csak tájékoztató, nem riaszt): álló gépnél 1 s-os, menet közben 8 s-os szűrés
+    if (S.tscale_enable) {
+        const float factor = S.tscale_factor > 1.0f ? S.tscale_factor : 1.0f;
+        tscale_still_s_ = status_.moving ? 0.0f : tscale_still_s_ + dt;
+        if (in.tscale_valid) {
+            const float tau = status_.moving ? 8.0f : 1.0f;
+            if (!tscale_has_) {
+                tscale_filtered_ = in.tscale_raw;
+                tscale_dev_ = 0.0f;
+            } else {
+                tscale_filtered_ += (in.tscale_raw - tscale_filtered_) * dt / (tau + dt);
+                // álló gépnél tankolás / ürítés: nagy ugrásnál (> 20 kg) gyorsabban kövessen
+                if (!status_.moving && std::fabs(in.tscale_raw - tscale_filtered_) > factor * 20.0f)
+                    tscale_filtered_ += (in.tscale_raw - tscale_filtered_) * 0.5f;
+            }
+            tscale_dev_ += (std::fabs(in.tscale_raw - tscale_filtered_) / factor - tscale_dev_) * dt / (1.0f + dt);
+            tscale_has_ = true;
+            tscale_timeout_ = 0.0f;
+        } else {
+            tscale_timeout_ += dt;
+        }
+        if (tscale_timeout_ > 3.0f) tscale_has_ = false;
+        st.tscale.valid = tscale_has_;
+        st.tscale.raw = tscale_filtered_;
+        st.tscale.net_kg = tscale_has_ ? (tscale_filtered_ - S.tscale_offset) / factor : 0.0f;
+        if (!tscale_has_) st.tscale.quality = TankScaleQuality::NoData;
+        else if (status_.moving) st.tscale.quality = TankScaleQuality::Moving;
+        else if (tscale_still_s_ >= 2.0f && tscale_dev_ < 2.0f) st.tscale.quality = TankScaleQuality::Stable;
+        else st.tscale.quality = TankScaleQuality::Settling;
+    } else {
+        st.tscale = TankScaleState{};
+        tscale_has_ = false;
+    }
+
     // --- egyéb riasztások
     for (int i = 0; i < 2; ++i) alarms_.set(HOPPER_EMPTY[i], i < n_tank && hopper_empty_[i]);
     alarms_.set(AlarmId::NoSpeed, (elec ? master_ : work_down_) && !sp.valid);
@@ -1835,6 +1892,13 @@ std::string Seeder::status_json() const {
     append_kv(o, "raw", st.scale.raw, 0);
     append_kv(o, "kg", st.scale.net_kg, 3);
     append_kv(o, "overload", st.scale.overload);
+    o.back() = '}';
+    o += ',';
+    o += "\"tscale\":{";
+    append_kv(o, "valid", st.tscale.valid);
+    append_kv(o, "raw", st.tscale.raw, 0);
+    append_kv(o, "kg", st.tscale.net_kg, 1);
+    append_kv(o, "quality", static_cast<double>(st.tscale.quality), 0);
     o.back() = '}';
     o += ',';
     static const char *const cal_states[] = {"Idle", "Running", "Stopped"};

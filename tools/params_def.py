@@ -59,6 +59,7 @@ GROUPS = [
     ("pressure", "Nyomásmérés (lenyomatás)", "pressure"),
     ("cooling", "Olajhőmérséklet és hűtés", "cooling"),
     ("scale", "Mérleg", "scale"),
+    ("tscale", "Tartálymérleg", "scale"),
     ("tc", "Szakaszolás, Task Controller és geometria", "tc"),
     ("aog", "AgOpenGPS (Ethernet / UDP)", "aog"),
     ("sim", "Szimuláció / teszt", "sim"),
@@ -292,6 +293,10 @@ add("pressure_enable", "extras", "Nyomásmérés (lenyomatás, ADS1115)", "Nyom�
 add("temp_enable", "extras", "Olajhőmérséklet + hűtőventilátor (2× DS18B20)", "Olajhőmérséklet", "bool", 0,
     options=YES_NO, vt_page="extras")
 add("scale_enable", "extras", "Leforgatási mérleg (HX711)", "Mérleg", "bool", 0, options=YES_NO, vt_page="extras")
+add("tscale_enable", "extras", "Tartálymérleg (NAU7802, I2C)", "Tartálymérleg", "bool", 0, options=YES_NO,
+    vt_page="extras",
+    help="Az egész géptartály tömege mérlegcellákkal, NAU7802 erősítővel az I2C buszon (0x2A). Csak tájékoztató: "
+         "a főképernyőn, a weben és a külső kijelzőn látszik, nem riaszt (a leürülést a tartályszenzorok jelzik).")
 
 # --------------------------------------------------------------------------- nyomás
 add("pressure_range_bar", "pressure", "Szenzor méréshatár", "Méréshatár", "float", 250.0, 1.0, 1000.0, 1.0, 0, "bar",
@@ -342,6 +347,13 @@ add("scale_factor", "scale", "Mérleg kalibrációs tényező (beütés / kg)", 
     help="A 'Kalibrálás ismert súllyal' állítja be.")
 add("scale_offset", "scale", "Mérleg nullpont (tára, nyers)", "", "float", 0.0, -20000000.0, 20000000.0, 1.0, 0, "",
     feature="scale_enable")
+
+# --------------------------------------------------------------------------- tartálymérleg
+add("tscale_factor", "tscale", "Tartálymérleg tényező (beütés / kg)", "Tényező", "float", 2000.0, 1.0, 10000000.0,
+    0.1, 1, "1/kg", vt_page="tscale", feature="tscale_enable",
+    help="A 'Kalibrálás ismert súllyal' állítja be (VT: Tartálymérleg oldal, MENTÉS gomb; web: Kalibrálás).")
+add("tscale_offset", "tscale", "Tartálymérleg nullpont (tára, nyers)", "", "float", 0.0, -20000000.0, 20000000.0,
+    1.0, 0, "", feature="tscale_enable")
 
 # --------------------------------------------------------------------------- TC + geometria
 add("sec_src", "tc", "Automata szakaszolás forrása", "Szakaszolás forr.", "enum", 1,
@@ -442,6 +454,7 @@ VT_PAGES = [
     ("pressure", "NYOMÁSMÉRÉS"),
     ("cooling", "OLAJHÕMÉRSÉKLET"),
     ("scale", "MÉRLEG"),
+    ("tscale", "TARTÁLYMÉRLEG"),
     ("tc", "SZAKASZOLÁS, TC"),
     ("aog", "AGOPENGPS"),
     ("geometry", "GEOMETRIA"),
@@ -456,7 +469,7 @@ VT_GROUPS = [
     ("machine", "Gép, geometria", "menu/menu_machine", ["machine", "geometry"]),
     ("drive", "Hajtás, motor", "menu/menu_drive", ["drive", "motor", "jam", "keya"]),
     ("fan", "Turbina, hûtés", "softkeys/softkey_fan", ["fan", "cooling"]),
-    ("measure", "Mérés", "main/main_speed", ["speed", "scale", "pressure"]),
+    ("measure", "Mérés", "main/main_speed", ["speed", "scale", "tscale", "pressure"]),
     ("switches", "Kapcsolók", "softkeys/softkey_switch", ["switches", "extras"]),
     ("tc", "Szakaszolás, TC", "softkeys/softkey_tc", ["tc", "aog"]),
     ("service", "Szerviz", "menu/menu_diag", ["diag"]),
