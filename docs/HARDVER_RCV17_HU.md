@@ -75,6 +75,20 @@ optocsatoló, vagy osztó + Zener) szabad rákötni. A jel aktív alacsony (GND-
 A panelből 8 MB-os és 16 MB-os flash-ű is készült; ez a firmware a **16 MB-osra** (WROOM-1U-N16) való.
 PSRAM-os (R8) modullal a panel nem működik (a GPIO35–37 az Etherneté).
 
+## Enkóder a FLOW bemeneten
+
+A FLOW1 / FLOW2 sorkapocs: **SLCT** (a jeladó tápja, az „5V SLCT 12V” jumperrel 5 vagy 12 V), **FLW** (jel),
+**GND**. A bemenet optocsatolós; a panel felirata szerint a jeladó kimenetéhez illő jumper kell:
+
+* **NPN (nyitott kollektoros) jeladó** – pl. E38S6G5-50B-G24**N**: **Pull UP** jumper, a Pull DOWN-t vedd le.
+  Bekötés (szokásos színek): piros = SLCT, fekete = GND, zöld (A) = FLW; a fehér (B) nem kell.
+* **PNP jeladó**: **Pull DOWN** jumper.
+
+„Enkóder imp/ford” = a jeladó impulzusszáma egy csatornán (pl. 50) × az áttétel, ha nem az adagolótengelyen ül.
+Ellenőrzés: Diagnosztika → Adagoló jeladók – egy kézi adagolófordulatra a számláló ennyit nőjön. A firmware a
+lassú optocsatolós élek közbeni tüskéket eldobja (v2.5.3-tól; a számuk a Diagnosztikán látszik), korábban
+ezek miatt egy impulzusból kettő is lehetett.
+
 ## Beállítás
 
 * Beállítások → Hajtás, motor → Hajtás: **Elektr. PWM**, Motorvezérlő:

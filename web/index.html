@@ -823,7 +823,7 @@ function render(){
       ['TC felismerve',yes(iso.tc_found)],['TC kapcsolat',yes(iso.tc_connected)],['DDOP feltöltések',fmt(iso.ddop_uploads)]]);
     const cont=v=>v?'zárt':'nyitott';
     $('ioInfo').innerHTML=kv([['Kerékjeladó',`${fmt(st.wheel_hz,1)} Hz · ${fmt(io.pulses?.wheel)} imp`],['Turbina',`${fmt(st.fan_rpm)} 1/min · ${fmt(io.pulses?.fan)} imp`],
-      ['Adagoló jeladók',`${fmt(st.meter[0].rpm,1)} / ${fmt(st.meter[1].rpm,1)} 1/min`],['Munkakapcsoló',`${cont(st.work_contact)} → ${st.work_down?'LENT':'FENT'}`],
+      ['Adagoló jeladók',`${fmt(st.meter[0].rpm,1)} / ${fmt(st.meter[1].rpm,1)} 1/min · ${fmt(io.pulses?.meter1)} / ${fmt(io.pulses?.meter2)} imp`+((io.glitches?.meter1||io.glitches?.meter2)?` · eldobott tüske: ${fmt(io.glitches.meter1)} / ${fmt(io.glitches.meter2)}`:'')],['Munkakapcsoló',`${cont(st.work_contact)} → ${st.work_down?'LENT':'FENT'}`],
       ['Tartály kapcsolók',`${cont(st.hopper_contact[0])} / ${cont(st.hopper_contact[1])}`],
       ['Kuplung kimenet 1 / 2',`${onoff(st.clutch_level)} ${onoff(st.clutch2_level)}`],['Motor PWM 1 / 2',`${fmt(st.pwm1,1)} / ${fmt(st.pwm2,1)} %`],
       ['Lámpa 1 / 2',`${onoff(st.lamp1_level)} ${onoff(st.lamp2_level)}`],['Terelőszelep',onoff(st.valve_level)],['Hűtőventilátor',onoff(st.cooler_level)],

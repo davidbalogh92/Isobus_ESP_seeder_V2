@@ -6,6 +6,8 @@
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "driver/ledc.h"
+#include "hal/gpio_ll.h"
+#include "soc/gpio_struct.h"
 #include "esp_attr.h"
 #include "esp_rom_sys.h"
 #include "esp_timer.h"
@@ -33,6 +35,14 @@ struct PulseChannel {
     volatile std::uint32_t last_period_us = 0;
     std::uint32_t min_period_us = 0;
     std::uint32_t taken = 0;
+    // szintkövetés (mindkét élre jön megszakítás): egy impulzus = magas → alacsony váltás, ha a jel előtte
+    // legalább min_level_us-ig magas volt. A lassú (optocsatolós) élek közbeni tüskék így nem számítanak
+    // külön impulzusnak (korábban egy enkóder-impulzusból kettő lett).
+    int gpio = -1;
+    volatile int level = 1;                  ///< az elfogadott szint
+    volatile std::int64_t level_since_us = 0;
+    std::uint32_t min_level_us = 0;
+    volatile std::uint32_t glitches = 0;     ///< eldobott (túl rövid) szintváltások
 };
 portMUX_TYPE pulse_mux = portMUX_INITIALIZER_UNLOCKED;
 PulseChannel wheel_ch, fan_ch, meter_ch[2];
@@ -40,7 +50,25 @@ PulseChannel wheel_ch, fan_ch, meter_ch[2];
 void IRAM_ATTR pulse_isr(void *arg) {
     auto *ch = static_cast<PulseChannel *>(arg);
     const std::int64_t t = esp_timer_get_time();
+    const int lv = gpio_ll_get_level(&GPIO, static_cast<uint32_t>(ch->gpio)) ? 1 : 0;
     portENTER_CRITICAL_ISR(&pulse_mux);
+    if (lv == ch->level) {   // nincs valódi szintváltás (egy eldobott tüske vége)
+        portEXIT_CRITICAL_ISR(&pulse_mux);
+        return;
+    }
+    // lefutó élt csak akkor fogadunk el, ha a jel előtte elég ideig magas volt (a felfutó él közbeni tüske
+    // így nem számít); felfutó élt mindig (a rövid, alacsony impulzusú jeladók is működjenek)
+    if (lv == 0 && ch->level_since_us != 0 && t - ch->level_since_us < static_cast<std::int64_t>(ch->min_level_us)) {
+        ch->glitches = ch->glitches + 1;
+        portEXIT_CRITICAL_ISR(&pulse_mux);
+        return;
+    }
+    ch->level = lv;
+    ch->level_since_us = t;
+    if (lv != 0) {   // felfutó él: csak a szintet követjük
+        portEXIT_CRITICAL_ISR(&pulse_mux);
+        return;
+    }
     const std::int64_t dt = t - ch->last_edge_us;
     if (ch->last_edge_us == 0 || dt >= static_cast<std::int64_t>(ch->min_period_us)) {
         if (ch->last_edge_us != 0) ch->last_period_us = dt > 0xFFFFFFFF ? 0xFFFFFFFFu : static_cast<std::uint32_t>(dt);
@@ -87,9 +115,14 @@ bool setup_input(const Pin &p, PulseChannel *ch) {
     cfg.mode = GPIO_MODE_INPUT;
     cfg.pull_up_en = GPIO_PULLUP_ENABLE;      // opto / érintkező GND-re húz
     cfg.pull_down_en = GPIO_PULLDOWN_DISABLE;
-    cfg.intr_type = ch ? GPIO_INTR_NEGEDGE : GPIO_INTR_DISABLE;
+    cfg.intr_type = ch ? GPIO_INTR_ANYEDGE : GPIO_INTR_DISABLE;   // mindkét él: szintkövetés (pulse_isr)
     if (gpio_config(&cfg) != ESP_OK) return false;
-    if (ch) return gpio_isr_handler_add(static_cast<gpio_num_t>(p.num), pulse_isr, ch) == ESP_OK;
+    if (ch) {
+        ch->gpio = p.num;
+        ch->level = gpio_get_level(static_cast<gpio_num_t>(p.num)) ? 1 : 0;
+        ch->level_since_us = 0;
+        return gpio_isr_handler_add(static_cast<gpio_num_t>(p.num), pulse_isr, ch) == ESP_OK;
+    }
     return true;
 }
 
@@ -627,6 +660,10 @@ bool init() {
     wheel_ch.min_period_us = board::WHEEL_MIN_PERIOD_US;
     fan_ch.min_period_us = board::FAN_MIN_PERIOD_US;
     for (auto &m : meter_ch) m.min_period_us = board::METER_MIN_PERIOD_US;
+    // a legrövidebb elfogadott szint: a legnagyobb frekvencia fél periódusának fele (50 % kitöltésnél is bőven)
+    wheel_ch.min_level_us = board::WHEEL_MIN_PERIOD_US / 4;
+    fan_ch.min_level_us = board::FAN_MIN_PERIOD_US / 4;
+    for (auto &m : meter_ch) m.min_level_us = board::METER_MIN_PERIOD_US / 4;
 
     bool ok = true;
     const esp_err_t e = gpio_install_isr_service(0);
@@ -756,11 +793,12 @@ void apply(const seeder::Outputs &o, const seeder::Settings &s) {
 }
 
 std::string diag_json() {
-    char b[520];
+    char b[640];
     std::snprintf(b, sizeof(b),
                   "{\"expander\":%s,\"exp_inputs\":%u,\"exp_outputs\":%u,\"ads\":%s,\"ads_v\":[%.3f,%.3f,%.3f,%.3f],"
                   "\"ds18b20\":%d,\"temps\":[%.2f,%.2f],\"hx711\":%s,\"hx_raw\":%ld,\"pwm\":[%.1f,%.1f],"
                   "\"pulses\":{\"wheel\":%lu,\"fan\":%lu,\"meter1\":%lu,\"meter2\":%lu},"
+                  "\"glitches\":{\"wheel\":%lu,\"fan\":%lu,\"meter1\":%lu,\"meter2\":%lu},"
                   "\"has\":{\"motor\":%s,\"scale\":%s,\"temp\":%s}}",
                   exp_ok.load() ? "true" : "false", static_cast<unsigned>(exp_inputs.load()),
                   static_cast<unsigned>(exp_out_wanted.load()), ads_ok.load() ? "true" : "false",
@@ -771,6 +809,8 @@ std::string diag_json() {
                   static_cast<double>(pwm_now[0].load()), static_cast<double>(pwm_now[1].load()),
                   static_cast<unsigned long>(wheel_ch.total), static_cast<unsigned long>(fan_ch.total),
                   static_cast<unsigned long>(meter_ch[0].total), static_cast<unsigned long>(meter_ch[1].total),
+                  static_cast<unsigned long>(wheel_ch.glitches), static_cast<unsigned long>(fan_ch.glitches),
+                  static_cast<unsigned long>(meter_ch[0].glitches), static_cast<unsigned long>(meter_ch[1].glitches),
                   board::MOTOR_PWM_GPIO[0] >= 0 ? "true" : "false", board::HX711_DATA >= 0 ? "true" : "false",
                   board::ONEWIRE_GPIO >= 0 ? "true" : "false");
     std::string o = b;
